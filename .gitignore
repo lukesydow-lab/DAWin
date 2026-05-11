@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude session transcripts — large, not useful in git history
+# Agent configs (.claude/agents/, .claude/startup/) are tracked; sessions are not
+.claude/settings.local.json
