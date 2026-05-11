@@ -1,0 +1,83 @@
+/* DAW Design — global resets, Tailwind handles the rest */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Custom scrollbar for dark UI */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0A0A0F;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a38;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a4e;
+}
+
+/* Transport record pulse */
+@keyframes record-pulse {
+  0%, 100% { box-shadow: 0 0 6px #E9456066; }
+  50%       { box-shadow: 0 0 18px #E94560CC, 0 0 6px #E94560; }
+}
+.record-pulse {
+  animation: record-pulse 1s ease-in-out infinite;
+}
+
+/* Presence ping */
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+.ping-dot {
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Focus rings */
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #6B5CE7;
+  outline-offset: 2px;
+}
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Wood panel — Neve-style walnut grain */
+.wood-panel {
+  background-color: #2E1A0E;
+  background-image:
+    repeating-linear-gradient(
+      91deg,
+      transparent,
+      transparent 3px,
+      rgba(255,255,255,0.018) 3px,
+      rgba(255,255,255,0.018) 4px
+    ),
+    repeating-linear-gradient(
+      89deg,
+      transparent,
+      transparent 7px,
+      rgba(0,0,0,0.14) 7px,
+      rgba(0,0,0,0.14) 9px
+    ),
+    linear-gradient(
+      180deg,
+      #3D2410 0%,
+      #2E1A0E 25%,
+      #1F1008 55%,
+      #2C1A0C 80%,
+      #3A2210 100%
+    );
+}

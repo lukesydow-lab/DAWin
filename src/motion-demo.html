@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GDAW — Fader Startup Heartbeat Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    min-width: 800px;
+    color: #F0F0F5;
+    overflow-x: auto;
+  }
+
+  .label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #888899;
+    margin-bottom: 40px;
+  }
+
+  .board {
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 16px;
+    padding: 24px 32px 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    position: relative;
+  }
+
+  /* Wood end cheeks */
+  .cheek {
+    width: 10px;
+    align-self: stretch;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #2a1f0e 0%, #1a1208 100%);
+    border: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+
+  .strip {
+    width: 64px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .strip-name {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888899;
+  }
+
+  /* VU meter */
+  .vu-wrap {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 80px;
+  }
+
+  .vu-col {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1px;
+    width: 5px;
+  }
+
+  .vu-seg {
+    width: 100%;
+    height: 3px;
+    border-radius: 1px;
+    background: #1A1A24;
+    transition: background 60ms ease, box-shadow 60ms ease;
+  }
+
+  .vu-seg.green  { background: #1EC94A; box-shadow: 0 0 4px #1EC94A99; }
+  .vu-seg.amber  { background: #F5A623; box-shadow: 0 0 4px #F5A62399; }
+  .vu-seg.red    { background: #E94560; box-shadow: 0 0 4px #E9456099; }
+
+  /* Fader track */
+  .fader-wrap {
+    position: relative;
+    width: 22px;
+    height: 80px;
+    flex-shrink: 0;
+  }
+
+  .fader-groove {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    top: 2px;
+    bottom: 2px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #1A1A24 0%, #0D0D14 100%);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+  }
+
+  .fader-fill {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    bottom: 2px;
+    border-radius: 3px;
+    background: rgba(107,92,231,0.25);
+    transition: height 0.05s linear;
+  }
+
+  .fader-cap {
+    position: absolute;
+    left: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    cursor: ns-resize;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0.08) 20%,
+      rgba(200,200,210,0.9) 21%,
+      rgba(160,160,175,0.95) 49%,
+      rgba(140,140,155,0.9) 50%,
+      rgba(110,110,125,0.85) 79%,
+      rgba(80,80,95,0.8) 80%,
+      rgba(60,60,75,0.7) 100%
+    );
+    box-shadow: 0 2px 8px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.15);
+    /* Center grip line */
+    border-top: 1px solid rgba(255,255,255,0.25);
+  }
+
+  .fader-cap::after {
+    content: '';
+    position: absolute;
+    left: 3px; right: 3px;
+    top: 50%;
+    height: 1px;
+    background: rgba(255,255,255,0.5);
+    transform: translateY(-50%);
+    box-shadow: 0 -3px 0 rgba(255,255,255,0.15), 0 3px 0 rgba(255,255,255,0.15);
+  }
+
+  /* Owner color top cap on strip */
+  .strip-cap {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px 3px 0 0;
+    margin-bottom: 2px;
+  }
+
+  /* dB label */
+  .db-label {
+    font-size: 9px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: #888899;
+    margin-top: 2px;
+  }
+
+  /* Master strip */
+  .master .fader-cap {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.15), 0 0 0 1px rgba(107,92,231,0.4);
+  }
+
+  /* Heartbeat glow overlay on board */
+  .heartbeat-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    pointer-events: none;
+    box-shadow: 0 0 0px rgba(107,92,231,0);
+    transition: box-shadow 0.1s ease;
+  }
+
+  /* Controls */
+  .controls {
+    margin-top: 32px;
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: none;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-primary {
+    background: #6B5CE7;
+    color: #fff;
+  }
+  .btn-primary:hover { filter: brightness(1.2); }
+
+  .btn-secondary {
+    background: #2A2A38;
+    color: #888899;
+  }
+  .btn-secondary:hover { filter: brightness(1.3); }
+
+  .phase-label {
+    margin-top: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #6B5CE7;
+    min-height: 16px;
+    transition: opacity 0.3s ease;
+  }
+</style>
+</head>
+<body>
+
+<div class="label">GDAW — Startup Heartbeat · Motion Prototype</div>
+
+<div class="board" id="board">
+  <div class="heartbeat-glow" id="glow"></div>
+  <div class="cheek"></div>
+  <!-- Strips injected by JS -->
+  <div class="cheek"></div>
+</div>
+
+<div class="phase-label" id="phase-label"></div>
+
+<div class="controls">
+  <button class="btn btn-primary" onclick="runSequence()">▶ Launch Sequence</button>
+  <button class="btn btn-secondary" onclick="resetAll()">↺ Reset</button>
+</div>
+
+<script>
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const C = {
+  accent:  '#6B5CE7',
+  danger:  '#E94560',
+  success: '#1D9E75',
+  warn:    '#F5A623',
+  textSec: '#888899',
+};
+
+// ── Track data ─────────────────────────────────────────────────────────────────
+const tracks = [
+  { name: 'Guitar A', color: '#6B5CE7', targetVol: 78 },
+  { name: 'Vocals',   color: '#E94560', targetVol: 85 },
+  { name: 'Keys',     color: '#1D9E75', targetVol: 62 },
+  { name: 'Bass',     color: '#F5A623', targetVol: 70 },
+  { name: 'Drums',    color: '#E87E3E', targetVol: 90 },
+  { name: 'FX Bus',   color: '#3E9EE8', targetVol: 45 },
+];
+
+const MASTER = { name: 'Master', color: C.accent, targetVol: 88 };
+
+// ── Easing functions ──────────────────────────────────────────────────────────
+
+// Rise: exaggerated ease-out quint — explosive start, silky deceleration to peak
+function easeOutQuint(t) {
+  return 1 - Math.pow(1 - t, 5);
+}
+
+// Fall: exaggerated ease-in-out quart — slow departure, accelerates through
+// the middle, floats into the landing. The "weight" of the fader.
+function easeInOutQuart(t) {
+  return t < 0.5
+    ? 8 * t * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 4) / 2;
+}
+
+// Motorized recall: aggressive ease-out — fast takeoff, smooth precise landing
+function easeMotorized(t) {
+  return 1 - Math.pow(1 - t, 4);
+}
+
+// ── Animation utility ─────────────────────────────────────────────────────────
+function animate({ duration, easing = t => t, onUpdate, onComplete }) {
+  const start = performance.now();
+  function frame(now) {
+    const raw = Math.min((now - start) / duration, 1);
+    const t = easing(raw);
+    onUpdate(t, raw);
+    if (raw < 1) requestAnimationFrame(frame);
+    else if (onComplete) onComplete();
+  }
+  requestAnimationFrame(frame);
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ── Build strips ──────────────────────────────────────────────────────────────
+const board = document.getElementById('board');
+const glowEl = document.getElementById('glow');
+const stripEls = [];
+
+function buildStrips() {
+  // Remove existing strips (keep cheeks)
+  const cheeks = [...board.querySelectorAll('.cheek')];
+  board.innerHTML = '';
+  board.appendChild(glowEl);
+  board.appendChild(cheeks[0]);
+
+  tracks.forEach((track, i) => {
+    const strip = buildStrip(track, false);
+    board.appendChild(strip.el);
+    stripEls.push(strip);
+  });
+
+  // Master
+  const master = buildStrip(MASTER, true);
+  board.appendChild(master.el);
+  stripEls.push(master);
+
+  board.appendChild(cheeks[1]);
+}
+
+function buildStrip(track, isMaster) {
+  const el = document.createElement('div');
+  el.className = 'strip' + (isMaster ? ' master' : '');
+
+  // Color cap
+  const cap = document.createElement('div');
+  cap.className = 'strip-cap';
+  cap.style.background = track.color;
+  cap.style.boxShadow = `0 2px 8px ${track.color}44`;
+
+  // Name
+  const name = document.createElement('div');
+  name.className = 'strip-name';
+  name.textContent = track.name.toUpperCase();
+  name.style.color = isMaster ? track.color : C.textSec;
+
+  // VU + Fader row
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:flex-end;gap:6px;';
+
+  // VU meter (two columns, 20 segs each)
+  const vuWrap = document.createElement('div');
+  vuWrap.className = 'vu-wrap';
+  const segs = [[], []];
+  for (let ch = 0; ch < 2; ch++) {
+    const col = document.createElement('div');
+    col.className = 'vu-col';
+    for (let s = 0; s < 20; s++) {
+      const seg = document.createElement('div');
+      seg.className = 'vu-seg';
+      col.appendChild(seg);
+      segs[ch].push(seg);
+    }
+    vuWrap.appendChild(col);
+  }
+
+  // Fader
+  const faderWrap = document.createElement('div');
+  faderWrap.className = 'fader-wrap';
+
+  const groove = document.createElement('div');
+  groove.className = 'fader-groove';
+
+  const fill = document.createElement('div');
+  fill.className = 'fader-fill';
+  fill.style.height = '0%';
+
+  const faderCap = document.createElement('div');
+  faderCap.className = 'fader-cap';
+  faderCap.style.top = '58px'; // Start at bottom (80px track - 22px cap)
+
+  faderWrap.appendChild(groove);
+  faderWrap.appendChild(fill);
+  faderWrap.appendChild(faderCap);
+
+  row.appendChild(vuWrap);
+  row.appendChild(faderWrap);
+
+  // dB label
+  const dbLabel = document.createElement('div');
+  dbLabel.className = 'db-label';
+  dbLabel.textContent = '−∞';
+
+  el.appendChild(cap);
+  el.appendChild(name);
+  el.appendChild(row);
+  el.appendChild(dbLabel);
+
+  return {
+    el,
+    faderCap,
+    fill,
+    segs,
+    dbLabel,
+    track,
+    currentVol: 0,
+  };
+
+}
+
+function setFaderPos(strip, vol) {
+  // vol: 0–100
+  const TRACK_H = 80;
+  const CAP_H = 22;
+  const PAD = 2;
+  const travel = TRACK_H - CAP_H - PAD * 2;
+  const top = PAD + (1 - vol / 100) * travel;
+  strip.faderCap.style.top = top + 'px';
+  strip.fill.style.height = (vol / 100 * (TRACK_H - PAD * 2)) + 'px';
+  strip.currentVol = vol;
+
+  // dB
+  let db;
+  if (vol <= 0) db = '−∞';
+  else {
+    const raw = 20 * Math.log10(vol / 100);
+    db = isFinite(raw) ? raw.toFixed(1) + ' dB' : '−∞';
+  }
+  strip.dbLabel.textContent = db;
+
+  // VU meters
+  const frac = vol / 100;
+  const fracR = frac * 0.88;
+  [frac, fracR].forEach((f, ch) => {
+    const lit = Math.round(f * 20);
+    strip.segs[ch].forEach((seg, s) => {
+      seg.className = 'vu-seg';
+      if (s < lit) {
+        if (s < 13) seg.classList.add('green');
+        else if (s < 17) seg.classList.add('amber');
+        else seg.classList.add('red');
+      }
+    });
+  });
+}
+
+function flashVU(strip, intensity = 1) {
+  const lit = Math.round(intensity * 20);
+  strip.segs.forEach(col => {
+    col.forEach((seg, s) => {
+      seg.className = 'vu-seg';
+      if (s < lit) {
+        if (s < 13) seg.classList.add('green');
+        else if (s < 17) seg.classList.add('amber');
+        else seg.classList.add('red');
+      }
+    });
+  });
+}
+
+function setPhase(text) {
+  const el = document.getElementById('phase-label');
+  el.style.opacity = '0';
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.opacity = '1';
+  }, 200);
+}
+
+// ── Board glow ────────────────────────────────────────────────────────────────
+function setGlow(color, intensity) {
+  glowEl.style.boxShadow = `0 0 ${intensity}px ${color}, inset 0 0 ${intensity * 0.5}px ${color}22`;
+}
+function clearGlow() {
+  glowEl.style.transition = 'box-shadow 0.6s ease';
+  glowEl.style.boxShadow = '0 0 0px rgba(107,92,231,0)';
+}
+
+// ── THE HEARTBEAT ─────────────────────────────────────────────────────────────
+// One clean elegant pulse per beat:
+//   RISE  — ease-out quint: explosive launch, silky deceleration at peak
+//   HOLD  — breathe at the top
+//   FALL  — ease-in-out quart: slow weighted departure, floats into landing
+async function heartbeatPulse(peakVol = 78, riseDur = 320, holdDur = 120, fallDur = 780) {
+  return new Promise(resolve => {
+
+    // RISE — ease-out quint
+    animate({
+      duration: riseDur,
+      easing: easeOutQuint,
+      onUpdate: t => {
+        const vol = t * peakVol;
+        stripEls.forEach(s => setFaderPos(s, vol));
+        setGlow(C.accent, t * 38);
+        stripEls.forEach(s => flashVU(s, t));
+      },
+      onComplete: async () => {
+
+        // HOLD — sit at peak, let it breathe
+        await wait(holdDur);
+
+        // FALL — ease-in-out quart: slow start, weighted middle, floats in
+        animate({
+          duration: fallDur,
+          easing: easeInOutQuart,
+          onUpdate: t => {
+            const vol = peakVol * (1 - t);
+            stripEls.forEach(s => setFaderPos(s, vol));
+            setGlow(C.accent, (1 - t) * 30);
+            stripEls.forEach(s => flashVU(s, (1 - t) * 0.65));
+          },
+          onComplete: () => {
+            clearGlow();
+            resolve();
+          }
+        });
+      }
+    });
+  });
+}
+
+// ── MOTORIZED RECALL ──────────────────────────────────────────────────────────
+async function motorizedRecall() {
+  const order = [3, 2, 4, 1, 5, 0, 6]; // center outward
+  const STAGGER = 80;
+
+  const promises = order.map((idx, i) => {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        const strip = stripEls[idx];
+        const target = strip.track.targetVol;
+        animate({
+          duration: 520,
+          easing: easeMotorized,
+          onUpdate: t => {
+            setFaderPos(strip, t * target);
+            // Each strip gets a brief color glow on its cap as it flies in
+            const glowAlpha = Math.sin(t * Math.PI) * 0.5;
+            strip.faderCap.style.boxShadow = `0 2px 8px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.15), 0 0 ${glowAlpha * 16}px ${strip.track.color}`;
+          },
+          onComplete: () => {
+            // Reset to default cap shadow
+            strip.faderCap.style.boxShadow = '0 2px 8px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.15)';
+            resolve();
+          }
+        });
+      }, i * STAGGER);
+    });
+  });
+
+  await Promise.all(promises);
+}
+
+// ── FULL SEQUENCE ─────────────────────────────────────────────────────────────
+let running = false;
+
+async function runSequence() {
+  if (running) return;
+  running = true;
+
+  resetAll(false);
+  await wait(500);
+
+  // Beat 1 — full strength
+  setPhase('● Heartbeat');
+  await heartbeatPulse(78, 320, 120, 780);
+
+  // Natural gap between beats — like a real resting heart
+  await wait(340);
+
+  // Beat 2 — softer, slightly quicker, more intimate
+  await heartbeatPulse(62, 260, 90, 680);
+
+  // Pause before recall — the board "deciding" to wake up
+  await wait(420);
+
+  // Recall — motorized, center-outward stagger
+  setPhase('◈ Recall');
+  await motorizedRecall();
+  await wait(240);
+
+  setPhase('✓ Session ready');
+  running = false;
+}
+
+function resetAll(withLabel = true) {
+  stripEls.forEach(s => setFaderPos(s, 0));
+  clearGlow();
+  if (withLabel) setPhase('');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildStrips();
+</script>
+</body>
+</html>
