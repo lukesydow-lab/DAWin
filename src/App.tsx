@@ -466,7 +466,7 @@ function faderToDb(fader: number): number {
 
 function formatDb(db: number): string {
   if (!isFinite(db)) return '-∞ dB'
-  if (db < -60) return '-∞ dB'
+  if (db < -90) return '-∞ dB'
   return `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`
 }
 
@@ -960,7 +960,30 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
 
     if (!peaks) {
       const buf = resolveBuffer(clip.assetUrl)
-      if (!buf) return  // AudioContext not yet initialized — skip silently
+      if (!buf) {
+        // AudioContext not yet initialized — draw a seeded ghost waveform so the
+        // clip isn't a blank grey box on cold load. Bars are deterministic per clip
+        // id so they don't flicker between renders.
+        const ctx2d = canvas.getContext('2d')
+        if (!ctx2d) return
+        ctx2d.clearRect(0, 0, w, h)
+        ctx2d.fillStyle = `${track.owner.color}14`  // 8% opacity background tint
+        ctx2d.fillRect(0, 0, w, h)
+        const BAR_COUNT = 24
+        const barW = Math.max(1, Math.floor(w / BAR_COUNT) - 1)
+        const midY = h / 2
+        ctx2d.fillStyle = `${track.owner.color}2E`  // 18% opacity bars
+        // Deterministic seed from clip id: sum char codes then mix with a prime
+        const seed = clip.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+        for (let i = 0; i < BAR_COUNT; i++) {
+          // Cheap LCG-style hash so each bar has a stable, varied height
+          const hash = Math.abs(Math.sin((seed + i * 127) * 0.31731))
+          const barH = (0.15 + hash * 0.7) * midY
+          const x = Math.round((i / BAR_COUNT) * w)
+          ctx2d.fillRect(x, midY - barH, barW, barH * 2)
+        }
+        return
+      }
       peaks = buildWaveformPeaks(buf, w)
       _waveformCache.set(cacheKey, peaks)
     }
@@ -1577,7 +1600,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                     background: track.armed && isRecording
                       ? `linear-gradient(90deg, ${C.danger}18 0%, ${rowIdx % 2 === 0 ? C.surface : C.bg} 200px)`
                       : rowIdx % 2 === 0 ? C.surface : C.bg,
-                    opacity: track.muted ? 0.4 : (anySoloed && !track.soloed ? 0.4 : 1),
+                    opacity: anySoloed && !track.soloed ? 0.4 : 1,
                     borderLeft: presenceOnRow ? `2px solid ${presenceOnRow.color}` : undefined,
                   }}>
                   {/* Bar cells */}
