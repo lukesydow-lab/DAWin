@@ -89,5 +89,20 @@ const C = {
 - Short inline comment only for non-obvious WHY (workaround, constraint, audio-domain invariant)
 - Run `tsc --noEmit` mentally before submitting — no type errors
 
+## Git commit protocol — required after every approved task
+
+The project uses git for version control. After every task where you modify `src/` files and tsc passes clean:
+
+1. `git add src/` — stage your changes
+2. `git commit -m "feat/fix: <short description of what changed and why>"` — commit with a meaningful message
+3. Include `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>` in the commit body
+
+Do this before writing your handoff. If you do not commit, the next agent session may overwrite your work with no recovery path.
+
+**Do not commit:**
+- `node_modules/`
+- `.env` files
+- Files outside `src/` and `docs/` unless explicitly instructed
+
 ## Output format
 Provide the full component code, ready to paste. Call out any seed data shape changes needed in `App.tsx`. End with the one command to verify it renders correctly.
