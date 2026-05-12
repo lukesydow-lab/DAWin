@@ -172,9 +172,20 @@ const INITIAL_TRACKS: Track[] = [
 // ─── Audio engine ─────────────────────────────────────────────────────────────
 // Single shared AudioContext — created on first user gesture to satisfy autoplay policy.
 let _audioCtx: AudioContext | null = null
+let _masterGain: GainNode | null = null
+let _masterAnalyser: AnalyserNode | null = null
 
 function getAudioCtx(): AudioContext {
-  if (!_audioCtx) _audioCtx = new AudioContext()
+  if (!_audioCtx) {
+    _audioCtx = new AudioContext()
+    _masterGain = _audioCtx.createGain()
+    _masterGain.gain.value = 0.95
+    _masterAnalyser = _audioCtx.createAnalyser()
+    _masterAnalyser.fftSize = 256
+    _masterAnalyser.smoothingTimeConstant = 0
+    _masterGain.connect(_masterAnalyser)
+    _masterAnalyser.connect(_audioCtx.destination)
+  }
   if (_audioCtx.state === 'suspended') _audioCtx.resume()
   return _audioCtx
 }
@@ -436,15 +447,25 @@ function buildWaveformPeaks(buf: AudioBuffer, targetSamples: number): Float32Arr
 interface ActiveSource {
   source: AudioBufferSourceNode
   gain: GainNode
+  analyser: AnalyserNode
   panner: StereoPannerNode
 }
 const _activeSources = new Map<string, ActiveSource>()  // trackId → nodes
 
 function stopAllSources() {
-  for (const { source, gain, panner } of _activeSources.values()) {
-    try { source.stop(); source.disconnect(); gain.disconnect(); panner.disconnect() } catch { /* already stopped */ }
+  for (const { source, gain, analyser, panner } of _activeSources.values()) {
+    try { source.stop(); source.disconnect(); gain.disconnect(); analyser.disconnect(); panner.disconnect() } catch { /* already stopped */ }
   }
   _activeSources.clear()
+}
+
+// RMS over the analyser's time-domain buffer — returns 0..1 (approximately; clamp upstream)
+function readRMS(analyser: AnalyserNode): number {
+  const buf = new Float32Array(analyser.fftSize)
+  analyser.getFloatTimeDomainData(buf)
+  let sum = 0
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+  return Math.sqrt(sum / buf.length)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1734,7 +1755,126 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
   )
 }
 
+// ─── VU meter constants ───────────────────────────────────────────────────────
+const VU_SEGS   = 20
+const VU_SEG_H  = 3
+const VU_SEG_GAP = 1
+// segment index thresholds (0-based, out of 20)
+const VU_AMBER_START = 13   // segments 13–16 → amber
+const VU_RED_START   = 17   // segments 17–19 → red
+const VU_HEIGHT = VU_SEGS * VU_SEG_H + (VU_SEGS - 1) * VU_SEG_GAP  // 79px
+
+const ATTACK_RATE      = 32   // per second
+const DECAY_RATE       = 4    // per second
+const PEAK_HOLD_MS     = 700
+const PEAK_DROP_RATE   = 0.5  // normalized units per second
+const TRANSIENT_DUR_MS = 120
+
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+function vuSegColor(segIdx: number): string {
+  if (segIdx >= VU_RED_START) return C.vuRed
+  if (segIdx >= VU_AMBER_START) return C.vuAmber
+  return C.vuGreen
+}
+
+function alphaHex(a: number): string {
+  const v = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16)
+  return v.length === 1 ? '0' + v : v
+}
+
+function blendHex(a: string, b: string, t: number): string {
+  const ar = parseInt(a.slice(1, 3), 16), ag = parseInt(a.slice(3, 5), 16), ab = parseInt(a.slice(5, 7), 16)
+  const br = parseInt(b.slice(1, 3), 16), bg = parseInt(b.slice(3, 5), 16), bb = parseInt(b.slice(5, 7), 16)
+  const r = Math.round(ar + (br - ar) * t)
+  const g = Math.round(ag + (bg - ag) * t)
+  const bl = Math.round(ab + (bb - ab) * t)
+  return `rgb(${r},${g},${bl})`
+}
+
+// Mutable physics state per strip — lives outside React state to avoid re-renders
+interface VUPhysics {
+  levelL: number; levelR: number
+  peakL: number; peakR: number
+  peakHoldL: number; peakHoldR: number   // ms since peak was last refreshed
+  transientStartL: number; transientStartR: number  // performance.now() timestamp
+}
+
+function makeVUPhysics(): VUPhysics {
+  return { levelL: 0, levelR: 0, peakL: 0, peakR: 0, peakHoldL: 0, peakHoldR: 0, transientStartL: -Infinity, transientStartR: -Infinity }
+}
+
+function stepMeter(current: number, target: number, dt: number): number {
+  if (target > current) return current + (target - current) * Math.min(1, ATTACK_RATE * dt)
+  return current + (target - current) * Math.min(1, DECAY_RATE * dt)
+}
+
+function stepPeak(peakLevel: number, liveLevel: number, holdMs: number, dt: number): { peak: number; hold: number } {
+  if (liveLevel >= peakLevel) return { peak: liveLevel, hold: 0 }
+  if (holdMs < PEAK_HOLD_MS) return { peak: peakLevel, hold: holdMs + dt * 1000 }
+  if (prefersReducedMotion) return { peak: liveLevel, hold: holdMs + dt * 1000 }
+  return { peak: Math.max(liveLevel, peakLevel - PEAK_DROP_RATE * dt), hold: holdMs + dt * 1000 }
+}
+
+// Writes live physics to the actual DOM nodes for one channel of one strip.
+// Called from the single shared rAF loop — never triggers React re-renders.
+function renderVUChannel(
+  segs: HTMLDivElement[],
+  peakDot: HTMLDivElement,
+  level: number,
+  peakLevel: number,
+  transientStart: number,
+  now: number
+) {
+  const litCount = level * VU_SEGS
+  const topLit   = Math.floor(litCount)
+  const topFrac  = litCount - topLit
+
+  const since = now - transientStart
+  const flashIntensity = (!prefersReducedMotion && since < TRANSIENT_DUR_MS)
+    ? 1 - since / TRANSIENT_DUR_MS
+    : 0
+
+  for (let s = 0; s < VU_SEGS; s++) {
+    const seg = segs[s]
+    if (!seg) continue
+    const col = vuSegColor(s)
+
+    if (s < topLit) {
+      const isTop = s === topLit - 1
+      const glowSize = isTop ? 4 + flashIntensity * 4 : 4
+      const glowAlpha = isTop ? 0.6 + flashIntensity * 0.4 : 0.6
+      seg.style.background = col
+      seg.style.boxShadow = `0 0 ${glowSize}px ${col}${alphaHex(glowAlpha)}`
+    } else if (s === topLit && topFrac > 0) {
+      seg.style.background = blendHex(C.metalDark, col, topFrac)
+      seg.style.boxShadow = topFrac > 0.05 ? `0 0 ${4 * topFrac}px ${col}${alphaHex(0.4 * topFrac)}` : 'none'
+    } else {
+      seg.style.background = C.metalDark
+      seg.style.boxShadow = 'none'
+    }
+  }
+
+  // Peak-hold dot
+  if (peakLevel > 0.02) {
+    const peakSegIdx = Math.floor(peakLevel * VU_SEGS)
+    const dotBottom  = peakSegIdx * (VU_SEG_H + VU_SEG_GAP)
+    const dotCol = peakSegIdx >= VU_RED_START ? C.danger : peakSegIdx >= VU_AMBER_START ? C.vuAmber : '#fff'
+    peakDot.style.opacity = '1'
+    peakDot.style.bottom = `${dotBottom}px`
+    peakDot.style.background = dotCol
+    peakDot.style.boxShadow = `0 0 4px ${dotCol}99`
+  } else {
+    peakDot.style.opacity = '0'
+  }
+}
+
 // ─── MixerStrip ───────────────────────────────────────────────────────────────
+interface MixerStripHandles {
+  segRefs: [HTMLDivElement[], HTMLDivElement[]]  // [L segs, R segs], each length VU_SEGS
+  peakDotRefs: [HTMLDivElement, HTMLDivElement]   // L dot, R dot
+  dbReadoutRef: HTMLSpanElement | null
+}
 interface MixerStripProps {
   track: Track
   pluginCount: number
@@ -1744,27 +1884,27 @@ interface MixerStripProps {
   onPanChange: (v: number) => void
   onSelectTrack: (trackId: string) => void
   selectedTrackId: string | null
+  handlesRef: React.MutableRefObject<MixerStripHandles | null>
 }
-function MixerStrip({ track, pluginCount, onToggleMute, onToggleSolo, onVolChange, onPanChange, onSelectTrack, selectedTrackId }: MixerStripProps) {
-  const VU_SEGS = 20
-  const SEG_H   = 3
-  const SEG_GAP = 1
+const MixerStrip = ({ track, pluginCount, onToggleMute, onToggleSolo, onVolChange, onPanChange, onSelectTrack, selectedTrackId, handlesRef }: MixerStripProps) => {
+  const panKnobVal = (track.pan + 100) / 2
+  const panLabel   = track.pan === 0 ? 'C' : `${Math.abs(track.pan)}${track.pan < 0 ? 'L' : 'R'}`
 
-  // pan –100..100 → knob 0..100
-  const panKnobVal  = (track.pan + 100) / 2
-  const panLabel    = track.pan === 0 ? 'C' : `${Math.abs(track.pan)}${track.pan < 0 ? 'L' : 'R'}`
+  // Refs for direct DOM writes from the rAF loop
+  const segRefsL = useRef<HTMLDivElement[]>([])
+  const segRefsR = useRef<HTMLDivElement[]>([])
+  const peakDotL = useRef<HTMLDivElement | null>(null)
+  const peakDotR = useRef<HTMLDivElement | null>(null)
+  const dbReadout = useRef<HTMLSpanElement | null>(null)
 
-  const lLevel = track.volume / 100
-  const rLevel = lLevel * 0.88
-
-  function vuColor(segIdx: number) {
-    const frac = segIdx / VU_SEGS
-    if (frac > 0.85) return C.vuRed
-    if (frac > 0.65) return C.vuAmber
-    return C.vuGreen
-  }
-
-  const vuHeight = VU_SEGS * SEG_H + (VU_SEGS - 1) * SEG_GAP  // = 79px
+  // Expose handles to parent so the single rAF loop can find our DOM nodes
+  useEffect(() => {
+    handlesRef.current = {
+      segRefs: [segRefsL.current, segRefsR.current],
+      peakDotRefs: [peakDotL.current!, peakDotR.current!],
+      dbReadoutRef: dbReadout.current,
+    }
+  })
 
   return (
     <div className="flex flex-col items-center flex-shrink-0 rounded-lg overflow-hidden select-none"
@@ -1786,7 +1926,7 @@ function MixerStrip({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
           {track.name}
         </p>
 
-        {/* FX badge — interactive, opens PluginChainPanel */}
+        {/* FX badge */}
         <button
           aria-label={`Open FX chain for ${track.name}`}
           onClick={e => { e.stopPropagation(); onSelectTrack(track.id) }}
@@ -1795,8 +1935,7 @@ function MixerStrip({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
             fontSize: 8,
             background: selectedTrackId === track.id ? C.accent : C.control,
             color: selectedTrackId === track.id ? '#fff' : C.textSec,
-            cursor: 'pointer',
-            border: 'none',
+            cursor: 'pointer', border: 'none',
             boxShadow: selectedTrackId === track.id ? `0 0 0 1px ${C.accent}` : 'none',
           }}
         >
@@ -1807,24 +1946,16 @@ function MixerStrip({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
         <Knob
           value={panKnobVal}
           onChange={v => onPanChange(Math.round((v / 100) * 200 - 100))}
-          size={28}
-          label={panLabel}
-          color={track.owner.color}
+          size={28} label={panLabel} color={track.owner.color}
         />
 
         {/* M / S buttons */}
         <div className="flex gap-1">
-          <button
-            aria-label="Mute"
-            aria-pressed={track.muted}
-            onClick={onToggleMute}
+          <button aria-label="Mute" aria-pressed={track.muted} onClick={onToggleMute}
             className="rounded font-bold flex items-center justify-center transition-all hover:brightness-125"
             style={{ width: 22, height: 14, fontSize: 8, background: track.muted ? C.warn : C.control, color: track.muted ? '#000' : C.textSec }}
             title="Mute">M</button>
-          <button
-            aria-label="Solo"
-            aria-pressed={track.soloed}
-            onClick={onToggleSolo}
+          <button aria-label="Solo" aria-pressed={track.soloed} onClick={onToggleSolo}
             className="rounded font-bold flex items-center justify-center transition-all hover:brightness-125"
             style={{ width: 22, height: 14, fontSize: 8, background: track.soloed ? C.success : C.control, color: track.soloed ? '#fff' : C.textSec }}
             title="Solo">S</button>
@@ -1832,31 +1963,41 @@ function MixerStrip({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
 
         {/* VU meters + Fader side by side */}
         <div className="flex items-end gap-1.5">
-          {/* VU pair */}
-          <div className="flex gap-px" style={{ height: vuHeight }}>
-            {[lLevel, rLevel].map((lvl, ch) => (
-              <div key={ch} className="flex flex-col-reverse" style={{ gap: SEG_GAP, width: 4 }}>
-                {Array.from({ length: VU_SEGS }, (_, i) => {
-                  const lit = (i / VU_SEGS) < lvl
-                  const col = vuColor(i)
-                  return (
-                    <div key={i} style={{
-                      height: SEG_H, borderRadius: 1,
-                      background: lit ? col : C.metalDark,
-                      boxShadow: lit ? `0 0 3px ${col}99` : 'none',
-                    }} />
-                  )
-                })}
+          {/* VU pair — role=presentation, aria-hidden: meter is decorative; dB readout is the a11y rep */}
+          <div className="flex gap-px" role="presentation" aria-hidden="true" style={{ height: VU_HEIGHT }}>
+            {([segRefsL, segRefsR] as const).map((refsObj, ch) => (
+              <div key={ch} className="flex flex-col-reverse" style={{ gap: VU_SEG_GAP, width: 4, position: 'relative' }}>
+                {Array.from({ length: VU_SEGS }, (_, i) => (
+                  <div key={i}
+                    ref={el => { if (el) refsObj.current[i] = el }}
+                    style={{ height: VU_SEG_H, borderRadius: 1, background: C.metalDark }}
+                  />
+                ))}
+                {/* Peak-hold dot */}
+                <div
+                  ref={el => { if (ch === 0) peakDotL.current = el; else peakDotR.current = el }}
+                  style={{
+                    position: 'absolute', left: -1, right: -1, height: 2,
+                    borderRadius: 1, background: '#fff', opacity: 0,
+                    pointerEvents: 'none',
+                  }}
+                />
               </div>
             ))}
           </div>
 
           {/* Fader */}
-          <StudioFader value={track.volume} onChange={onVolChange} height={vuHeight} />
+          <StudioFader value={track.volume} onChange={onVolChange} height={VU_HEIGHT} />
         </div>
 
-        {/* dB read-out */}
-        <span className="font-mono" style={{ fontSize: 9, color: C.textSec }}>
+        {/* dB read-out — aria-live so screen readers pick up level changes */}
+        <span
+          ref={dbReadout}
+          className="font-mono"
+          aria-live="polite"
+          aria-label={`${track.name} output level`}
+          style={{ fontSize: 9, color: C.textSec }}
+        >
           {formatDb(faderToDb(track.volume))}
         </span>
 
@@ -1881,10 +2022,104 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
   const [masterVol, setMasterVol] = useState(95)
   const [masterPan, setMasterPan] = useState(0)
 
-  const VU_SEGS = 20
-  const SEG_H   = 3
-  const SEG_GAP = 1
-  const vuHeight = VU_SEGS * SEG_H + (VU_SEGS - 1) * SEG_GAP
+  // Wire masterVol → _masterGain whenever it changes
+  useEffect(() => {
+    if (_masterGain) _masterGain.gain.value = masterVol / 100
+  }, [masterVol])
+
+  // Per-strip handles: DOM refs for the rAF loop to write to
+  const stripHandlesRefs = useRef<(React.MutableRefObject<MixerStripHandles | null>)[]>([])
+  // Per-strip physics: mutable, lives outside React state
+  const physicsRef = useRef<VUPhysics[]>([])
+  // Master strip DOM refs
+  const masterSegRefsL = useRef<HTMLDivElement[]>([])
+  const masterSegRefsR = useRef<HTMLDivElement[]>([])
+  const masterPeakDotL = useRef<HTMLDivElement | null>(null)
+  const masterPeakDotR = useRef<HTMLDivElement | null>(null)
+  const masterDbReadout = useRef<HTMLSpanElement | null>(null)
+  const masterPhysics   = useRef<VUPhysics>(makeVUPhysics())
+
+  // Keep handles and physics arrays sized to track count.
+  // Grow-only: stable existing entries are preserved so the rAF loop never
+  // loses its pointers when tracks change.
+  while (stripHandlesRefs.current.length < tracks.length) {
+    stripHandlesRefs.current.push({ current: null })
+  }
+  while (physicsRef.current.length < tracks.length) {
+    physicsRef.current.push(makeVUPhysics())
+  }
+
+  // The single shared rAF loop for all strips
+  const rafRef = useRef<number | null>(null)
+  const lastFrameRef = useRef<number>(performance.now())
+  const tracksRef    = useRef<Track[]>(tracks)
+  tracksRef.current  = tracks   // always up to date without re-subscribing rAF
+
+  useEffect(() => {
+    function loop(now: number) {
+      const dt = Math.min(0.05, (now - lastFrameRef.current) / 1000)
+      lastFrameRef.current = now
+
+      const liveTracks = tracksRef.current
+      const anySoloed  = liveTracks.some(t => t.soloed)
+
+      liveTracks.forEach((track, idx) => {
+        const ph      = physicsRef.current[idx]
+        if (!ph) return
+        const handles = stripHandlesRefs.current[idx]?.current
+        if (!handles) return
+
+        const active  = _activeSources.get(track.id)
+        const effectiveMute = track.muted || (anySoloed && !track.soloed)
+
+        // Target RMS: 0 when muted (let decay run naturally), live RMS when playing
+        const rawRMS  = active ? readRMS(active.analyser) : 0
+        const targetL = effectiveMute ? 0 : clamp(rawRMS, 0, 1)
+        const targetR = effectiveMute ? 0 : clamp(rawRMS, 0, 1)
+
+        // Detect transient jump before updating level
+        const prevL = ph.levelL, prevR = ph.levelR
+        ph.levelL = stepMeter(ph.levelL, targetL, dt)
+        ph.levelR = stepMeter(ph.levelR, targetR, dt)
+
+        if (targetL > prevL + 0.05) ph.transientStartL = now
+        if (targetR > prevR + 0.05) ph.transientStartR = now
+
+        const peakResL = stepPeak(ph.peakL, ph.levelL, ph.peakHoldL, dt)
+        ph.peakL = peakResL.peak; ph.peakHoldL = peakResL.hold
+        const peakResR = stepPeak(ph.peakR, ph.levelR, ph.peakHoldR, dt)
+        ph.peakR = peakResR.peak; ph.peakHoldR = peakResR.hold
+
+        renderVUChannel(handles.segRefs[0], handles.peakDotRefs[0], ph.levelL, ph.peakL, ph.transientStartL, now)
+        renderVUChannel(handles.segRefs[1], handles.peakDotRefs[1], ph.levelR, ph.peakR, ph.transientStartR, now)
+      })
+
+      // Master strip
+      const mph = masterPhysics.current
+      const masterRMS = _masterAnalyser ? readRMS(_masterAnalyser) : 0
+      const masterTarget = clamp(masterRMS, 0, 1)
+      const mprevL = mph.levelL, mprevR = mph.levelR
+      mph.levelL = stepMeter(mph.levelL, masterTarget, dt)
+      mph.levelR = stepMeter(mph.levelR, masterTarget * 0.97, dt)
+      if (masterTarget > mprevL + 0.05) mph.transientStartL = now
+      if (masterTarget > mprevR + 0.05) mph.transientStartR = now
+      const mplRes = stepPeak(mph.peakL, mph.levelL, mph.peakHoldL, dt)
+      mph.peakL = mplRes.peak; mph.peakHoldL = mplRes.hold
+      const mprRes = stepPeak(mph.peakR, mph.levelR, mph.peakHoldR, dt)
+      mph.peakR = mprRes.peak; mph.peakHoldR = mprRes.hold
+      if (masterSegRefsL.current.length && masterPeakDotL.current) {
+        renderVUChannel(masterSegRefsL.current, masterPeakDotL.current, mph.levelL, mph.peakL, mph.transientStartL, now)
+      }
+      if (masterSegRefsR.current.length && masterPeakDotR.current) {
+        renderVUChannel(masterSegRefsR.current, masterPeakDotR.current, mph.levelR, mph.peakR, mph.transientStartR, now)
+      }
+
+      rafRef.current = requestAnimationFrame(loop)
+    }
+
+    rafRef.current = requestAnimationFrame(loop)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, []) // intentionally empty — uses refs for live data
 
   return (
     <div className="flex-shrink-0 border-t flex flex-col overflow-hidden"
@@ -1903,7 +2138,7 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
 
         {/* Track strips */}
         <div className="flex gap-2 items-end">
-          {tracks.map(t => (
+          {tracks.map((t, idx) => (
             <MixerStrip
               key={t.id}
               track={t}
@@ -1914,6 +2149,7 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
               onPanChange={v => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, pan: v }))}
               onSelectTrack={onSelectTrack}
               selectedTrackId={selectedTrackId}
+              handlesRef={stripHandlesRefs.current[idx] ?? { current: null }}
             />
           ))}
 
@@ -1925,7 +2161,6 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
             <div className="flex flex-col items-center gap-1.5 px-1.5 py-2 w-full">
               <p style={{ fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.accent, fontWeight: 800 }}>MSTR</p>
               <Knob value={masterPan} size={28} label={masterPan === 0 ? 'C' : `${Math.abs(masterPan)}${masterPan < 0 ? 'L' : 'R'}`} color={C.accent} onChange={setMasterPan} />
-              {/* Placeholders matching track strip vertical rhythm: FX badge + M/S row + owner avatar */}
               <button
                 aria-label="Open FX chain for Master"
                 onClick={() => onSelectTrack('master')}
@@ -1934,8 +2169,7 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
                   fontSize: 8,
                   background: selectedTrackId === 'master' ? C.accent : C.control,
                   color: selectedTrackId === 'master' ? '#fff' : C.textSec,
-                  cursor: 'pointer',
-                  border: 'none',
+                  cursor: 'pointer', border: 'none',
                 }}
               >
                 FX:—
@@ -1943,27 +2177,37 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
               <div style={{ height: 14 }} aria-hidden="true" />
               <div style={{ width: 16, height: 16 }} aria-hidden="true" />
               <div className="flex items-end gap-1.5">
-                <div className="flex gap-px" style={{ height: vuHeight }}>
-                  {[0.92, 0.88].map((lvl, ch) => (
-                    <div key={ch} className="flex flex-col-reverse" style={{ gap: SEG_GAP, width: 4 }}>
-                      {Array.from({ length: VU_SEGS }, (_, i) => {
-                        const lit = (i / VU_SEGS) < lvl
-                        const frac = i / VU_SEGS
-                        const col = frac > 0.85 ? C.vuRed : frac > 0.65 ? C.vuAmber : C.vuGreen
-                        return (
-                          <div key={i} style={{
-                            height: SEG_H, borderRadius: 1,
-                            background: lit ? col : C.metalDark,
-                            boxShadow: lit ? `0 0 3px ${col}99` : 'none',
-                          }} />
-                        )
-                      })}
+                <div className="flex gap-px" role="presentation" aria-hidden="true" style={{ height: VU_HEIGHT }}>
+                  {([masterSegRefsL, masterSegRefsR] as const).map((refsObj, ch) => (
+                    <div key={ch} className="flex flex-col-reverse" style={{ gap: VU_SEG_GAP, width: 4, position: 'relative' }}>
+                      {Array.from({ length: VU_SEGS }, (_, i) => (
+                        <div key={i}
+                          ref={el => { if (el) refsObj.current[i] = el }}
+                          style={{ height: VU_SEG_H, borderRadius: 1, background: C.metalDark }}
+                        />
+                      ))}
+                      <div
+                        ref={el => { if (ch === 0) masterPeakDotL.current = el; else masterPeakDotR.current = el }}
+                        style={{
+                          position: 'absolute', left: -1, right: -1, height: 2,
+                          borderRadius: 1, background: '#fff', opacity: 0,
+                          pointerEvents: 'none',
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
-                <StudioFader value={masterVol} onChange={setMasterVol} height={vuHeight} ariaLabel="Master volume" />
+                <StudioFader value={masterVol} onChange={setMasterVol} height={VU_HEIGHT} ariaLabel="Master volume" />
               </div>
-              <span className="font-mono" style={{ fontSize: 9, color: C.textSec }}>{formatDb(faderToDb(masterVol))}</span>
+              <span
+                ref={masterDbReadout}
+                className="font-mono"
+                aria-live="polite"
+                aria-label="Master output level"
+                style={{ fontSize: 9, color: C.textSec }}
+              >
+                {formatDb(faderToDb(masterVol))}
+              </span>
               <p style={{ fontSize: 8, fontWeight: 700, color: C.textPri }}>Master</p>
             </div>
             <div className="w-full flex-shrink-0" style={{ height: 6, background: `${C.accent}44` }} />
@@ -2360,15 +2604,26 @@ export default function App() {
       const gain    = ctx.createGain()
       gain.gain.value = track.volume / 100
 
+      // Post-fader tap — AnalyserNode reads signal after the fader GainNode
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0
+
       const panner  = ctx.createStereoPanner()
       panner.pan.value = track.pan / 100
 
       source.connect(gain)
-      gain.connect(panner)
-      panner.connect(ctx.destination)
+      gain.connect(analyser)
+      analyser.connect(panner)
+      // Route through master gain instead of directly to destination
+      if (_masterGain) {
+        panner.connect(_masterGain)
+      } else {
+        panner.connect(ctx.destination)
+      }
       source.start()
 
-      _activeSources.set(track.id, { source, gain, panner })
+      _activeSources.set(track.id, { source, gain, analyser, panner })
     })
 
     return () => { stopAllSources() }
