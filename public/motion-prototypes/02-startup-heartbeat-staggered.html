@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GDAW — Fader Startup Heartbeat Demo</title>
+<title>GDAW — v2 · Staggered Heartbeat at 72 BPM</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -233,7 +233,7 @@
 </head>
 <body>
 
-<div class="label">GDAW — Startup Heartbeat · Motion Prototype</div>
+<div class="label">GDAW · v2 — Staggered Heartbeat · 72 BPM</div>
 
 <div class="board" id="board">
   <div class="heartbeat-glow" id="glow"></div>
@@ -273,22 +273,22 @@ const MASTER = { name: 'Master', color: C.accent, targetVol: 88 };
 
 // ── Easing functions ──────────────────────────────────────────────────────────
 
-// Rise: exaggerated ease-out quint — explosive start, silky deceleration to peak
-function easeOutQuint(t) {
-  return 1 - Math.pow(1 - t, 5);
+// Rise: soft ease-out cubic — gentle launch, graceful flow into the peak.
+// Less aggressive than quint; reads as flowing rather than explosive.
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
 }
 
-// Fall: exaggerated ease-in-out quart — slow departure, accelerates through
-// the middle, floats into the landing. The "weight" of the fader.
-function easeInOutQuart(t) {
-  return t < 0.5
-    ? 8 * t * t * t * t
-    : 1 - Math.pow(-2 * t + 2, 4) / 2;
+// Fall: ease-in-out sine — the silkiest ease-in-out curve we have.
+// Slow weighted departure, gentle middle, floats into landing. Very expressive.
+function easeInOutSine(t) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
-// Motorized recall: aggressive ease-out — fast takeoff, smooth precise landing
+// Motorized recall: ease-out cubic — fast takeoff, smooth precise landing.
+// Matches the rise curve so the motion vocabulary stays consistent.
 function easeMotorized(t) {
-  return 1 - Math.pow(1 - t, 4);
+  return 1 - Math.pow(1 - t, 3);
 }
 
 // ── Animation utility ─────────────────────────────────────────────────────────
@@ -482,45 +482,76 @@ function clearGlow() {
   glowEl.style.boxShadow = '0 0 0px rgba(107,92,231,0)';
 }
 
+// ── STAGGER FORMULA ───────────────────────────────────────────────────────────
+// Linear stagger: each fader starts 20ms after the previous.
+//   delay(i) = i * STEP
+// Cumulative delays: [0, 20, 40, 60, 80, 100, 120] ms
+// Total spread only 120ms — the wave reads as a single coordinated gesture
+// with just enough offset to feel alive rather than synchronized.
+const STEP = 20;
+function staggerDelay(i) {
+  return i * STEP;
+}
+
+// ── 72 BPM HEARTBEAT TIMING ───────────────────────────────────────────────────
+// Average resting human heart rate = 72 BPM → 1 beat every 833ms
+// Beat split: rise 38% / hold 12% / fall 50%
+const BPM      = 72;
+const BEAT_MS  = Math.round(60000 / BPM);    // 833ms
+const RISE_DUR = Math.round(BEAT_MS * 0.38); // 316ms
+const HOLD_DUR = Math.round(BEAT_MS * 0.12); // 100ms
+const FALL_DUR = Math.round(BEAT_MS * 0.50); // 416ms
+
 // ── THE HEARTBEAT ─────────────────────────────────────────────────────────────
-// One clean elegant pulse per beat:
-//   RISE  — ease-out quint: explosive launch, silky deceleration at peak
-//   HOLD  — breathe at the top
-//   FALL  — ease-in-out quart: slow weighted departure, floats into landing
-async function heartbeatPulse(peakVol = 78, riseDur = 320, holdDur = 120, fallDur = 780) {
+// Each fader runs its own pulse, delayed by the stagger formula.
+// Effect: a wave of life rolling left-to-right across the board.
+async function heartbeatPulse(peakVol = 78) {
+  let glowIntensity = 0;
+
   return new Promise(resolve => {
+    let settled = 0;
 
-    // RISE — ease-out quint
-    animate({
-      duration: riseDur,
-      easing: easeOutQuint,
-      onUpdate: t => {
-        const vol = t * peakVol;
-        stripEls.forEach(s => setFaderPos(s, vol));
-        setGlow(C.accent, t * 38);
-        stripEls.forEach(s => flashVU(s, t));
-      },
-      onComplete: async () => {
+    stripEls.forEach((strip, i) => {
+      const delay = staggerDelay(i);
 
-        // HOLD — sit at peak, let it breathe
-        await wait(holdDur);
-
-        // FALL — ease-in-out quart: slow start, weighted middle, floats in
+      setTimeout(() => {
+        // RISE — ease-out quint
         animate({
-          duration: fallDur,
-          easing: easeInOutQuart,
+          duration: RISE_DUR,
+          easing: easeOutCubic,
           onUpdate: t => {
-            const vol = peakVol * (1 - t);
-            stripEls.forEach(s => setFaderPos(s, vol));
-            setGlow(C.accent, (1 - t) * 30);
-            stripEls.forEach(s => flashVU(s, (1 - t) * 0.65));
+            const vol = t * peakVol;
+            setFaderPos(strip, vol);
+            flashVU(strip, t * 0.95);
+            glowIntensity = Math.max(glowIntensity, t * 34);
+            setGlow(C.accent, glowIntensity);
           },
-          onComplete: () => {
-            clearGlow();
-            resolve();
+          onComplete: async () => {
+            await wait(HOLD_DUR);
+
+            // FALL — ease-in-out quart: weighted mass, floats in
+            animate({
+              duration: FALL_DUR,
+              easing: easeInOutSine,
+              onUpdate: t => {
+                const vol = peakVol * (1 - t);
+                setFaderPos(strip, vol);
+                flashVU(strip, (1 - t) * 0.55);
+                if (i === stripEls.length - 1) {
+                  setGlow(C.accent, (1 - t) * 28);
+                }
+              },
+              onComplete: () => {
+                settled++;
+                if (settled === stripEls.length) {
+                  clearGlow();
+                  resolve();
+                }
+              }
+            });
           }
         });
-      }
+      }, delay);
     });
   });
 }
@@ -567,25 +598,26 @@ async function runSequence() {
   resetAll(false);
   await wait(500);
 
-  // Beat 1 — full strength
-  setPhase('● Heartbeat');
-  await heartbeatPulse(78, 320, 120, 780);
+  setPhase('● Heartbeat  ·  72 BPM');
 
-  // Natural gap between beats — like a real resting heart
-  await wait(340);
+  // Beat 1 — full strength wave, left to right
+  await heartbeatPulse(78);
 
-  // Beat 2 — softer, slightly quicker, more intimate
-  await heartbeatPulse(62, 260, 90, 680);
+  // Diastole — the heart at rest between beats
+  await wait(BEAT_MS * 0.5);
 
-  // Pause before recall — the board "deciding" to wake up
-  await wait(420);
+  // Beat 2 — softer, more intimate
+  await heartbeatPulse(60);
+
+  // Pause — the board deciding to wake up
+  await wait(BEAT_MS);
 
   // Recall — motorized, center-outward stagger
-  setPhase('◈ Recall');
+  setPhase('◈  Recall');
   await motorizedRecall();
-  await wait(240);
+  await wait(300);
 
-  setPhase('✓ Session ready');
+  setPhase('✓  Session ready');
   running = false;
 }
 

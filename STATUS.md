@@ -1,6 +1,6 @@
 # Project DAWin — Status Board
 
-> **Last updated:** 2026-05-10 (backend architecture + design system)  
+> **Last updated:** 2026-05-11 (Figma DSM completeness pass + UAT bug fixes)  
 > **Sprint:** 1 — Core session room  
 > **Owner:** Luke (PM)
 
@@ -12,6 +12,7 @@
 |-------|------|--------|-----------|
 | Frontend | WP-3 (reduced): VU meter animation only — all other WP-2/WP-3 items shipped in WP-1 pass | Queued | No |
 | Backend | Spec revisions (4 clarifications) + Fastify scaffold | Queued | No |
+| PM | "Add Plugin +" interaction spec — needed before FE can implement plugin browser | Queued | Yes (FE blocked) |
 
 ## Review Queue (waiting on Tech Lead)
 
@@ -36,6 +37,8 @@
 | WP-5 Designer handoff — ARIA pass (MiniBtn, MixerStrip, StudioFader keyboard nav, master pan knob, master fader height) | Frontend | 2026-05-10 |
 | WP-6 FX chain view, interactive PanKnob, always-visible R/M/S + designed empty state | Frontend + Designer | 2026-05-10 |
 | WP-7 PluginChainPanel → 720px fixed overlay with slide animation + backdrop | Frontend | 2026-05-10 |
+| UAT WP-8 bug fixes: formatDb threshold (-90 floor), mute opacity double-hit, cold-load waveform ghost | Frontend | 2026-05-11 |
+| Figma DSM completeness pass — Clip molecule (5 variants), Toolbar (3), StatusBar (2), TransportBar repositioned, MixerPanel organism with full wood surround + 7 tracks + master strip, FXChainPanel accuracy fix (owner border on header only), Knob atom (3 variants), PanKnob (3), TransBtn (10), canonical grid locked on Organisms page | Designer | 2026-05-11 |
 
 ## Blocked
 

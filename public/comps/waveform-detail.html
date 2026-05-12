@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GDAW · Waveform Detail Study</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 48px 64px 96px;
+    min-width: 1200px;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: #888899;
+    margin-bottom: 48px;
+  }
+
+  .section {
+    margin-bottom: 56px;
+  }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .section-label .badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    background: #1A1A24;
+    color: #888899;
+    border-radius: 3px;
+    border: 1px solid #1E1E28;
+  }
+
+  .section-label h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #F0F0F5;
+    letter-spacing: 0.02em;
+  }
+
+  .section-label .scale {
+    font-size: 11px;
+    color: #888899;
+    font-family: 'SF Mono', monospace;
+  }
+
+  .section-desc {
+    font-size: 12px;
+    color: #888899;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    max-width: 720px;
+  }
+
+  /* Clip — mimics the current arranger clip */
+  .clip {
+    position: relative;
+    height: 56px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .clip-label {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .clip-meta {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 9px;
+    font-family: 'SF Mono', monospace;
+    color: rgba(255,255,255,0.4);
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .clip canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .style-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6B5CE7;
+    margin-top: 10px;
+  }
+
+  .style-desc {
+    font-size: 11px;
+    color: #888899;
+    line-height: 1.5;
+    margin-top: 2px;
+    max-width: 720px;
+  }
+
+  .comp-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin-bottom: 24px;
+  }
+
+  .comp-col {
+    min-width: 0;
+  }
+
+  /* Toggle bar */
+  .controls {
+    position: sticky;
+    top: 20px;
+    z-index: 10;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: rgba(17,17,24,0.95);
+    backdrop-filter: blur(12px);
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid #1E1E28;
+    margin-bottom: 32px;
+    width: fit-content;
+  }
+
+  .controls label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #888899;
+    margin-right: 6px;
+  }
+
+  .controls button {
+    padding: 6px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: #2A2A38;
+    color: #888899;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .controls button:hover { color: #F0F0F5; }
+  .controls button.active {
+    background: rgba(107,92,231,0.18);
+    color: #6B5CE7;
+    border-color: #6B5CE744;
+  }
+
+  hr.divider {
+    border: 0;
+    border-top: 1px solid #1E1E28;
+    margin: 56px 0 48px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 32px;
+    padding: 16px 20px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+    font-size: 11px;
+    color: #888899;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Waveform Detail Study</h1>
+<div class="subtitle">Comping waveform rendering across zoom levels and visual styles · GDAW</div>
+
+<div class="controls">
+  <label>Owner color</label>
+  <button class="color-btn active" data-color="#6B5CE7">Purple</button>
+  <button class="color-btn" data-color="#E94560">Red</button>
+  <button class="color-btn" data-color="#1D9E75">Green</button>
+  <button class="color-btn" data-color="#F5A623">Amber</button>
+  <button class="color-btn" data-color="#3E9EE8">Blue</button>
+</div>
+
+<!-- ─── Zoom level 1: Macro ───────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">
+    <span class="badge">Zoom · 01</span>
+    <h2>Macro view</h2>
+    <span class="scale">≈ 4 bars · 200 samples / 200px</span>
+  </div>
+  <div class="section-desc">
+    The default arranger view. You see the overall energy envelope of the clip — useful for navigation and arrangement decisions, not for editing detail. Peaks compressed; RMS implied.
+  </div>
+
+  <div class="comp-row">
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner);">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A · v1</div>
+        <canvas data-comp="macro-classic" data-zoom="1"></canvas>
+        <div class="clip-meta">4 bars</div>
+      </div>
+      <div class="style-label">A — Classic envelope (current)</div>
+      <div class="style-desc">Single-tone fill at 80% owner color + top stroke at 100%. Clean and readable. Closest to what's shipping today.</div>
+    </div>
+
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner);">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A · v2</div>
+        <canvas data-comp="macro-two-tone" data-zoom="1"></canvas>
+        <div class="clip-meta">4 bars</div>
+      </div>
+      <div class="style-label">B — Peaks + RMS body</div>
+      <div class="style-desc">Outer fill shows peak envelope at 50% opacity; inner solid shape shows estimated RMS at 100%. Reads as bright transients sitting on a dense body. Pro Tools / Logic style.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Zoom level 2: Normal ─────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">
+    <span class="badge">Zoom · 02</span>
+    <h2>Normal edit zoom</h2>
+    <span class="scale">≈ 1 bar · 800 samples / 400px</span>
+  </div>
+  <div class="section-desc">
+    Standard editing distance. Individual transients become distinguishable; you can see the rhythmic structure. Stroke definition becomes more visible.
+  </div>
+
+  <div class="comp-row">
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner);">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="normal-stroke" data-zoom="2"></canvas>
+        <div class="clip-meta">1 bar</div>
+      </div>
+      <div class="style-label">C — Gradient fill + bright stroke</div>
+      <div class="style-desc">Vertical gradient from light center to dim edges + 1px bright stroke at peaks. Adds vertical depth without breaking the silhouette. Subtle but high-end.</div>
+    </div>
+
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner);">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="normal-rms-stroke" data-zoom="2"></canvas>
+        <div class="clip-meta">1 bar</div>
+      </div>
+      <div class="style-label">D — RMS body + peak stroke</div>
+      <div class="style-desc">Solid filled RMS at 60% + a single-pixel stroke marking the peak envelope. Body for substance, line for precision. Best of both worlds.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Zoom level 3: Detail ─────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">
+    <span class="badge">Zoom · 03</span>
+    <h2>Detail edit</h2>
+    <span class="scale">½ bar · 1 sample per 2 pixels · 600px</span>
+  </div>
+  <div class="section-desc">
+    Close enough to edit specific transients. The envelope smoothing breaks down; we should start exposing individual sample peaks for precision work.
+  </div>
+
+  <div class="comp-row">
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner); height: 80px;">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="detail-sticks" data-zoom="3"></canvas>
+        <div class="clip-meta">½ bar</div>
+      </div>
+      <div class="style-label">E — Sample sticks</div>
+      <div class="style-desc">One vertical line per sample, sized to peak amplitude. Looks like a digital scope. Each transient is clearly individuated. Use when zoom ratio exceeds 1px per 2 samples.</div>
+    </div>
+
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner); height: 80px;">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="detail-hybrid" data-zoom="3"></canvas>
+        <div class="clip-meta">½ bar</div>
+      </div>
+      <div class="style-label">F — Sticks + envelope outline</div>
+      <div class="style-desc">Sample sticks behind a faint envelope outline. Best of both readings — you see overall shape and individual transients at the same time.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Zoom level 4: Sample-level ───────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">
+    <span class="badge">Zoom · 04</span>
+    <h2>Sample-level</h2>
+    <span class="scale">1 beat · 1 pixel per sample · 800px</span>
+  </div>
+  <div class="section-desc">
+    Surgical precision. We're now drawing the actual oscillating signal — not an envelope. This is where dry/wet edits, sample-accurate trimming, and click repair happen.
+  </div>
+
+  <div class="comp-row">
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner); height: 96px;">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="sample-line" data-zoom="4"></canvas>
+        <div class="clip-meta">1 beat</div>
+      </div>
+      <div class="style-label">G — Continuous oscillation line</div>
+      <div class="style-desc">A single bright stroke connecting samples. The real signal shape. Like Pro Tools' sample-level edit view. Owner color at full saturation; no fill.</div>
+    </div>
+
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner); height: 96px;">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="sample-line-glow" data-zoom="4"></canvas>
+        <div class="clip-meta">1 beat</div>
+      </div>
+      <div class="style-label">H — Oscillation with soft glow halo</div>
+      <div class="style-desc">Same continuous stroke with a 3px gaussian halo at 18% opacity in owner color. Premium feel — like looking through bright phosphor on an oscilloscope.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Zoom level 5: Microscopic ────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">
+    <span class="badge">Zoom · 05</span>
+    <h2>Microscopic</h2>
+    <span class="scale">≈ 2ms · 4–6 pixels per sample · 1000px</span>
+  </div>
+  <div class="section-desc">
+    Individual sample points are visible. Used for clip-boundary surgery, click removal, dc offset fixing. Should never auto-zoom here; user must request it explicitly.
+  </div>
+
+  <div class="comp-row" style="grid-template-columns: 1fr;">
+    <div class="comp-col">
+      <div class="clip" style="background: linear-gradient(180deg, var(--c-tint-3) 0%, var(--c-tint-1) 100%); border-left: 2px solid var(--c-owner); height: 120px;">
+        <div class="clip-label" style="color: var(--c-owner); text-shadow: 0 0 8px var(--c-owner-glow);">Guitar A</div>
+        <canvas data-comp="micro-dots" data-zoom="5"></canvas>
+        <div class="clip-meta">≈ 2 ms · ~96 samples</div>
+      </div>
+      <div class="style-label">I — Connected sample dots</div>
+      <div class="style-desc">Each sample drawn as a 2px filled dot at its true vertical position, connected by a 1px line. A subtle horizontal zero-line at 6% opacity for reference. This is the truth of the audio at that resolution.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<div class="section">
+  <h2 style="font-size: 14px; margin-bottom: 12px;">Recommendation</h2>
+  <div style="font-size: 12px; color: #888899; line-height: 1.6; max-width: 720px;">
+    Adopt <strong style="color: #F0F0F5;">style D (RMS body + peak stroke)</strong> for the default arranger view. It reads at every zoom level from macro to detail edit without modification. At zoom levels deeper than 1 pixel per 4 samples, swap to <strong style="color: #F0F0F5;">style H (oscillation with glow halo)</strong>. Add <strong style="color: #F0F0F5;">style I (sample dots)</strong> only as an explicit "sample-edit mode" — never automatically.
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--c-owner);"></div>
+    <span>Owner color (full)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--c-owner); opacity: 0.6;"></div>
+    <span>Owner @ 60% (body)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--c-owner); opacity: 0.18;"></div>
+    <span>Owner @ 18% (glow halo)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--c-owner); opacity: 0.08;"></div>
+    <span>Owner @ 8% (clip tint)</span>
+  </div>
+</div>
+
+<script>
+// ── Synthesize a realistic-looking waveform ────────────────────────────────────
+// Multi-component signal: low rumble + mid-frequency body + transient hits
+function generateWaveform(numSamples) {
+  const out = new Float32Array(numSamples);
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / numSamples;
+    // Long-form amplitude envelope (4 strums per bar feel)
+    const envBars = Math.pow(Math.abs(Math.sin(t * Math.PI * 8)), 0.6);
+    // Slow attack/decay shape over whole clip
+    const envClip = Math.pow(1 - Math.abs(t - 0.5) * 1.6, 0.7) * 0.5 + 0.5;
+    // Carrier — sum of partials
+    const f1 = Math.sin(i * 0.18) * 0.7;
+    const f2 = Math.sin(i * 0.43 + 1.3) * 0.45;
+    const f3 = Math.sin(i * 0.91 + 2.7) * 0.25;
+    // Noise burst on transient peaks
+    const burst = Math.pow(envBars, 4) * (Math.random() - 0.5) * 0.4;
+    out[i] = (f1 + f2 + f3 + burst) * envBars * envClip * 0.85;
+  }
+  return out;
+}
+
+// Compute peak envelope by binning the raw samples
+function computePeaks(samples, targetBins) {
+  const peaks = new Float32Array(targetBins);
+  const binSize = samples.length / targetBins;
+  for (let b = 0; b < targetBins; b++) {
+    let max = 0;
+    const start = Math.floor(b * binSize);
+    const end   = Math.floor((b + 1) * binSize);
+    for (let i = start; i < end; i++) {
+      const abs = Math.abs(samples[i]);
+      if (abs > max) max = abs;
+    }
+    peaks[b] = max;
+  }
+  return peaks;
+}
+
+// Compute RMS envelope (root-mean-square) for "body" rendering
+function computeRMS(samples, targetBins) {
+  const rms = new Float32Array(targetBins);
+  const binSize = samples.length / targetBins;
+  for (let b = 0; b < targetBins; b++) {
+    let sum = 0;
+    let count = 0;
+    const start = Math.floor(b * binSize);
+    const end   = Math.floor((b + 1) * binSize);
+    for (let i = start; i < end; i++) {
+      sum += samples[i] * samples[i];
+      count++;
+    }
+    rms[b] = Math.sqrt(sum / count);
+  }
+  return rms;
+}
+
+// ── Master sample set ─────────────────────────────────────────────────────────
+const RAW = generateWaveform(48000); // 1 second @ 48kHz worth of "samples"
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
+// Each takes a canvas + owner color, draws into the canvas at its own resolution.
+
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width  = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w: rect.width, h: rect.height };
+}
+
+function renderMacroClassic(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const peaks = computePeaks(RAW, Math.floor(w));
+  ctx.fillStyle   = color + 'BB';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  for (let x = 0; x < peaks.length; x++) ctx.lineTo(x, midY - peaks[x] * midY * 0.92);
+  for (let x = peaks.length - 1; x >= 0; x--) ctx.lineTo(x, midY + peaks[x] * midY * 0.92);
+  ctx.closePath();
+  ctx.fill();
+  // Top edge stroke
+  ctx.beginPath();
+  for (let x = 0; x < peaks.length; x++) {
+    const y = midY - peaks[x] * midY * 0.92;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function renderMacroTwoTone(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const peaks = computePeaks(RAW, Math.floor(w));
+  const rms   = computeRMS  (RAW, Math.floor(w));
+
+  // Peaks at 50%
+  ctx.fillStyle = color + '88';
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  for (let x = 0; x < peaks.length; x++) ctx.lineTo(x, midY - peaks[x] * midY * 0.92);
+  for (let x = peaks.length - 1; x >= 0; x--) ctx.lineTo(x, midY + peaks[x] * midY * 0.92);
+  ctx.closePath();
+  ctx.fill();
+
+  // RMS body at full
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  for (let x = 0; x < rms.length; x++) ctx.lineTo(x, midY - rms[x] * midY * 1.8);
+  for (let x = rms.length - 1; x >= 0; x--) ctx.lineTo(x, midY + rms[x] * midY * 1.8);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function renderNormalGradient(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const peaks = computePeaks(RAW.slice(0, 12000), Math.floor(w));
+
+  // Vertical gradient — brighter at center
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0,    color + '55');
+  grad.addColorStop(0.5,  color);
+  grad.addColorStop(1,    color + '55');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  for (let x = 0; x < peaks.length; x++) ctx.lineTo(x, midY - peaks[x] * midY * 0.92);
+  for (let x = peaks.length - 1; x >= 0; x--) ctx.lineTo(x, midY + peaks[x] * midY * 0.92);
+  ctx.closePath();
+  ctx.fill();
+  // Bright peak stroke
+  ctx.strokeStyle = '#fff';
+  ctx.globalAlpha = 0.4;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < peaks.length; x++) {
+    const y = midY - peaks[x] * midY * 0.92;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function renderNormalRMSStroke(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const seg  = RAW.slice(0, 12000);
+  const peaks = computePeaks(seg, Math.floor(w));
+  const rms   = computeRMS  (seg, Math.floor(w));
+
+  // RMS body
+  ctx.fillStyle = color + '99';
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  for (let x = 0; x < rms.length; x++) ctx.lineTo(x, midY - rms[x] * midY * 2);
+  for (let x = rms.length - 1; x >= 0; x--) ctx.lineTo(x, midY + rms[x] * midY * 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Peak outline stroke
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < peaks.length; x++) {
+    const y = midY - peaks[x] * midY * 0.92;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.beginPath();
+  for (let x = 0; x < peaks.length; x++) {
+    const y = midY + peaks[x] * midY * 0.92;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function renderDetailSticks(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  // Show half a bar — say 6000 samples — drawn at one stick per ~3 samples
+  const seg = RAW.slice(0, 6000);
+  const peaks = computePeaks(seg, Math.floor(w / 2));
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < peaks.length; i++) {
+    const x = i * 2 + 1;
+    const peakH = peaks[i] * midY * 0.92;
+    ctx.beginPath();
+    ctx.moveTo(x, midY - peakH);
+    ctx.lineTo(x, midY + peakH);
+    ctx.stroke();
+  }
+}
+
+function renderDetailHybrid(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const seg = RAW.slice(0, 6000);
+  const peaks = computePeaks(seg, Math.floor(w / 2));
+  const fineEnvelope = computePeaks(seg, Math.floor(w));
+
+  // Faint envelope outline
+  ctx.strokeStyle = color + '44';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < fineEnvelope.length; x++) {
+    const y = midY - fineEnvelope[x] * midY * 0.92;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  for (let x = fineEnvelope.length - 1; x >= 0; x--) {
+    const y = midY + fineEnvelope[x] * midY * 0.92;
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // Sample sticks on top
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < peaks.length; i++) {
+    const x = i * 2 + 1;
+    const peakH = peaks[i] * midY * 0.92;
+    ctx.beginPath();
+    ctx.moveTo(x, midY - peakH);
+    ctx.lineTo(x, midY + peakH);
+    ctx.stroke();
+  }
+}
+
+function renderSampleLine(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  // 1 beat = ~600 samples drawn over 800px = ~1.3 px per sample
+  const seg = RAW.slice(8000, 8000 + Math.floor(w));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < seg.length; i++) {
+    const y = midY - seg[i] * midY * 0.86;
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+}
+
+function renderSampleLineGlow(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const seg = RAW.slice(8000, 8000 + Math.floor(w));
+
+  // Glow halo — wide stroke at low opacity
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 6;
+  ctx.globalAlpha = 0.12;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < seg.length; i++) {
+    const y = midY - seg[i] * midY * 0.86;
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+
+  // Mid halo
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.28;
+  ctx.beginPath();
+  for (let i = 0; i < seg.length; i++) {
+    const y = midY - seg[i] * midY * 0.86;
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+
+  // Bright core
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < seg.length; i++) {
+    const y = midY - seg[i] * midY * 0.86;
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+}
+
+function renderMicroDots(canvas, color) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+
+  // Zero line
+  ctx.strokeStyle = '#ffffff';
+  ctx.globalAlpha = 0.07;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  ctx.lineTo(w, midY);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Sample 96 individual samples across the width
+  const numSamples = 96;
+  const seg = RAW.slice(12000, 12000 + numSamples);
+  const stepX = w / (numSamples - 1);
+
+  // Connecting line
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = 0.55;
+  ctx.beginPath();
+  for (let i = 0; i < seg.length; i++) {
+    const x = i * stepX;
+    const y = midY - seg[i] * midY * 0.78;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Sample dots
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = color;
+  for (let i = 0; i < seg.length; i++) {
+    const x = i * stepX;
+    const y = midY - seg[i] * midY * 0.78;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+const RENDERERS = {
+  'macro-classic':       renderMacroClassic,
+  'macro-two-tone':      renderMacroTwoTone,
+  'normal-stroke':       renderNormalGradient,
+  'normal-rms-stroke':   renderNormalRMSStroke,
+  'detail-sticks':       renderDetailSticks,
+  'detail-hybrid':       renderDetailHybrid,
+  'sample-line':         renderSampleLine,
+  'sample-line-glow':    renderSampleLineGlow,
+  'micro-dots':          renderMicroDots,
+};
+
+// ── Color tinting (CSS variables) ─────────────────────────────────────────────
+function hex(c, alphaHex) { return c + alphaHex; }
+function setOwnerColor(c) {
+  document.documentElement.style.setProperty('--c-owner',       c);
+  document.documentElement.style.setProperty('--c-owner-glow',  c + '88');
+  document.documentElement.style.setProperty('--c-tint-1',      c + '11');
+  document.documentElement.style.setProperty('--c-tint-3',      c + '22');
+}
+
+// ── Render everything ─────────────────────────────────────────────────────────
+function renderAll(color) {
+  document.querySelectorAll('canvas[data-comp]').forEach(canvas => {
+    const comp = canvas.dataset.comp;
+    if (RENDERERS[comp]) RENDERERS[comp](canvas, color);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+let currentColor = '#6B5CE7';
+setOwnerColor(currentColor);
+// Wait for layout
+requestAnimationFrame(() => renderAll(currentColor));
+
+document.querySelectorAll('.color-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentColor = btn.dataset.color;
+    setOwnerColor(currentColor);
+    renderAll(currentColor);
+  });
+});
+
+window.addEventListener('resize', () => renderAll(currentColor));
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>

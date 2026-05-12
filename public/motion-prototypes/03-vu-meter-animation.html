@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GDAW · v3 — VU Meter Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 48px 64px 96px;
+    min-width: 1100px;
+    user-select: none;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: #888899;
+    margin-bottom: 24px;
+    max-width: 760px;
+    line-height: 1.5;
+  }
+
+  .pull-quote {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #888899;
+    max-width: 820px;
+    padding: 14px 18px;
+    background: #111118;
+    border-left: 2px solid #6B5CE7;
+    border-radius: 4px;
+    margin-bottom: 32px;
+  }
+  .pull-quote strong { color: #F0F0F5; }
+
+  /* ── Stage: mixer-style strips with VU + fader ─────────────────────────── */
+  .stage {
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 12px;
+    padding: 18px 28px 22px;
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+
+  .cheek {
+    width: 8px;
+    align-self: stretch;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #2a1f0e 0%, #1a1208 100%);
+    border: 1px solid rgba(255,255,255,0.04);
+    margin: 4px 0;
+  }
+
+  .strip {
+    width: 76px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 4px 10px;
+  }
+
+  .strip-cap {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .strip-name {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #888899;
+  }
+
+  .vu-fader-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  /* VU meter */
+  .vu-wrap {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 130px;
+    position: relative;
+  }
+
+  .vu-col {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1.5px;
+    width: 5px;
+    position: relative;
+  }
+
+  .vu-seg {
+    width: 100%;
+    height: 5px;
+    border-radius: 1px;
+    background: #1A1A24;
+    transition: background 0ms;
+  }
+
+  /* Peak hold dot */
+  .vu-peak {
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: #F0F0F5;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  /* Fader */
+  .fader-wrap {
+    position: relative;
+    width: 22px;
+    height: 130px;
+    flex-shrink: 0;
+  }
+
+  .fader-groove {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    top: 2px;
+    bottom: 2px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #1A1A24 0%, #0D0D14 100%);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+  }
+
+  .fader-fill {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    bottom: 2px;
+    border-radius: 3px;
+    background: rgba(107,92,231,0.30);
+    transition: height 0.05s linear;
+  }
+
+  .fader-cap {
+    position: absolute;
+    left: 0;
+    width: 22px;
+    height: 18px;
+    border-radius: 3px;
+    cursor: ns-resize;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0.08) 20%,
+      rgba(200,200,210,0.9) 21%,
+      rgba(160,160,175,0.95) 49%,
+      rgba(140,140,155,0.9) 50%,
+      rgba(110,110,125,0.85) 79%,
+      rgba(80,80,95,0.8) 80%,
+      rgba(60,60,75,0.7) 100%
+    );
+    box-shadow: 0 2px 6px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255,255,255,0.15);
+  }
+
+  .fader-cap::after {
+    content: '';
+    position: absolute;
+    left: 3px; right: 3px;
+    top: 50%;
+    height: 1px;
+    background: rgba(255,255,255,0.5);
+    transform: translateY(-50%);
+  }
+
+  .db-readout {
+    font-size: 9px;
+    font-family: 'SF Mono', monospace;
+    color: #888899;
+    text-align: center;
+  }
+
+  /* ── Controls ──────────────────────────────────────────────────────────── */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .ctrl-group {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+  }
+
+  .ctrl-btn {
+    padding: 8px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: #2A2A38;
+    color: #888899;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    font-family: inherit;
+  }
+  .ctrl-btn:hover {
+    color: #F0F0F5;
+    background: #34344a;
+  }
+  .ctrl-btn.primary {
+    background: rgba(107,92,231,0.18);
+    color: #6B5CE7;
+    border-color: #6B5CE744;
+  }
+  .ctrl-btn.primary:hover {
+    background: rgba(107,92,231,0.28);
+    box-shadow: 0 0 12px rgba(107,92,231,0.4);
+  }
+  .ctrl-btn.danger {
+    background: rgba(233,69,96,0.18);
+    color: #E94560;
+    border-color: rgba(233,69,96,0.4);
+  }
+
+  .label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #888899;
+    margin: 0 6px 0 12px;
+  }
+
+  /* Per-track signal sliders */
+  .signal-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+    align-items: center;
+  }
+  .signal-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 76px;
+  }
+  .signal-cell.master { width: 70px; opacity: 0.4; }
+  .signal-cell .name {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888899;
+    text-align: center;
+  }
+  .signal-cell input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #1A1A24;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .signal-cell input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #6B5CE7;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(107,92,231,0.6);
+  }
+  .signal-cell input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: #6B5CE7;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 0;
+  }
+
+  /* ── Spec cards ────────────────────────────────────────────────────────── */
+  .specs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 36px;
+  }
+  .spec-card {
+    padding: 20px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+  }
+  .spec-card h3 {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #6B5CE7;
+    margin-bottom: 12px;
+  }
+  .spec-card p {
+    font-size: 12px;
+    color: #888899;
+    line-height: 1.55;
+    margin-bottom: 10px;
+  }
+  .spec-card code {
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    background: #1A1A24;
+    color: #F0F0F5;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .spec-card strong { color: #F0F0F5; }
+  .spec-card hr {
+    border: 0;
+    border-top: 1px solid #1E1E28;
+    margin: 14px 0;
+  }
+
+  .phase-readout {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #6B5CE7;
+    margin-left: auto;
+    min-width: 140px;
+    text-align: right;
+    transition: opacity 0.3s ease;
+  }
+</style>
+</head>
+<body>
+
+<h1>VU Meter Animation · v3</h1>
+<div class="subtitle">
+  Smooth attack / slow decay physics + peak-hold dots + integrated heartbeat startup. Drag the sliders to drive each track's signal; hit Audition to play a simulated audio source; hit Launch Sequence for the full startup performance.
+</div>
+
+<div class="pull-quote">
+  <strong>Three motion ideas combined.</strong> First — each VU level is a low-pass filtered version of the source signal: <strong>fast attack</strong> (you feel it the moment a transient hits) and <strong>slow decay</strong> (the meter doesn't snap back, it falls gracefully). Second — a <strong>peak-hold dot</strong> floats at the highest recent level for 700ms then drifts down at 0.5×/sec — a visible memory of the last loud moment. Third — during the <strong>startup heartbeat</strong>, the VU meters perform alongside the faders: they bloom upward in sync with the spring, hold at the peak with the fader hover, then exhale downward together.
+</div>
+
+<!-- Stage -->
+<div class="stage" id="stage">
+  <div class="cheek"></div>
+  <!-- Strips injected by JS -->
+  <div class="cheek"></div>
+</div>
+
+<!-- Per-track signal sliders -->
+<div class="signal-row" id="signal-row">
+  <span class="label" style="margin-left:0;">Signal</span>
+  <!-- Cells injected -->
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <div class="ctrl-group">
+    <button class="ctrl-btn primary" onclick="runStartupSequence()">▶ Launch Sequence</button>
+    <button class="ctrl-btn" id="audition-btn" onclick="toggleAudition()">♪ Audition</button>
+    <button class="ctrl-btn" onclick="resetAll()">↺ Reset</button>
+  </div>
+  <span class="label">Peak hold</span>
+  <div class="ctrl-group">
+    <button class="ctrl-btn primary" id="peak-toggle" onclick="togglePeakHold()">On</button>
+  </div>
+  <span class="phase-readout" id="phase-readout"></span>
+</div>
+
+<!-- Specs -->
+<div class="specs">
+  <div class="spec-card">
+    <h3>VU Physics · Attack / Decay</h3>
+    <p><strong>Attack rate:</strong> <code>32 /sec</code> — the meter rises 32× per second from current toward target. At 60 fps that's ~53%/frame on a hot transient. <strong>You feel the kick the instant it hits.</strong></p>
+    <p><strong>Decay rate:</strong> <code>4 /sec</code> — falls 4× slower than it rises. The meter glides down for ~250ms after a transient peak.</p>
+    <p><strong>Why asymmetric:</strong> real audio peaks are short and the human ear's perception of loudness is sustained. Fast attack + slow decay matches both — you see every transient AND get a stable read on the level.</p>
+    <hr>
+    <h3 style="margin-top:0;">Peak Hold</h3>
+    <p><strong>Hold time:</strong> <code>700ms</code> — a thin white bar marks the highest recent level.</p>
+    <p><strong>Drop rate:</strong> <code>0.5 /sec</code> after the hold — drifts down with visible deceleration so you can still see the recent peak even on quiet sections.</p>
+    <p><strong>Why hold:</strong> a real LED meter peak indicator gives a moment to read the worst-case level without freezing the meter.</p>
+  </div>
+
+  <div class="spec-card">
+    <h3>Per-Segment Glow</h3>
+    <p>Lit segments have a <code>0 0 4px</code> color-tinted glow. As a transient hits the topmost lit segment, the glow briefly intensifies to <code>0 0 8px</code> for 80ms — a subtle "kiss" that emphasizes the new peak.</p>
+    <p><strong>Color bands:</strong></p>
+    <p>• Bottom 13 (0–65%): <code>#1EC94A</code> green<br>
+       • Mid 4 (65–85%): <code>#F5A623</code> amber<br>
+       • Top 3 (85–100%): <code>#E94560</code> red</p>
+    <hr>
+    <h3 style="margin-top:0;">Integrated Startup Performance</h3>
+    <p>During the heartbeat sequence, the VU meters perform alongside the faders:</p>
+    <p>• <strong>Rise</strong> — meter blooms upward in sync with the fader spring (easeOutQuint)<br>
+       • <strong>Hold</strong> — VU pulses gently at peak<br>
+       • <strong>Fall</strong> — meter cascades downward with the fader (easeInOutQuart)</p>
+    <p>The peak-hold dots trail the journey, leaving visible "memory" of the heartbeat shape.</p>
+  </div>
+</div>
+
+<script>
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  accent:    '#6B5CE7',
+  danger:    '#E94560',
+  success:   '#1D9E75',
+  warn:      '#F5A623',
+  textSec:   '#888899',
+  vuGreen:   '#1EC94A',
+  vuAmber:   '#F5A623',
+  vuRed:     '#E94560',
+  segOff:    '#1A1A24',
+};
+
+const tracks = [
+  { name: 'Guitar A', color: '#6B5CE7', restVol: 78 },
+  { name: 'Vocals',   color: '#E94560', restVol: 85 },
+  { name: 'Keys',     color: '#1D9E75', restVol: 62 },
+  { name: 'Bass',     color: '#F5A623', restVol: 70 },
+  { name: 'Drums',    color: '#E87E3E', restVol: 90 },
+  { name: 'FX Bus',   color: '#3E9EE8', restVol: 45 },
+];
+
+const NUM_SEGS = 26;       // segments per channel (taller than the in-app one for clarity)
+const GREEN_CT = 17;       // 0..16 green
+const AMBER_CT = 22;       // 17..21 amber, 22..25 red
+const PEAK_HOLD_MS  = 700;
+const PEAK_DROP_PER_SEC = 0.5;
+
+// ── State per strip ───────────────────────────────────────────────────────────
+const strips = [];
+
+// ── Easing functions (shared with heartbeat) ──────────────────────────────────
+function easeOutQuint(t) { return 1 - Math.pow(1 - t, 5); }
+function easeInOutQuart(t) {
+  return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+}
+function easeOutCubic(t)  { return 1 - Math.pow(1 - t, 3); }
+
+// ── Build strips ──────────────────────────────────────────────────────────────
+const stage = document.getElementById('stage');
+const signalRow = document.getElementById('signal-row');
+
+function buildStrip(track, i) {
+  const el = document.createElement('div');
+  el.className = 'strip';
+
+  const cap = document.createElement('div');
+  cap.className = 'strip-cap';
+  cap.style.background = track.color;
+  cap.style.boxShadow = `0 2px 8px ${track.color}44`;
+
+  const name = document.createElement('div');
+  name.className = 'strip-name';
+  name.textContent = track.name.toUpperCase();
+
+  const row = document.createElement('div');
+  row.className = 'vu-fader-row';
+
+  // VU meter
+  const vuWrap = document.createElement('div');
+  vuWrap.className = 'vu-wrap';
+  const segs = [[], []];
+  const peakEls = [];
+  for (let ch = 0; ch < 2; ch++) {
+    const col = document.createElement('div');
+    col.className = 'vu-col';
+    for (let s = 0; s < NUM_SEGS; s++) {
+      const seg = document.createElement('div');
+      seg.className = 'vu-seg';
+      col.appendChild(seg);
+      segs[ch].push(seg);
+    }
+    // Peak hold dot
+    const peak = document.createElement('div');
+    peak.className = 'vu-peak';
+    col.appendChild(peak);
+    peakEls.push(peak);
+
+    vuWrap.appendChild(col);
+  }
+
+  // Fader
+  const faderWrap = document.createElement('div');
+  faderWrap.className = 'fader-wrap';
+  const groove = document.createElement('div');
+  groove.className = 'fader-groove';
+  const fill = document.createElement('div');
+  fill.className = 'fader-fill';
+  const faderCap = document.createElement('div');
+  faderCap.className = 'fader-cap';
+  faderWrap.append(groove, fill, faderCap);
+
+  row.append(vuWrap, faderWrap);
+
+  const db = document.createElement('div');
+  db.className = 'db-readout';
+  db.textContent = '−∞';
+
+  el.append(cap, name, row, db);
+
+  // Signal slider in the row below
+  const signalCell = document.createElement('div');
+  signalCell.className = 'signal-cell';
+  const sigName = document.createElement('div');
+  sigName.className = 'name';
+  sigName.textContent = track.name.split(' ')[0];
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = 0;
+  slider.max = 100;
+  slider.value = 0;
+  signalCell.append(sigName, slider);
+  signalRow.appendChild(signalCell);
+
+  return {
+    el, track, faderCap, fill, segs, peakEls, db,
+    slider,
+    // physics state
+    fader: 0,            // displayed fader 0–100
+    targetFader: 0,      // animation target
+    levelL: 0,           // smoothed VU level for L channel, 0–1
+    levelR: 0,
+    peakL: 0,            // peak hold value
+    peakR: 0,
+    peakLastUpdateL: 0,  // when peak was last refreshed
+    peakLastUpdateR: 0,
+    // animation transitions
+    transientFlash: [0, 0], // per-channel transient flash intensity 0..1
+    transientFlashStart: [0, 0],
+  };
+}
+
+function init() {
+  tracks.forEach((track, i) => {
+    const s = buildStrip(track, i);
+    stage.appendChild(s.el);
+    strips.push(s);
+  });
+  // Move cheek to end
+  const cheeks = stage.querySelectorAll('.cheek');
+  stage.appendChild(cheeks[1]);
+
+  // Wire up signal sliders
+  strips.forEach((s, i) => {
+    s.slider.addEventListener('input', () => {
+      strips[i].signalTarget = parseFloat(s.slider.value) / 100;
+    });
+  });
+}
+
+// ── Fader render ──────────────────────────────────────────────────────────────
+function setFaderVisual(strip, vol) {
+  const TRACK_H = 130;
+  const CAP_H = 18;
+  const PAD = 2;
+  const travel = TRACK_H - CAP_H - PAD * 2;
+  const top = PAD + (1 - vol / 100) * travel;
+  strip.faderCap.style.top = top + 'px';
+  strip.fill.style.height = (vol / 100 * (TRACK_H - PAD * 2)) + 'px';
+
+  // dB readout
+  if (vol <= 0) strip.db.textContent = '−∞';
+  else {
+    const raw = 20 * Math.log10(vol / 100);
+    strip.db.textContent = isFinite(raw) ? raw.toFixed(1) + ' dB' : '−∞';
+  }
+}
+
+// ── VU render ─────────────────────────────────────────────────────────────────
+const SEG_HEIGHT = 5;
+const SEG_GAP = 1.5;
+
+function renderVU(strip, now) {
+  // L and R channels
+  for (let ch = 0; ch < 2; ch++) {
+    const level = ch === 0 ? strip.levelL : strip.levelR;
+    const peak  = ch === 0 ? strip.peakL  : strip.peakR;
+    const flash = strip.transientFlash[ch];
+
+    // Number of lit segments (continuous)
+    const litCount = level * NUM_SEGS;
+    const topLit = Math.floor(litCount);
+    const topFrac = litCount - topLit;
+
+    for (let s = 0; s < NUM_SEGS; s++) {
+      const seg = strip.segs[ch][s];
+      let bg = C.segOff;
+      let shadow = 'none';
+
+      if (s < topLit) {
+        // Fully lit
+        const col = s < GREEN_CT ? C.vuGreen : (s < AMBER_CT ? C.vuAmber : C.vuRed);
+        bg = col;
+        // Topmost lit segment glows extra during transient flash
+        const isTop = (s === topLit - 1);
+        const glowSize = isTop ? (4 + flash * 6) : 4;
+        const glowAlpha = isTop ? (0.6 + flash * 0.4) : 0.55;
+        shadow = `0 0 ${glowSize}px ${col}${alphaHex(glowAlpha)}`;
+      } else if (s === topLit) {
+        // Partial-fade segment (the leading edge)
+        const col = s < GREEN_CT ? C.vuGreen : (s < AMBER_CT ? C.vuAmber : C.vuRed);
+        bg = blendColor(C.segOff, col, topFrac);
+        if (topFrac > 0.05) {
+          shadow = `0 0 ${4 * topFrac}px ${col}${alphaHex(0.4 * topFrac)}`;
+        }
+      }
+
+      seg.style.background = bg;
+      seg.style.boxShadow = shadow;
+    }
+
+    // Peak hold dot
+    const peakEl = strip.peakEls[ch];
+    if (peakState && peak > 0.02) {
+      const peakSegIdx = peak * NUM_SEGS - 1;
+      // Compute Y position from bottom
+      const yFromBottom = (peakSegIdx + 0.5) * (SEG_HEIGHT + SEG_GAP) - SEG_GAP / 2;
+      peakEl.style.bottom = yFromBottom + 'px';
+      peakEl.style.opacity = '1';
+      // Color the peak dot based on which zone the peak is in
+      const seg = Math.floor(peak * NUM_SEGS);
+      const col = seg < GREEN_CT ? '#fff' : (seg < AMBER_CT ? C.vuAmber : C.vuRed);
+      peakEl.style.background = col;
+      peakEl.style.boxShadow = `0 0 4px ${col}99, 0 0 1px ${col}`;
+    } else {
+      peakEl.style.opacity = '0';
+    }
+  }
+}
+
+function alphaHex(a) {
+  const v = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16);
+  return v.length === 1 ? '0' + v : v;
+}
+
+function blendColor(a, b, t) {
+  // a and b are hex strings #RRGGBB
+  const aR = parseInt(a.slice(1,3), 16);
+  const aG = parseInt(a.slice(3,5), 16);
+  const aB = parseInt(a.slice(5,7), 16);
+  const bR = parseInt(b.slice(1,3), 16);
+  const bG = parseInt(b.slice(3,5), 16);
+  const bB = parseInt(b.slice(5,7), 16);
+  const r = Math.round(aR + (bR - aR) * t);
+  const g = Math.round(aG + (bG - aG) * t);
+  const bl = Math.round(aB + (bB - aB) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
+// ── VU level physics ──────────────────────────────────────────────────────────
+const ATTACK_RATE = 32; // per second
+const DECAY_RATE  = 4;
+let peakState = true;
+
+function updateLevels(strip, dt, now) {
+  // Compute target level from: fader * signal * audio
+  // signal: from slider 0–1 (sustained driver)
+  // audio: from audition or external (instantaneous)
+  const faderFrac = strip.fader / 100;
+  const sigTarget = strip.signalTarget ?? 0;
+  const audition = currentAudition?.[strips.indexOf(strip)] ?? 0;
+
+  const baseLevel = Math.max(sigTarget, audition) * faderFrac;
+  // L slightly higher than R for visual interest
+  const targetL = baseLevel;
+  const targetR = baseLevel * 0.91;
+
+  // Apply attack/decay physics
+  strip.levelL = updateMeter(strip.levelL, targetL, dt);
+  strip.levelR = updateMeter(strip.levelR, targetR, dt);
+
+  // Transient flash trigger — if levelL jumps significantly, trigger flash
+  // (This is the "kiss" when a new peak comes in)
+  if (targetL > strip.levelL + 0.05) {
+    strip.transientFlashStart[0] = now;
+  }
+  if (targetR > strip.levelR + 0.05) {
+    strip.transientFlashStart[1] = now;
+  }
+  // Decay flash
+  const TRANSIENT_DUR = 120;
+  for (let ch = 0; ch < 2; ch++) {
+    const since = now - strip.transientFlashStart[ch];
+    if (since < TRANSIENT_DUR) {
+      strip.transientFlash[ch] = 1 - since / TRANSIENT_DUR;
+    } else {
+      strip.transientFlash[ch] = 0;
+    }
+  }
+
+  // Peak hold logic
+  strip.peakL = updatePeak(strip.peakL, strip.levelL, dt, strip, 0, now);
+  strip.peakR = updatePeak(strip.peakR, strip.levelR, dt, strip, 1, now);
+}
+
+function updateMeter(current, target, dt) {
+  if (target > current) {
+    const delta = (target - current) * Math.min(1, ATTACK_RATE * dt);
+    return current + delta;
+  } else {
+    const delta = (current - target) * Math.min(1, DECAY_RATE * dt);
+    return current - delta;
+  }
+}
+
+function updatePeak(currentPeak, currentLevel, dt, strip, ch, now) {
+  const lastUpdate = ch === 0 ? strip.peakLastUpdateL : strip.peakLastUpdateR;
+  if (currentLevel >= currentPeak - 0.001) {
+    // Refresh peak hold
+    if (ch === 0) strip.peakLastUpdateL = now;
+    else          strip.peakLastUpdateR = now;
+    return currentLevel;
+  } else {
+    const elapsed = now - lastUpdate;
+    if (elapsed < PEAK_HOLD_MS) return currentPeak;
+    return Math.max(currentLevel, currentPeak - PEAK_DROP_PER_SEC * dt);
+  }
+}
+
+// ── Audition: a synthetic audio signal with peaks ──────────────────────────────
+let currentAudition = null;
+let auditionStart = 0;
+let auditionActive = false;
+
+function toggleAudition() {
+  auditionActive = !auditionActive;
+  const btn = document.getElementById('audition-btn');
+  if (auditionActive) {
+    btn.classList.add('primary');
+    btn.textContent = '◼ Stop';
+    auditionStart = performance.now();
+    currentAudition = tracks.map(() => 0);
+  } else {
+    btn.classList.remove('primary');
+    btn.textContent = '♪ Audition';
+    currentAudition = null;
+  }
+}
+
+function updateAudition(now) {
+  if (!auditionActive || !currentAudition) return;
+  const t = (now - auditionStart) / 1000; // seconds
+  // Each track gets its own rhythmic pattern
+  tracks.forEach((track, i) => {
+    const beatPhase = (t * 2 + i * 0.25) % 1; // 120 BPM-ish
+    // Sharp attack at beat start, decay to next beat
+    let envelope = Math.exp(-beatPhase * 6);
+    // Off-beats for some tracks (Drums, Bass) get extra hits
+    if (i === 4) envelope = Math.max(envelope, Math.exp(-((t * 4 + 0.5) % 1) * 8));
+    if (i === 3) envelope = Math.max(envelope * 0.7, Math.exp(-((t * 2 + 0.5) % 1) * 5) * 0.85);
+    // Some random per-track variation
+    const noise = 0.85 + Math.sin(t * 0.7 + i) * 0.15;
+    currentAudition[i] = envelope * noise * (0.6 + Math.sin(t * 0.3) * 0.3);
+  });
+}
+
+// ── Toggle peak hold ──────────────────────────────────────────────────────────
+function togglePeakHold() {
+  peakState = !peakState;
+  const btn = document.getElementById('peak-toggle');
+  btn.textContent = peakState ? 'On' : 'Off';
+  btn.classList.toggle('primary', peakState);
+}
+
+// ── Startup heartbeat sequence (integrated with VU performance) ────────────────
+const BPM = 72;
+const BEAT_MS = Math.round(60000 / BPM);
+const RISE_DUR = Math.round(BEAT_MS * 0.38);
+const HOLD_DUR = Math.round(BEAT_MS * 0.12);
+const FALL_DUR = Math.round(BEAT_MS * 0.50);
+
+let isAnimatingFader = false;
+
+function animate(opts) {
+  return new Promise(resolve => {
+    const start = performance.now();
+    function tick() {
+      const elapsed = performance.now() - start;
+      const t = Math.min(1, elapsed / opts.duration);
+      const eased = (opts.easing || (x => x))(t);
+      opts.onUpdate(eased);
+      if (t < 1) requestAnimationFrame(tick);
+      else resolve();
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function setPhase(text) {
+  const el = document.getElementById('phase-readout');
+  el.style.opacity = '0';
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.opacity = '1';
+  }, 180);
+}
+
+async function heartbeatBeat(peakVol) {
+  isAnimatingFader = true;
+  await animate({
+    duration: RISE_DUR,
+    easing: easeOutQuint,
+    onUpdate: t => {
+      strips.forEach(s => {
+        s.fader = t * peakVol;
+        // VU performs alongside — meter blooms upward harder than fader for visual
+        // The meter responds to the "signal" of the heartbeat itself
+        s.signalTarget = t * 0.95;
+      });
+    }
+  });
+  await wait(HOLD_DUR);
+  // Hold — VU stays bright at peak, breathes slightly
+  await animate({
+    duration: HOLD_DUR,
+    easing: x => x,
+    onUpdate: t => {
+      // Gentle pulse
+      const breath = 0.95 + Math.sin(t * Math.PI) * 0.04;
+      strips.forEach(s => {
+        s.signalTarget = breath;
+      });
+    }
+  });
+  await animate({
+    duration: FALL_DUR,
+    easing: easeInOutQuart,
+    onUpdate: t => {
+      strips.forEach(s => {
+        s.fader = peakVol * (1 - t);
+        s.signalTarget = (1 - t) * 0.95;
+      });
+    }
+  });
+  isAnimatingFader = false;
+}
+
+async function motorizedRecall() {
+  // Stagger center-outward
+  const order = [3, 2, 4, 1, 5, 0];
+  const STAGGER = 80;
+  const promises = order.map((idx, i) =>
+    new Promise(resolve => {
+      setTimeout(() => {
+        const strip = strips[idx];
+        const target = strip.track.restVol;
+        animate({
+          duration: 520,
+          easing: t => 1 - Math.pow(1 - t, 4),
+          onUpdate: et => {
+            strip.fader = et * target;
+            // Meter follows the fader rise smoothly during recall
+            strip.signalTarget = et * 0.5;
+          }
+        }).then(() => {
+          // Quickly drop signal to its rest (slider) level
+          animate({
+            duration: 300,
+            easing: easeOutCubic,
+            onUpdate: et => {
+              const sliderTarget = parseFloat(strip.slider.value) / 100;
+              strip.signalTarget = 0.5 * (1 - et) + sliderTarget * et;
+            }
+          }).then(resolve);
+        });
+      }, i * STAGGER);
+    })
+  );
+  await Promise.all(promises);
+}
+
+let sequenceRunning = false;
+async function runStartupSequence() {
+  if (sequenceRunning) return;
+  sequenceRunning = true;
+  resetAll();
+  await wait(400);
+
+  setPhase('● Heartbeat');
+  await heartbeatBeat(78);
+  await wait(340);
+  await heartbeatBeat(62);
+  await wait(420);
+
+  setPhase('◈ Recall');
+  await motorizedRecall();
+  await wait(220);
+
+  setPhase('✓ Session ready');
+  sequenceRunning = false;
+}
+
+function resetAll() {
+  strips.forEach(s => {
+    s.fader = 0;
+    s.targetFader = 0;
+    s.levelL = 0;
+    s.levelR = 0;
+    s.peakL = 0;
+    s.peakR = 0;
+    s.signalTarget = parseFloat(s.slider.value) / 100;
+  });
+  setPhase('');
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+let lastFrame = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000); // clamp for safety
+  lastFrame = now;
+
+  // Update synthetic audition signal
+  updateAudition(now);
+
+  // Update each strip's levels (physics)
+  strips.forEach(strip => {
+    updateLevels(strip, dt, now);
+    setFaderVisual(strip, strip.fader);
+    renderVU(strip, now);
+  });
+
+  requestAnimationFrame(loop);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+init();
+requestAnimationFrame(loop);
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>
