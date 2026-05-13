@@ -33,10 +33,18 @@ When spawning a sub-agent, always set the model explicitly. Default to the least
 | `sonnet` | Standard feature implementation, component scaffolding, spec writing, code review, Figma DSM updates, UAT runs, backend contract drafting |
 | `opus` | **Requires PM approval before use** — see rule below |
 
+Opus is for tasks where the cost of a wrong answer outweighs the cost of the model. Reserve it for:
+- Highly technical audio engine or Web Audio API work where mistakes cascade
+- Complex multi-file architectural refactors with downstream risk
+- High-fidelity UI work where design precision is load-bearing (e.g. pixel-accurate DSM components, motion specs)
+- Backend contract design that the frontend will stub against for weeks
+
+Do not use opus for tasks that are merely large or time-consuming. Size is not the criterion — risk of expensive rework is.
+
 **Opus approval rule:** Before assigning `opus` to any sub-agent, stop and tell the PM:
-1. Which agent is being assigned `opus`
-2. What the task is
-3. Why `sonnet` is not sufficient (specific reasoning — not "it's complex")
+1. Which agent and what task
+2. Why `sonnet` is not sufficient — name the specific risk, not just "it's complex"
+3. What rework would look like if `sonnet` got it wrong
 
 Do not proceed until approval is given. If the PM is not available, default to `sonnet` and flag the decision in the handoff.
 
