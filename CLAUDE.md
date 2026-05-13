@@ -23,6 +23,23 @@ Never sacrifice correctness, accessibility, maintainability, design quality, cod
 
 Be frugal with exploration, not with quality.
 
+### Model selection for sub-agents
+
+When spawning a sub-agent, always set the model explicitly. Default to the least capable model that can complete the task at the required quality level.
+
+| Model | Use when |
+|---|---|
+| `haiku` | Status updates, docs edits, issue/label creation, simple formatting, low-risk file moves, checklist generation |
+| `sonnet` | Standard feature implementation, component scaffolding, spec writing, code review, Figma DSM updates, UAT runs, backend contract drafting |
+| `opus` | **Requires PM approval before use** — see rule below |
+
+**Opus approval rule:** Before assigning `opus` to any sub-agent, stop and tell the PM:
+1. Which agent is being assigned `opus`
+2. What the task is
+3. Why `sonnet` is not sufficient (specific reasoning — not "it's complex")
+
+Do not proceed until approval is given. If the PM is not available, default to `sonnet` and flag the decision in the handoff.
+
 ---
 
 ## Source of truth
