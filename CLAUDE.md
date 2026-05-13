@@ -6,14 +6,22 @@ These instructions apply to every agent and every session. Read this before star
 
 ## Resource stewardship
 
-Follow `.claude/TOKEN_EFFICIENCY.md` before starting any task.
+Read and follow `.claude/TOKEN_EFFICIENCY.md`.
 
-**Core principle:** Be frugal with exploration, not with quality.
+The goal is not to be cheap. The goal is to spend tokens intelligently while preserving quality.
 
-- Use only the context required to complete the task safely and well
-- Do not over-read, over-search, or inspect unrelated files just in case
-- Never sacrifice correctness, accessibility, design quality, code quality, maintainability, or source-of-truth alignment to save tokens
-- Stopping early when blocked is cheaper than confidently building the wrong thing
+Before starting any task, identify:
+1. the required outcome
+2. the smallest reliable context needed
+3. what context can be ignored
+4. whether the task should be split
+5. whether clarification would prevent meaningful rework
+
+Do not over-read the repo, inspect unrelated files, process images, or use heavy reasoning modes unless the task requires it.
+
+Never sacrifice correctness, accessibility, maintainability, design quality, code quality, validation, or source-of-truth alignment to save tokens.
+
+Be frugal with exploration, not with quality.
 
 ---
 
