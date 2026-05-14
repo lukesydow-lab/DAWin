@@ -23,7 +23,7 @@ jobs:
         run: npm ci
 
       - name: Run tsc --noEmit
-        run: npx tsc --noEmit
+        run: npx tsc --noEmit --noUnusedLocals --noUnusedParameters
 
   build:
     name: Vite build
