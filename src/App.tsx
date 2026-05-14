@@ -1037,8 +1037,16 @@ function PanKnob({ pan, onChange }: { pan: number; onChange?: (v: number) => voi
         <div className="relative flex-1 flex justify-end" style={{ background: C.well }}>
           <div style={{ width: `${leftFill * 100}%`, height: '100%', background: C.accent, borderRadius: '2px 0 0 2px' }} />
         </div>
-        {/* Center notch */}
-        <div style={{ width: 1, background: C.border, flexShrink: 0 }} />
+        {/* Center notch — brightens and extends when at exact center */}
+        <div style={{
+          width: pan === 0 ? 2 : 1,
+          background: pan === 0 ? C.textPri : C.border,
+          flexShrink: 0,
+          marginTop: pan === 0 ? -2 : 0,
+          marginBottom: pan === 0 ? -2 : 0,
+          borderRadius: 1,
+          transition: 'background 0.1s, width 0.1s',
+        }} />
         {/* Right half */}
         <div className="relative flex-1" style={{ background: C.well }}>
           <div style={{ width: `${rightFill * 100}%`, height: '100%', background: C.accent, borderRadius: '0 2px 2px 0' }} />
