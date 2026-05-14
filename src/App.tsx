@@ -177,6 +177,7 @@ const INITIAL_TRACKS: Track[] = [
 // Single shared AudioContext — created on first user gesture to satisfy autoplay policy.
 let _audioCtx: AudioContext | null = null
 let _masterGain: GainNode | null = null
+let _masterPanner: StereoPannerNode | null = null
 let _masterAnalyser: AnalyserNode | null = null
 
 function getAudioCtx(): AudioContext {
@@ -184,10 +185,14 @@ function getAudioCtx(): AudioContext {
     _audioCtx = new AudioContext()
     _masterGain = _audioCtx.createGain()
     _masterGain.gain.value = 0.95
+    _masterPanner = _audioCtx.createStereoPanner()
+    _masterPanner.pan.value = 0
     _masterAnalyser = _audioCtx.createAnalyser()
     _masterAnalyser.fftSize = 256
     _masterAnalyser.smoothingTimeConstant = 0
-    _masterGain.connect(_masterAnalyser)
+    // Signal chain: _masterGain → _masterPanner → _masterAnalyser → destination
+    _masterGain.connect(_masterPanner)
+    _masterPanner.connect(_masterAnalyser)
     _masterAnalyser.connect(_audioCtx.destination)
   }
   if (_audioCtx.state === 'suspended') _audioCtx.resume()
@@ -893,8 +898,9 @@ function StudioFader({ value, onChange, height = 80, ariaLabel = 'Volume' }: {
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'ArrowUp')   { e.preventDefault(); onChange?.(Math.min(100, Math.round(value) + 1)) }
-    if (e.key === 'ArrowDown') { e.preventDefault(); onChange?.(Math.max(0,   Math.round(value) - 1)) }
+    const step = e.shiftKey ? 10 : 1
+    if (e.key === 'ArrowUp')   { e.preventDefault(); onChange?.(clamp(Math.round(value) + step, 0, 100)) }
+    if (e.key === 'ArrowDown') { e.preventDefault(); onChange?.(clamp(Math.round(value) - step, 0, 100)) }
   }
 
   const trackLeft = (capW - trackW) / 2
@@ -2387,7 +2393,7 @@ const MixerStrip = ({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
           </div>
 
           {/* Fader */}
-          <StudioFader value={track.volume} onChange={onVolChange} height={VU_HEIGHT} />
+          <StudioFader value={track.volume} onChange={onVolChange} height={VU_HEIGHT} ariaLabel={`${track.name} volume`} />
         </div>
 
         {/* dB read-out — aria-live so screen readers pick up level changes */}
@@ -2426,6 +2432,12 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
   useEffect(() => {
     if (_masterGain) _masterGain.gain.value = masterVol / 100
   }, [masterVol])
+
+  // Wire masterPan → _masterPanner whenever it changes
+  // pan state is 0 (center) defaulting; maps -100..100 → -1..1
+  useEffect(() => {
+    if (_masterPanner) _masterPanner.pan.value = masterPan / 100
+  }, [masterPan])
 
   // Per-strip handles: DOM refs for the rAF loop to write to
   const stripHandlesRefs = useRef<(React.MutableRefObject<MixerStripHandles | null>)[]>([])
