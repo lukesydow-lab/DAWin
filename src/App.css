@@ -3,14 +3,23 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-  /* overflow: clip prevents focus-triggered programmatic scrollLeft on #root,
+  /* overflow: clip prevents focus-triggered programmatic scrollLeft on html/body,
      which would shift the 1280px min-width layout left in narrow viewports.
-     Unlike overflow: hidden, clip does not create a scroll container at all. */
+     Unlike overflow: hidden, clip does not create a scroll container at all.
+     NOTE: #root must NOT have overflow: clip — it creates a containing block
+     for position:fixed children, anchoring them to the document instead of
+     the viewport (confirmed: PluginChainPanel at left:1921 on 1920px viewport). */
   overflow: clip;
+}
+
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 /* Custom scrollbar for dark UI */
