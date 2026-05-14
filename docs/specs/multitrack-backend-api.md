@@ -100,6 +100,8 @@ GET    /api/v1/auth/me                → User
 
 `GET /api/v1/auth/me` requires `Authorization: Bearer <jwt>` and returns the `User` record for the identity encoded in the token. This is the canonical initialization call — the frontend must call it on app load to replace the hardcoded `CURRENT_USER` constant. For guest accounts, `User.email` is `null` and `User.isGuest` is `true`. Returns `401` if the token is missing, malformed, or expired.
 
+> **Resolution (Sprint 2):** `GET /api/v1/auth/me` is a confirmed endpoint. Response shape: `{ userId, sessionId, role, color }` decoded from the JWT claims, plus the full `User` record. The frontend calls this on mount to hydrate session identity, replacing the hardcoded `CURRENT_USER` seed constant. For the scaffold stub, the dev route returns a hardcoded dev user with `role: "owner"` and a fixed collaborator color. Guest accounts return `email: null, isGuest: true`.
+
 ### Sessions
 ```
 POST   /api/v1/sessions               CreateSessionBody → Session
@@ -146,6 +148,8 @@ PUT    /api/v1/sessions/:id/master-chain                     UpdatePluginChainBo
 
 **PUT chain semantics — full replacement:** `PUT` replaces the entire plugin chain in a single atomic write. Any plugin whose `id` is present in the current persisted chain but absent from `UpdatePluginChainBody.plugins` is permanently deleted. New plugins are identified by the absence of an `id` field — the server assigns and returns a fresh `PluginId` for each. The client must treat the returned `PluginChain` as the new source of truth and discard any locally-held plugin IDs that do not appear in the response. Frontend and backend must implement this identical semantics; partial-update behavior via PUT is explicitly not supported.
 
+> **Resolution (Sprint 2):** `PUT /api/v1/sessions/:id/tracks/:trackId/chain` accepts the full ordered plugin array as the request body (`UpdatePluginChainBody.plugins`). Sending `{ plugins: [] }` clears the chain entirely. There is no separate DELETE endpoint for individual plugins — remove a plugin by omitting it from the array. The server returns the canonical `PluginChain` (with server-assigned IDs for any new plugins) as the response; the client replaces its local chain state with this response.
+
 ### Audio Assets
 ```
 POST   /api/v1/assets/upload/init                   AudioUploadInitBody → AudioUploadInitResponse
@@ -158,6 +162,8 @@ POST   /api/v1/assets/import                        multipart/form-data → Audi
 
 **Upload timeout — orphaned session cleanup:** If no new chunk `PUT` is received for an in-flight upload within **5 minutes** of the last activity (or of `upload/init` if no chunks have arrived), the server treats the upload as abandoned. It frees the in-memory chunk buffer, deletes any partial `AudioAsset` record written during init, and rejects any subsequent `PUT` or `POST .../complete` for that `uploadId` with `410 Gone`. This prevents orphaned buffers from accumulating when clients crash or lose connectivity mid-recording. The pre-assigned `assetId` from `AudioUploadInitResponse` is also invalidated — any `Clip` row referencing it must be cleaned up or re-associated after a successful retry. The 5-minute window resets on each successful chunk receipt.
 
+> **Resolution (Sprint 2):** The blob upload endpoint (`POST /api/v1/sessions/:id/tracks/:trackId/audio`, or the equivalent multipart import endpoint) enforces a **30-second** per-request timeout enforced at the HTTP server layer (Fastify `connectionTimeout` / request-level `setTimeout`). If the request body is not fully received within 30 seconds, the server closes the connection and responds with `408 Request Timeout` and body `{ "error": "upload_timeout" }`. This is distinct from the 5-minute orphaned-session cleanup above — the 30-second limit applies per individual HTTP request; the 5-minute window applies to the total inactivity window across all chunk PUTs for a given `uploadId`.
+
 ---
 
 ## WebSocket
@@ -167,6 +173,8 @@ POST   /api/v1/assets/import                        multipart/form-data → Audi
 Binary audio frames: raw bytes prefixed with magic `0xDAW1` (4 bytes). All other frames: JSON `WsMessage<T>`.
 
 **Security — server stamps `WsMessage.from`:** The server always overwrites the `from` field in every outbound `WsMessage<T>` with the authenticated `userId` derived from the WS ticket. Any `from` value supplied by the client in the incoming JSON frame is silently discarded before the message is processed or fanned out. This prevents a client from impersonating another user's `userId` on the WebSocket channel. The frontend stub must not rely on a client-provided `from` value being echoed back unchanged.
+
+> **Resolution (Sprint 2):** `WsMessage.from` is stamped server-side on receipt. The client-facing outbound message shape is `{ type, sessionId, payload }` — no `from` field. The server reads `userId` from the authenticated WS ticket and appends `from: userId` before broadcasting to all session peers. Any `from` value in an inbound client frame is silently discarded. Frontend stubs must send `{ type, sessionId, payload }` only.
 
 ### Event types
 
