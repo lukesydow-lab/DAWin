@@ -41,8 +41,7 @@ const CURRENT_USER = COLLABORATORS[0]
 const IS_VIEWER = CURRENT_USER.role === 'Viewer'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type FadeCurve = 'linear' | 'ease' | 'sharp'
-type Tool = 'select' | 'cut' | 'crossfade'
+type Tool = 'select' | 'cut'
 
 interface ClipData {
   id: string
@@ -51,8 +50,9 @@ interface ClipData {
   label: string
   fadeIn: number       // bars
   fadeOut: number      // bars
-  fadeInCurve: FadeCurve
-  fadeOutCurve: FadeCurve
+  fadeInCurve: number  // bezier tension 0..1, 0.5 = linear
+  fadeOutCurve: number // bezier tension 0..1, 0.5 = linear
+  crossfadeLocked: boolean // true = symmetry lock: dragging one curve mirrors partner (equal-power mode)
   assetUrl: string | null  // synthetic key referencing a procedural audio generator
 }
 
@@ -93,6 +93,9 @@ interface DragState {
   barOffset: number    // click position within clip, in bars
   previewBar: number
   valid: boolean       // cross-track type compatibility
+  // Pre-overlap fade lengths — stored when overlap is first detected, restored on separation
+  _preFadeIn: number | null
+  _preFadeOut: number | null
 }
 
 interface CtxMenu {
@@ -155,7 +158,8 @@ const AUDIO_KEY = {
 let _clipSeq = 0
 const mkClip = (bar: number, len: number, label: string, assetUrl: string | null = null): ClipData => ({
   id: `clip-${++_clipSeq}`, bar, len, label,
-  fadeIn: 0, fadeOut: 0, fadeInCurve: 'ease', fadeOutCurve: 'ease',
+  fadeIn: 0, fadeOut: 0, fadeInCurve: 0.7, fadeOutCurve: 0.7,
+  crossfadeLocked: true,
   assetUrl,
 })
 
@@ -491,18 +495,56 @@ function formatDb(db: number): string {
   return `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`
 }
 
-// SVG path for fade curve
-function fadePath(w: number, h: number, curve: FadeCurve, dir: 'in' | 'out'): string {
+// Bezier fade gain: gain(t) = 2·curve·t·(1−t) + t² where curve ∈ [0.05, 0.95]
+// At curve=0.5 this reduces to gain(t)=t (linear).
+function fadeGain(t: number, curve: number): number {
+  return 2 * curve * t * (1 - t) + t * t
+}
+
+// SVG path for the filled fade overlay (darkened region representing attenuation)
+function fadePath(w: number, h: number, curve: number, dir: 'in' | 'out'): string {
+  const N = 32
   if (dir === 'in') {
-    if (curve === 'linear') return `M0,${h} L${w},0 L${w},${h} Z`
-    if (curve === 'ease')   return `M0,${h} Q${w * 0.1},${h * 0.5} ${w},0 L${w},${h} Z`
-    // sharp
-    return `M0,${h} L${w * 0.8},${h} L${w},0 L${w},${h} Z`
+    // Fade-in: gain goes 0→1. The dark overlay covers the gain-attenuated area (below the gain curve).
+    // We trace the bottom of the clip up through the bezier gain curve.
+    let pts = `M0,${h}`
+    for (let i = 0; i <= N; i++) {
+      const t = i / N
+      const g = fadeGain(t, curve)
+      pts += ` L${t * w},${h * (1 - g)}`
+    }
+    pts += ` L${w},${h} Z`
+    return pts
   } else {
-    if (curve === 'linear') return `M0,0 L${w},${h} L0,${h} Z`
-    if (curve === 'ease')   return `M0,0 Q${w * 0.9},${h * 0.5} ${w},${h} L0,${h} Z`
-    return `M0,0 L${w * 0.2},0 L${w},${h} L0,${h} Z`
+    // Fade-out: gain goes 1→0. Overlay covers area above the gain curve.
+    let pts = `M0,0`
+    for (let i = 0; i <= N; i++) {
+      const t = i / N
+      const g = fadeGain(t, curve)
+      const fadeOutGain = 1 - g
+      pts += ` L${t * w},${h * (1 - fadeOutGain)}`
+    }
+    pts += ` L${w},${h} L0,${h} Z`
+    return pts
   }
+}
+
+// SVG polyline path tracing just the gain curve line (for the visible curve overlay)
+function fadeCurveLine(w: number, h: number, curve: number, dir: 'in' | 'out'): string {
+  const N = 32
+  const pts: string[] = []
+  for (let i = 0; i <= N; i++) {
+    const t = i / N
+    const g = dir === 'in' ? fadeGain(t, curve) : 1 - fadeGain(t, curve)
+    pts.push(`${t * w},${h * (1 - g)}`)
+  }
+  return 'M' + pts.join(' L')
+}
+
+// Midpoint handle Y position for a given curve and direction
+function fadeMidpointY(h: number, curve: number, dir: 'in' | 'out'): number {
+  const g = dir === 'in' ? fadeGain(0.5, curve) : 1 - fadeGain(0.5, curve)
+  return h * (1 - g)
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
@@ -851,9 +893,8 @@ function PanKnob({ pan, onChange }: { pan: number; onChange?: (v: number) => voi
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
 function Toolbar({ tool, setTool }: { tool: Tool; setTool: (t: Tool) => void }) {
   const tools: { id: Tool; icon: string; label: string }[] = [
-    { id: 'select',    icon: '↖',  label: 'Select (V)' },
-    { id: 'cut',       icon: '✂',  label: 'Cut / Razor (C)' },
-    { id: 'crossfade', icon: '⋈',  label: 'Crossfade (X)' },
+    { id: 'select', icon: '↖', label: 'Select (V)' },
+    { id: 'cut',    icon: '✂', label: 'Cut / Razor (C)' },
   ]
   return (
     <div className="flex items-center gap-1 px-3 flex-shrink-0 border-b border-r"
@@ -867,9 +908,8 @@ function Toolbar({ tool, setTool }: { tool: Tool; setTool: (t: Tool) => void }) 
         </button>
       ))}
       <span className="text-xs ml-2" style={{ color: C.textSec }}>
-        {tool === 'select' ? 'Drag to move · handles to resize · fade triangles to adjust fades' :
-         tool === 'cut'    ? 'Click clip to split at cursor' :
-                             'Drag overlap between two clips to crossfade'}
+        {tool === 'select' ? 'Drag to move · handles to resize · fade triangles to adjust · drag midpoint handle to bend curve' :
+                             'Click clip to split at cursor'}
       </span>
     </div>
   )
@@ -951,15 +991,25 @@ interface ClipProps {
   tool: Tool
   isDragging: boolean
   isGhost: boolean
+  selected: boolean
   onDragStart: (clipId: string, trackId: string, mode: DragState['mode'], e: React.MouseEvent, barOffset?: number) => void
   onContextMenu: (e: React.MouseEvent, clipId: string, trackId: string) => void
   onCut: (clipId: string, trackId: string, bar: number) => void
   onUpdate: (trackId: string, clipId: string, patch: Partial<ClipData>) => void
+  onSelect: (clipId: string) => void
   audioCtxReady: boolean
 }
 
-function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMenu, onCut, onUpdate, audioCtxReady }: ClipProps) {
+interface FadeHandleDrag {
+  dir: 'in' | 'out'
+  startY: number
+  startCurve: number
+  clipH: number
+}
+
+function Clip({ clip, track, tool, isDragging, isGhost, selected, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady }: ClipProps) {
   const [hovered, setHovered] = useState(false)
+  const [fadeDrag, setFadeDrag] = useState<FadeHandleDrag | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const clipW = clip.len * BAR_W - 4
   const clipH = TRACK_H - 12 // top-1.5 + bottom-1.5 = 12px total
@@ -1048,6 +1098,48 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
 
   const fadeInPx  = clip.fadeIn  * BAR_W
   const fadeOutPx = clip.fadeOut * BAR_W
+  const showHandles = (hovered || fadeDrag !== null) && tool === 'select'
+
+  // Fade curve handle drag — attached to window to capture mouse outside the SVG
+  useEffect(() => {
+    if (!fadeDrag) return
+    function onMove(e: MouseEvent) {
+      const rawY = fadeDrag!.startY + (e.clientY - fadeDrag!.startY) + (e.clientY - fadeDrag!.startY)
+      // Compute new curve from absolute mouse Y relative to clip top
+      // We need a ref to the clip element — compute via initial startY and current mouse
+      // Strategy: track delta from drag start, map to curve delta
+      const deltaY = e.clientY - fadeDrag!.startY
+      const normalizedDelta = deltaY / fadeDrag!.clipH
+      let newCurve = fadeDrag!.startCurve - normalizedDelta
+      // Snap to 0.5 within 4px of center
+      const midPixelY = fadeDrag!.clipH * (fadeDrag!.dir === 'in'
+        ? (1 - fadeGain(0.5, 0.5))
+        : (1 - (1 - fadeGain(0.5, 0.5))))
+      const currentPixelY = fadeDrag!.clipH * (1 - fadeGain(0.5, newCurve))
+      if (Math.abs(currentPixelY - midPixelY) < 4) newCurve = 0.5
+      newCurve = clamp(newCurve, 0.05, 0.95)
+      const patch: Partial<ClipData> = fadeDrag!.dir === 'in'
+        ? { fadeInCurve: newCurve }
+        : { fadeOutCurve: newCurve }
+      onUpdate(track.id, clip.id, patch)
+    }
+    function onUp() { setFadeDrag(null) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [fadeDrag, clip.id, track.id, onUpdate])
+
+  function startFadeHandleDrag(e: React.MouseEvent, dir: 'in' | 'out') {
+    e.stopPropagation()
+    e.preventDefault()
+    setFadeDrag({
+      dir,
+      startY: e.clientY,
+      startCurve: dir === 'in' ? clip.fadeInCurve : clip.fadeOutCurve,
+      clipH,
+    })
+    onSelect(clip.id)
+  }
 
   function handleBodyMouseDown(e: React.MouseEvent) {
     if (tool === 'cut') return
@@ -1055,6 +1147,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const clickXInClip = e.clientX - rect.left
     const barOffset = clickXInClip / BAR_W
+    onSelect(clip.id)
     onDragStart(clip.id, track.id, 'move', e, barOffset)
   }
 
@@ -1077,7 +1170,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
         background: texture,
         borderLeft: `2px solid ${track.owner.color}`,
         boxShadow: `inset 0 0 0 1px ${track.owner.color}44`,
-        outline: hovered && !isDragging ? `1px solid ${track.owner.color}88` : 'none',
+        outline: (hovered || selected) && !isDragging ? `1px solid ${track.owner.color}88` : 'none',
         opacity: isGhost ? 0.35 : isDragging ? 0.85 : track.muted ? 0.5 : 1,
         filter: hovered ? 'brightness(1.12)' : 'brightness(1)',
         cursor: tool === 'cut' ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
@@ -1099,17 +1192,50 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
         />
       )}
 
-      {/* Fade-in SVG overlay */}
+      {/* Fade-in SVG overlay + bezier curve line + midpoint handle */}
       {fadeInPx > 0 && (
-        <svg className="absolute top-0 left-0 pointer-events-none" style={{ width: fadeInPx, height: '100%' }} preserveAspectRatio="none" viewBox={`0 0 ${fadeInPx} ${clipH}`}>
-          <path d={fadePath(fadeInPx, clipH, clip.fadeInCurve, 'in')} fill={C.bg} opacity="0.72" />
+        <svg className="absolute top-0 left-0" style={{ width: fadeInPx, height: '100%', overflow: 'visible', zIndex: 12 }}
+          preserveAspectRatio="none" viewBox={`0 0 ${fadeInPx} ${clipH}`}>
+          {/* Dark attenuation fill */}
+          <path d={fadePath(fadeInPx, clipH, clip.fadeInCurve, 'in')} fill={C.bg} opacity="0.72" style={{ pointerEvents: 'none' }} />
+          {/* Visible bezier curve line */}
+          {showHandles && (
+            <>
+              <path d={fadeCurveLine(fadeInPx, clipH, clip.fadeInCurve, 'in')}
+                fill="none" stroke={track.owner.color} strokeWidth="1.5"
+                style={{ filter: `drop-shadow(0 0 4px ${track.owner.color})`, pointerEvents: 'none' }} />
+              {/* Midpoint drag handle */}
+              <circle
+                cx={fadeInPx * 0.5}
+                cy={fadeMidpointY(clipH, clip.fadeInCurve, 'in')}
+                r="5" fill="white" opacity="0.9"
+                style={{ cursor: 'ns-resize', pointerEvents: 'all' }}
+                onMouseDown={e => startFadeHandleDrag(e as unknown as React.MouseEvent, 'in')}
+              />
+            </>
+          )}
         </svg>
       )}
 
-      {/* Fade-out SVG overlay */}
+      {/* Fade-out SVG overlay + bezier curve line + midpoint handle */}
       {fadeOutPx > 0 && (
-        <svg className="absolute top-0 pointer-events-none" style={{ right: 0, width: fadeOutPx, height: '100%' }} preserveAspectRatio="none" viewBox={`0 0 ${fadeOutPx} ${clipH}`}>
-          <path d={fadePath(fadeOutPx, clipH, clip.fadeOutCurve, 'out')} fill={C.bg} opacity="0.72" />
+        <svg className="absolute top-0" style={{ right: 0, width: fadeOutPx, height: '100%', overflow: 'visible', zIndex: 12 }}
+          preserveAspectRatio="none" viewBox={`0 0 ${fadeOutPx} ${clipH}`}>
+          <path d={fadePath(fadeOutPx, clipH, clip.fadeOutCurve, 'out')} fill={C.bg} opacity="0.72" style={{ pointerEvents: 'none' }} />
+          {showHandles && (
+            <>
+              <path d={fadeCurveLine(fadeOutPx, clipH, clip.fadeOutCurve, 'out')}
+                fill="none" stroke={track.owner.color} strokeWidth="1.5"
+                style={{ filter: `drop-shadow(0 0 4px ${track.owner.color})`, pointerEvents: 'none' }} />
+              <circle
+                cx={fadeOutPx * 0.5}
+                cy={fadeMidpointY(clipH, clip.fadeOutCurve, 'out')}
+                r="5" fill="white" opacity="0.9"
+                style={{ cursor: 'ns-resize', pointerEvents: 'all' }}
+                onMouseDown={e => startFadeHandleDrag(e as unknown as React.MouseEvent, 'out')}
+              />
+            </>
+          )}
         </svg>
       )}
 
@@ -1145,7 +1271,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
       {tool === 'select' && (
         <div title="Drag to adjust fade in"
           className="absolute top-0"
-          style={{ left: Math.max(HANDLE_W, fadeInPx - FADE_HDL_W / 2), width: FADE_HDL_W, height: FADE_HDL_W, cursor: 'ew-resize', zIndex: 11 }}
+          style={{ left: Math.max(HANDLE_W, fadeInPx - FADE_HDL_W / 2), width: FADE_HDL_W, height: FADE_HDL_W, cursor: 'ew-resize', zIndex: 13 }}
           onMouseDown={e => { e.stopPropagation(); onDragStart(clip.id, track.id, 'fade-in', e) }}
         >
           <svg width={FADE_HDL_W} height={FADE_HDL_W} viewBox="0 0 12 12">
@@ -1158,41 +1284,12 @@ function Clip({ clip, track, tool, isDragging, isGhost, onDragStart, onContextMe
       {tool === 'select' && (
         <div title="Drag to adjust fade out"
           className="absolute top-0"
-          style={{ right: Math.max(HANDLE_W, fadeOutPx - FADE_HDL_W / 2), width: FADE_HDL_W, height: FADE_HDL_W, cursor: 'ew-resize', zIndex: 11 }}
+          style={{ right: Math.max(HANDLE_W, fadeOutPx - FADE_HDL_W / 2), width: FADE_HDL_W, height: FADE_HDL_W, cursor: 'ew-resize', zIndex: 13 }}
           onMouseDown={e => { e.stopPropagation(); onDragStart(clip.id, track.id, 'fade-out', e) }}
         >
           <svg width={FADE_HDL_W} height={FADE_HDL_W} viewBox="0 0 12 12">
             <polygon points="12,0 0,0 0,12" fill={track.owner.color} opacity={hovered ? 0.9 : 0.55} />
           </svg>
-        </div>
-      )}
-
-      {/* Fade curve picker — shown on hover when fade exists */}
-      {hovered && tool === 'select' && (clip.fadeIn > 0 || clip.fadeOut > 0) && (
-        <div className="absolute bottom-0 right-1 flex gap-0.5 pb-0.5 pointer-events-auto" style={{ zIndex: 15 }}>
-          {(['linear', 'ease', 'sharp'] as FadeCurve[]).map(curve => {
-            const activeCurve = clip.fadeIn > 0 ? clip.fadeInCurve : clip.fadeOutCurve
-            const isActive = activeCurve === curve
-            return (
-              <span key={curve} className="text-xs rounded px-0.5 cursor-pointer transition-all hover:brightness-125"
-                style={{
-                  fontSize: 8,
-                  background: isActive ? C.accent : C.control,
-                  color: isActive ? '#fff' : C.textSec,
-                  lineHeight: '14px',
-                }}
-                onMouseDown={e => {
-                  e.stopPropagation()
-                  const patch: Partial<ClipData> = {}
-                  if (clip.fadeIn > 0)  patch.fadeInCurve  = curve
-                  if (clip.fadeOut > 0) patch.fadeOutCurve = curve
-                  onUpdate(track.id, clip.id, patch)
-                }}
-                title={`Fade curve: ${curve}`}>
-                {curve === 'linear' ? '—' : curve === 'ease' ? '∫' : '⌐'}
-              </span>
-            )
-          })}
         </div>
       )}
     </div>
@@ -1379,9 +1476,11 @@ interface ArrangeViewProps {
   tool: Tool
   setTool: (t: Tool) => void
   audioCtxReady: boolean
+  selectedClipId: string | null
+  onSelectClip: (clipId: string) => void
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -1447,6 +1546,45 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     void deltaY
   }, [drag, tracks, setTracks])
 
+  // Apply overlap-based crossfade auto-extension on a track's clips after a move.
+  // For each clip pair that overlaps, extends fadeOut of earlier and fadeIn of later to overlap length.
+  // If clips no longer overlap and preFade values are stored, restores them.
+  function applyOverlapFades(clips: ClipData[], movedClipId: string, preFadeIn: number | null, preFadeOut: number | null): ClipData[] {
+    const sorted = [...clips].sort((a, b) => a.bar - b.bar)
+    return sorted.map((clip, i) => {
+      if (i === 0) return clip
+      const prev = sorted[i - 1]
+      const overlapStart = clip.bar
+      const overlapEnd   = prev.bar + prev.len
+      const overlapBars  = overlapEnd - overlapStart
+      if (overlapBars > 0) {
+        // Clips overlap — auto-extend fades to match overlap
+        if (clip.id === movedClipId) {
+          return { ...clip, fadeIn: Math.max(clip.fadeIn, overlapBars) }
+        }
+        if (prev.id === movedClipId) {
+          return clip // prev handled below via its own pass
+        }
+        return { ...clip, fadeIn: Math.max(clip.fadeIn, overlapBars) }
+      } else if (clip.id === movedClipId && preFadeIn !== null) {
+        // No longer overlapping — restore pre-overlap fade
+        return { ...clip, fadeIn: preFadeIn }
+      }
+      return clip
+    }).map((clip, i, arr) => {
+      if (i >= arr.length - 1) return clip
+      const next = arr[i + 1]
+      const overlapEnd   = clip.bar + clip.len
+      const overlapBars  = overlapEnd - next.bar
+      if (overlapBars > 0 && clip.id === movedClipId) {
+        return { ...clip, fadeOut: Math.max(clip.fadeOut, overlapBars) }
+      } else if (overlapBars <= 0 && clip.id === movedClipId && preFadeOut !== null) {
+        return { ...clip, fadeOut: preFadeOut }
+      }
+      return clip
+    })
+  }
+
   const handleMouseUp = useCallback(() => {
     if (!drag) return
     if (drag.mode === 'move') {
@@ -1458,14 +1596,16 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
           const newClip   = { ...clip, bar: drag.previewBar }
           return prev.map(t => {
             if (t.id === drag.sourceTrackId) return { ...t, clips: t.clips.filter(c => c.id !== drag.clipId) }
-            if (t.id === drag.targetTrackId) return { ...t, clips: [...t.clips, newClip] }
+            if (t.id === drag.targetTrackId) return { ...t, clips: applyOverlapFades([...t.clips, newClip], drag.clipId, drag._preFadeIn, drag._preFadeOut) }
             return t
           })
         })
       } else if (drag.valid) {
-        // Same-track move
-        setTracks(prev => prev.map(t => t.id !== drag.sourceTrackId ? t : {
-          ...t, clips: t.clips.map(c => c.id !== drag.clipId ? c : { ...c, bar: drag.previewBar })
+        // Same-track move — apply overlap crossfade extension
+        setTracks(prev => prev.map(t => {
+          if (t.id !== drag.sourceTrackId) return t
+          const movedClips = t.clips.map(c => c.id !== drag.clipId ? c : { ...c, bar: drag.previewBar })
+          return { ...t, clips: applyOverlapFades(movedClips, drag.clipId, drag._preFadeIn, drag._preFadeOut) }
         }))
       }
     }
@@ -1493,6 +1633,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
       startBar: clip.bar, startLen: clip.len,
       startFadeIn: clip.fadeIn, startFadeOut: clip.fadeOut,
       barOffset, previewBar: clip.bar, valid: true,
+      _preFadeIn: null, _preFadeOut: null,
     })
   }
 
@@ -1513,9 +1654,62 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
   }
 
   // ── Clip field update ─────────────────────────────────────────────────────────
+  // When a fade curve is updated on a clip that is part of a locked crossfade pair,
+  // the partner clip's opposing curve is mirrored as (1 - dragValue) atomically.
+  // Only meaningful when two clips on the same track overlap (crossfade region exists).
   function updateClip(trackId: string, clipId: string, patch: Partial<ClipData>) {
-    setTracks(prev => prev.map(t => t.id !== trackId ? t : {
-      ...t, clips: t.clips.map(c => c.id !== clipId ? c : { ...c, ...patch })
+    setTracks(prev => prev.map(t => {
+      if (t.id !== trackId) return t
+      const updatedClips = t.clips.map(c => c.id !== clipId ? c : { ...c, ...patch })
+      const changedClip = updatedClips.find(c => c.id === clipId)
+      if (!changedClip || !changedClip.crossfadeLocked) return { ...t, clips: updatedClips }
+
+      // Detect overlap partner: find the clip whose end overlaps this clip's start (prev),
+      // or whose start overlaps this clip's end (next).
+      const sorted = [...updatedClips].sort((a, b) => a.bar - b.bar)
+      const idx = sorted.findIndex(c => c.id === clipId)
+
+      let mirroredClips = updatedClips
+
+      if ('fadeInCurve' in patch && idx > 0) {
+        const prev = sorted[idx - 1]
+        const overlapBars = (prev.bar + prev.len) - changedClip.bar
+        if (overlapBars > 0 && prev.crossfadeLocked) {
+          // changedClip's fadeIn was dragged → mirror as prev's fadeOut = 1 - n
+          mirroredClips = mirroredClips.map(c =>
+            c.id === prev.id ? { ...c, fadeOutCurve: 1 - (patch.fadeInCurve as number) } : c
+          )
+        }
+      }
+
+      if ('fadeOutCurve' in patch && idx < sorted.length - 1) {
+        const next = sorted[idx + 1]
+        const overlapBars = (changedClip.bar + changedClip.len) - next.bar
+        if (overlapBars > 0 && next.crossfadeLocked) {
+          // changedClip's fadeOut was dragged → mirror as next's fadeIn = 1 - n
+          mirroredClips = mirroredClips.map(c =>
+            c.id === next.id ? { ...c, fadeInCurve: 1 - (patch.fadeOutCurve as number) } : c
+          )
+        }
+      }
+
+      return { ...t, clips: mirroredClips }
+    }))
+  }
+
+  // ── Crossfade lock toggle ─────────────────────────────────────────────────────
+  function toggleCrossfadeLock(trackId: string, clipIdA: string, clipIdB: string) {
+    setTracks(prev => prev.map(t => {
+      if (t.id !== trackId) return t
+      const clipA = t.clips.find(c => c.id === clipIdA)
+      if (!clipA) return t
+      const newLocked = !clipA.crossfadeLocked
+      return {
+        ...t,
+        clips: t.clips.map(c =>
+          c.id === clipIdA || c.id === clipIdB ? { ...c, crossfadeLocked: newLocked } : c
+        ),
+      }
     }))
   }
 
@@ -1648,10 +1842,12 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                           <Clip key={clip.id} clip={displayClip} track={track} tool={tool}
                             isDragging={isThisDragging && drag?.targetTrackId === track.id}
                             isGhost={isGhost}
+                            selected={selectedClipId === clip.id}
                             onDragStart={startDrag}
                             onContextMenu={openCtxMenu}
                             onCut={cutClip}
                             onUpdate={updateClip}
+                            onSelect={onSelectClip}
                             audioCtxReady={audioCtxReady} />
                         )
                       })
@@ -1662,6 +1858,58 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                       </div>
                     )
                   }
+
+                  {/* Crossfade lock icons — one per overlapping clip pair */}
+                  {(() => {
+                    const sorted = [...track.clips].sort((a, b) => a.bar - b.bar)
+                    return sorted.slice(0, -1).flatMap((clipA, i) => {
+                      const clipB = sorted[i + 1]
+                      const overlapBars = (clipA.bar + clipA.len) - clipB.bar
+                      if (overlapBars <= 0) return []
+                      // Center of the crossfade zone in pixels
+                      const overlapStartPx = clipB.bar * BAR_W
+                      const overlapEndPx   = (clipA.bar + clipA.len) * BAR_W
+                      const centerX = (overlapStartPx + overlapEndPx) / 2
+                      const isLocked = clipA.crossfadeLocked
+                      return [(
+                        <button
+                          key={`xflock-${clipA.id}-${clipB.id}`}
+                          title={isLocked ? 'Crossfade: symmetry locked — click to unlock' : 'Crossfade: independent — click to lock'}
+                          className="absolute flex items-center justify-center rounded"
+                          style={{
+                            left: centerX - 9,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: 18,
+                            height: 18,
+                            zIndex: 20,
+                            background: C.elevated,
+                            border: `1px solid ${isLocked ? C.border : C.accent}`,
+                            color: isLocked ? C.textSec : C.accent,
+                            cursor: 'pointer',
+                          }}
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); toggleCrossfadeLock(track.id, clipA.id, clipB.id) }}
+                        >
+                          {isLocked ? (
+                            // Closed padlock — symmetry on
+                            <svg width="10" height="11" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <rect x="1" y="5" width="8" height="6" rx="1" fill="currentColor" opacity="0.9" />
+                              <path d="M3 5V3.5a2 2 0 0 1 4 0V5" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+                              <circle cx="5" cy="8" r="1" fill={C.bg} />
+                            </svg>
+                          ) : (
+                            // Open padlock — independent
+                            <svg width="10" height="11" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <rect x="1" y="5" width="8" height="6" rx="1" fill="currentColor" opacity="0.9" />
+                              <path d="M3 5V3.5a2 2 0 0 1 4 0V2" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+                              <circle cx="5" cy="8" r="1" fill={C.bg} />
+                            </svg>
+                          )}
+                        </button>
+                      )]
+                    })
+                  })()}
 
                   {/* Ghost clip on cross-track drag target */}
                   {dragIsHere && drag && dragClipData && (
@@ -2038,6 +2286,9 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
   const masterPeakDotR = useRef<HTMLDivElement | null>(null)
   const masterDbReadout = useRef<HTMLSpanElement | null>(null)
   const masterPhysics   = useRef<VUPhysics>(makeVUPhysics())
+  // Heartbeat override: when non-null, overrides the live RMS signal target for all strips
+  // Set to null to return to live RMS mode. Written by the heartbeat sequence, read by the rAF loop.
+  const heartbeatSignalRef = useRef<number | null>(null)
 
   // Keep handles and physics arrays sized to track count.
   // Grow-only: stable existing entries are preserved so the rAF loop never
@@ -2072,10 +2323,12 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
         const active  = _activeSources.get(track.id)
         const effectiveMute = track.muted || (anySoloed && !track.soloed)
 
-        // Target RMS: 0 when muted (let decay run naturally), live RMS when playing
+        // Target RMS: heartbeat override during startup, otherwise live RMS when playing
         const rawRMS  = active ? readRMS(active.analyser) : 0
-        const targetL = effectiveMute ? 0 : clamp(rawRMS, 0, 1)
-        const targetR = effectiveMute ? 0 : clamp(rawRMS, 0, 1)
+        const heartbeatOverride = heartbeatSignalRef.current
+        const effectiveRMS = heartbeatOverride !== null ? heartbeatOverride : rawRMS
+        const targetL = effectiveMute ? 0 : clamp(effectiveRMS, 0, 1)
+        const targetR = effectiveMute ? 0 : clamp(effectiveRMS, 0, 1)
 
         // Detect transient jump before updating level
         const prevL = ph.levelL, prevR = ph.levelR
@@ -2097,7 +2350,8 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
       // Master strip
       const mph = masterPhysics.current
       const masterRMS = _masterAnalyser ? readRMS(_masterAnalyser) : 0
-      const masterTarget = clamp(masterRMS, 0, 1)
+      const masterHbOverride = heartbeatSignalRef.current
+      const masterTarget = clamp(masterHbOverride !== null ? masterHbOverride : masterRMS, 0, 1)
       const mprevL = mph.levelL, mprevR = mph.levelR
       mph.levelL = stepMeter(mph.levelL, masterTarget, dt)
       mph.levelR = stepMeter(mph.levelR, masterTarget * 0.97, dt)
@@ -2120,6 +2374,72 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, []) // intentionally empty — uses refs for live data
+
+  // Heartbeat startup sequence — runs once on mount, drives VU signal targets
+  // alongside fader bloom so meters perform with the startup animation.
+  useEffect(() => {
+    const BPM_HB = 72
+    const BEAT_MS = Math.round(60000 / BPM_HB)
+    const RISE_DUR  = Math.round(BEAT_MS * 0.38)
+    const HOLD_DUR  = Math.round(BEAT_MS * 0.12)
+    const FALL_DUR  = Math.round(BEAT_MS * 0.50)
+
+    function easeOutQuint(t: number) { return 1 - Math.pow(1 - t, 5) }
+    function easeInOutQuart(t: number) { return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2 }
+
+    function animate(duration: number, easing: (t: number) => number, onUpdate: (v: number) => void): Promise<void> {
+      return new Promise(resolve => {
+        const start = performance.now()
+        function tick() {
+          const elapsed = performance.now() - start
+          const t = Math.min(1, elapsed / duration)
+          onUpdate(easing(t))
+          if (t < 1) requestAnimationFrame(tick)
+          else resolve()
+        }
+        requestAnimationFrame(tick)
+      })
+    }
+
+    function wait(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)) }
+
+    async function heartbeatBeat() {
+      await animate(RISE_DUR, easeOutQuint, t => { heartbeatSignalRef.current = t * 0.95 })
+      await wait(HOLD_DUR)
+      // Gentle breath hold
+      await animate(HOLD_DUR, x => x, t => { heartbeatSignalRef.current = 0.95 + Math.sin(t * Math.PI) * 0.04 })
+      await animate(FALL_DUR, easeInOutQuart, t => { heartbeatSignalRef.current = (1 - t) * 0.95 })
+    }
+
+    async function run() {
+      await wait(400)
+      await heartbeatBeat()
+      await wait(340)
+      await heartbeatBeat()
+      await wait(420)
+      // Staggered motorized recall — signal follows fader rise then settles to 0
+      const trackCount = tracksRef.current.length + 1 // +1 for master
+      const STAGGER_MS = 80
+      const promises = Array.from({ length: trackCount }, (_, i) =>
+        new Promise<void>(resolve => setTimeout(async () => {
+          await animate(520, t => 1 - Math.pow(1 - t, 4), t => {
+            // Each strip independently ramps — we use the shared ref as an approximation
+            // since strips overlap in time. Full per-strip independence would require
+            // per-strip heartbeatSignalRef — deferred until per-strip rAF data is per-object.
+            heartbeatSignalRef.current = t * 0.5
+          })
+          await animate(300, easeOutQuint, t => {
+            heartbeatSignalRef.current = 0.5 * (1 - t)
+          })
+          resolve()
+        }, i * STAGGER_MS))
+      )
+      await Promise.all(promises)
+      heartbeatSignalRef.current = null // return to live RMS
+    }
+
+    run()
+  }, []) // intentionally empty — runs once on mount
 
   return (
     <div className="flex-shrink-0 border-t flex flex-col overflow-hidden"
@@ -2389,21 +2709,129 @@ const DEMO_PRESENCE = [
   { userId: 'miguel', playheadBar: 14.0, activeTrackId: 't4', color: '#E94560' },
 ]
 
+// ─── PluginBrowser popover ────────────────────────────────────────────────────
+const PLUGIN_REGISTRY: { type: PluginType; label: string; category: string; defaultParams: Record<string, number> }[] = [
+  { type: 'compressor', label: 'Compressor',  category: 'Dynamics',       defaultParams: { threshold: -18, ratio: 4, attack: 10, release: 100 } },
+  { type: 'eq',         label: 'Parametric EQ', category: 'EQ',           defaultParams: { gain: 0 } },
+  { type: 'reverb',     label: 'Reverb',      category: 'Reverb/Delay',   defaultParams: { wet: 20, size: 40 } },
+  { type: 'delay',      label: 'Delay',       category: 'Reverb/Delay',   defaultParams: { time: 250, feedback: 30, wet: 25 } },
+  { type: 'maximizer',  label: 'Maximizer',   category: 'Utility',        defaultParams: { ceiling: -0.3, gain: 3 } },
+]
+
+let _pluginSeq = 100
+function mkPluginSlot(type: PluginType): PluginSlot {
+  const def = PLUGIN_REGISTRY.find(p => p.type === type)!
+  return { id: `p-${++_pluginSeq}`, type, enabled: true, params: { ...def.defaultParams } }
+}
+
+interface PluginBrowserProps {
+  ownerColor: string
+  onAdd: (slot: PluginSlot) => void
+  onClose: () => void
+}
+
+const PluginBrowser = ({ ownerColor, onAdd, onClose }: PluginBrowserProps) => {
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    function onMouseDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onMouseDown)
+    return () => { window.removeEventListener('keydown', onKeyDown); document.removeEventListener('mousedown', onMouseDown) }
+  }, [onClose])
+
+  const filtered = query.trim()
+    ? PLUGIN_REGISTRY.filter(p => p.label.toLowerCase().includes(query.toLowerCase()) || p.category.toLowerCase().includes(query.toLowerCase()))
+    : PLUGIN_REGISTRY
+
+  const categories = Array.from(new Set(filtered.map(p => p.category)))
+
+  return (
+    <div ref={panelRef} className="absolute rounded-xl shadow-2xl overflow-hidden flex flex-col"
+      style={{
+        bottom: 48, right: 0, width: 280, maxHeight: 400,
+        background: C.elevated, border: `1px solid ${C.border}`,
+        boxShadow: `0 24px 48px rgba(0,0,0,0.6), 0 0 0 1px ${C.border}`,
+        zIndex: 60,
+      }}>
+      {/* Search */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0" style={{ borderColor: C.border }}>
+        <span style={{ color: C.textSec, fontSize: 14 }}>⌕</span>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search plugins…"
+          className="flex-1 bg-transparent text-xs outline-none"
+          style={{ color: C.textPri }}
+        />
+        {query && (
+          <button onClick={() => setQuery('')} style={{ color: C.textSec, fontSize: 12, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+        )}
+      </div>
+      {/* List */}
+      <div className="flex-1 overflow-y-auto">
+        {categories.map(cat => (
+          <div key={cat}>
+            <div className="px-3 py-1.5" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: C.textSec, textTransform: 'uppercase' }}>
+              {cat}
+            </div>
+            {filtered.filter(p => p.category === cat).map(p => (
+              <button
+                key={p.type}
+                className="w-full text-left px-3 py-2 flex items-center justify-between transition-all hover:brightness-125"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => { onAdd(mkPluginSlot(p.type)); onClose() }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.control }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+              >
+                <span style={{ fontSize: 12, color: C.textPri }}>{p.label}</span>
+                <span style={{ fontSize: 9, color: ownerColor, fontWeight: 600, letterSpacing: '0.05em' }}>ADD</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Screw SVG (hi-fi rack aesthetic) ─────────────────────────────────────────
+const Screw = () => (
+  <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+    <circle cx="4" cy="4" r="3.5" fill={C.metalDark} stroke={C.metalLight} strokeWidth="0.5" />
+    {/* Flat-head cross slot */}
+    <line x1="2" y1="4" x2="6" y2="4" stroke={C.metalLight} strokeWidth="0.8" strokeLinecap="round" />
+    <line x1="4" y1="2" x2="4" y2="6" stroke={C.metalLight} strokeWidth="0.8" strokeLinecap="round" />
+  </svg>
+)
+
 // ─── PluginChainPanel ─────────────────────────────────────────────────────────
 interface PluginChainPanelProps {
   trackId: string | null
   trackName: string
   plugins: PluginSlot[]
   onTogglePlugin: (slotId: string) => void
+  onAddPlugin: (slot: PluginSlot) => void
+  onReorderPlugins: (newOrder: PluginSlot[]) => void
   ownerColor: string
   onClose: () => void
 }
 
-function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, ownerColor, onClose }: PluginChainPanelProps) {
+function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPlugin, onReorderPlugins, ownerColor, onClose }: PluginChainPanelProps) {
   const isMaster = trackId === 'master'
   const displayName = isMaster ? 'MASTER BUS' : trackName
+  const [showBrowser, setShowBrowser] = useState(false)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const dragSrcIdx = useRef<number | null>(null)
 
-  // Show 2–3 key params per plugin, skip boring ones
   function keyParams(slot: PluginSlot): [string, number][] {
     return Object.entries(slot.params).slice(0, 3)
   }
@@ -2419,127 +2847,220 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, ownerCo
     return String(val)
   }
 
+  function movePlugin(fromIdx: number, toIdx: number) {
+    const next = [...plugins]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    onReorderPlugins(next)
+  }
+
   return (
     <div className="flex flex-col overflow-hidden" style={{ flex: 1 }}>
-      {/* Header — ownerColor left accent border */}
-      <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"
-        style={{ borderColor: C.border, borderLeft: `3px solid ${ownerColor}` }}>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: C.textSec }}>FX Chain</p>
-          <p className="text-sm font-semibold mt-0.5" style={{ color: C.textPri }}>{displayName}</p>
+      {/* Wood cabinet top rail */}
+      <div className="wood-panel w-full flex-shrink-0 flex items-center justify-between px-4"
+        style={{ height: 32, borderBottom: `2px solid ${ownerColor}44` }}>
+        <div className="flex items-center gap-2">
+          <Screw />
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.textSec }}>GDAW</span>
+          <span style={{ fontSize: 9, color: ownerColor, fontWeight: 700, letterSpacing: '0.08em' }}>
+            {displayName}
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs rounded px-1.5 py-0.5" style={{ background: C.control, color: C.textSec }}>
-            {plugins.length} slot{plugins.length !== 1 ? 's' : ''}
-          </span>
+          <span style={{ fontSize: 9, color: C.textSec }}>{plugins.length} {plugins.length === 1 ? 'unit' : 'units'}</span>
+          <Screw />
           <button
             aria-label="Close FX chain"
             onClick={onClose}
-            className="flex items-center justify-center rounded hover:brightness-125 transition-all"
-            style={{ width: 24, height: 24, background: 'transparent', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 16 }}
-          >
-            ✕
-          </button>
+            style={{ background: 'transparent', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+          >✕</button>
         </div>
       </div>
 
-      {/* Plugin cards or empty state */}
-      {plugins.length === 0 ? (
-        <div className="flex flex-col flex-1 items-center justify-center gap-5 px-6 py-8">
-          {/* Signal-flow SVG anchor */}
-          <svg width="220" height="80" viewBox="0 0 220 80" overflow="visible" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <defs>
-              <radialGradient id="ownerGlow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%"   stopColor={ownerColor} stopOpacity="0.08" />
-                <stop offset="100%" stopColor={ownerColor} stopOpacity="0"    />
-              </radialGradient>
-            </defs>
-            {/* Owner glow behind slot */}
-            <ellipse cx="110" cy="40" rx="52" ry="30" fill="url(#ownerGlow)" />
-            {/* Connector lines */}
-            <line x1="25"  y1="40" x2="70"  y2="40" stroke={C.border} strokeWidth="1" />
-            <line x1="150" y1="40" x2="195" y2="40" stroke={C.border} strokeWidth="1" />
-            {/* Empty slot */}
-            <rect x="70" y="18" width="80" height="44" rx="4"
-              fill="none" stroke={ownerColor} strokeOpacity="0.22"
-              strokeWidth="1.5" strokeDasharray="4 3" />
-            {/* Interior parameter-row hints */}
-            <line x1="82" y1="34" x2="138" y2="34" stroke={C.border} strokeWidth="0.75" opacity="0.6" />
-            <line x1="82" y1="46" x2="138" y2="46" stroke={C.border} strokeWidth="0.75" opacity="0.6" />
-            {/* IN node */}
-            <circle cx="20"  cy="40" r="5" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
-            <text x="20"  y="30" fontSize="8" fill={C.textSec} textAnchor="middle" fontFamily="monospace">IN</text>
-            {/* OUT node */}
-            <circle cx="200" cy="40" r="5" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
-            <text x="200" y="30" fontSize="8" fill={C.textSec} textAnchor="middle" fontFamily="monospace">OUT</text>
-          </svg>
-          {/* Headline */}
-          <p style={{ fontSize: 13, fontWeight: 500, color: C.textPri, letterSpacing: '0.01em', margin: 0 }}>
-            Clean signal
-          </p>
-          {/* CTA button */}
-          <button
-            aria-label="Add plugin to FX chain"
-            onClick={() => { console.log('plugin browser: TODO') }}
-            className="flex items-center justify-center transition-all focus-visible:outline-none"
-            style={{ width: '100%', height: 36, background: C.accent, color: '#ffffff',
-                     fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6,
-                     cursor: 'pointer', letterSpacing: '0.01em' }}
-            onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.15)'; e.currentTarget.style.boxShadow = `0 0 12px ${C.accent}66` }}
-            onMouseLeave={e => { e.currentTarget.style.filter = ''; e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
-            onMouseDown={e  => { e.currentTarget.style.filter = 'brightness(1.0)'; e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = 'scale(0.97)' }}
-            onMouseUp={e    => { e.currentTarget.style.filter = 'brightness(1.15)'; e.currentTarget.style.boxShadow = `0 0 12px ${C.accent}66`; e.currentTarget.style.transform = '' }}
-            onFocus={e      => { e.currentTarget.style.filter = 'brightness(1.15)'; e.currentTarget.style.boxShadow = `0 0 0 2px ${C.accent}, 0 0 12px ${C.accent}66` }}
-            onBlur={e       => { e.currentTarget.style.filter = ''; e.currentTarget.style.boxShadow = '' }}
-          >
-            Add Plugin
-            <span style={{ fontSize: 15, fontWeight: 300, lineHeight: 1, marginLeft: 6, verticalAlign: -1 }}>+</span>
-          </button>
-          {/* Subtext */}
-          <p style={{ fontSize: 10, color: C.textSec, margin: 0, marginTop: -8, textAlign: 'center' }}>
-            Add compression, reverb, EQ, and more.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 p-3 flex-1 overflow-y-auto">
-          {plugins.map(slot => (
-            <div key={slot.id} className="rounded-lg p-3"
-              style={{ background: C.surface, border: `1px solid ${slot.enabled ? C.border : C.well}`, opacity: slot.enabled ? 1 : 0.55 }}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: slot.enabled ? C.textPri : C.textSec }}>
-                  {slot.type}
-                </span>
-                {/* Enable toggle */}
-                <button
-                  className="rounded-full flex items-center justify-center transition-all hover:brightness-125"
-                  title={slot.enabled ? 'Disable' : 'Enable'}
-                  onClick={() => onTogglePlugin(slot.id)}
-                  style={{ width: 18, height: 18, background: slot.enabled ? C.accent : C.control, border: 'none', cursor: 'pointer' }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: slot.enabled ? '#fff' : C.textSec }} />
-                </button>
-              </div>
-              <div className="flex flex-col gap-0.5">
-                {keyParams(slot).map(([key, val]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-xs capitalize" style={{ color: C.textSec }}>{key}</span>
-                    <span className="text-xs font-mono" style={{ color: C.textSec }}>{formatParam(key, val)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Owner-color trim stripe */}
+      <div style={{ height: 2, background: `linear-gradient(90deg, ${ownerColor}88, ${ownerColor}22)`, flexShrink: 0 }} />
 
-      {/* Footer "Add Plugin +" — only when plugins exist */}
-      {plugins.length > 0 && (
-        <div className="px-3 pb-3 flex-shrink-0">
-          <button className="w-full rounded py-2 text-xs font-medium transition-all hover:brightness-125"
-            style={{ background: 'transparent', border: `1px dashed ${C.border}`, color: C.textSec, cursor: 'pointer' }}>
-            Add Plugin +
+      {/* Chain content */}
+      <div className="flex-1 overflow-y-auto" style={{ background: C.bg, position: 'relative' }}>
+        {plugins.length === 0 ? (
+          // Empty state — signal flow SVG + CTA
+          <div className="flex flex-col items-center justify-center gap-5 px-6 py-8" style={{ minHeight: 300 }}>
+            <svg width="220" height="80" viewBox="0 0 220 80" overflow="visible" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <defs>
+                <radialGradient id="ownerGlowEmpty" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"   stopColor={ownerColor} stopOpacity="0.08" />
+                  <stop offset="100%" stopColor={ownerColor} stopOpacity="0"    />
+                </radialGradient>
+              </defs>
+              <ellipse cx="110" cy="40" rx="52" ry="30" fill="url(#ownerGlowEmpty)" />
+              <line x1="25"  y1="40" x2="70"  y2="40" stroke={C.border} strokeWidth="1" />
+              <line x1="150" y1="40" x2="195" y2="40" stroke={C.border} strokeWidth="1" />
+              <rect x="70" y="18" width="80" height="44" rx="4"
+                fill="none" stroke={ownerColor} strokeOpacity="0.22"
+                strokeWidth="1.5" strokeDasharray="4 3" />
+              <line x1="82" y1="34" x2="138" y2="34" stroke={C.border} strokeWidth="0.75" opacity="0.6" />
+              <line x1="82" y1="46" x2="138" y2="46" stroke={C.border} strokeWidth="0.75" opacity="0.6" />
+              <circle cx="20"  cy="40" r="5" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
+              <text x="20"  y="30" fontSize="8" fill={C.textSec} textAnchor="middle" fontFamily="monospace">IN</text>
+              <circle cx="200" cy="40" r="5" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
+              <text x="200" y="30" fontSize="8" fill={C.textSec} textAnchor="middle" fontFamily="monospace">OUT</text>
+            </svg>
+            <p style={{ fontSize: 13, fontWeight: 500, color: C.textPri, letterSpacing: '0.01em', margin: 0 }}>
+              Clean signal
+            </p>
+            <p style={{ fontSize: 10, color: C.textSec, margin: 0, textAlign: 'center' }}>
+              Add compression, reverb, EQ, and more.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0" style={{ padding: '8px 0' }}>
+            {plugins.map((slot, idx) => (
+              <div key={slot.id}>
+                {/* Drop insertion line */}
+                {dragOverIdx === idx && (
+                  <div style={{ height: 2, background: C.accent, margin: '0 12px', borderRadius: 1 }} />
+                )}
+                {/* Rack unit card — hi-fi brushed metal faceplate */}
+                <div
+                  draggable
+                  onDragStart={() => { dragSrcIdx.current = idx }}
+                  onDragOver={e => { e.preventDefault(); setDragOverIdx(idx) }}
+                  onDragLeave={() => setDragOverIdx(null)}
+                  onDrop={e => {
+                    e.preventDefault()
+                    setDragOverIdx(null)
+                    if (dragSrcIdx.current !== null && dragSrcIdx.current !== idx) {
+                      movePlugin(dragSrcIdx.current, idx)
+                    }
+                    dragSrcIdx.current = null
+                  }}
+                  onDragEnd={() => { setDragOverIdx(null); dragSrcIdx.current = null }}
+                  onKeyDown={e => {
+                    const isMod = e.metaKey || e.ctrlKey
+                    if (isMod && e.key === 'ArrowUp'   && idx > 0)                  { e.preventDefault(); movePlugin(idx, idx - 1) }
+                    if (isMod && e.key === 'ArrowDown' && idx < plugins.length - 1) { e.preventDefault(); movePlugin(idx, idx + 1) }
+                  }}
+                  tabIndex={0}
+                  className="flex items-stretch mx-3 my-1 rounded overflow-hidden select-none focus-visible:outline-none"
+                  style={{
+                    background: `linear-gradient(180deg, ${C.metalLight} 0%, ${C.metalMid} 40%, ${C.metalDark} 100%)`,
+                    border: `1px solid ${C.metalLight}33`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 4px rgba(0,0,0,0.4)`,
+                    opacity: slot.enabled ? 1 : 0.55,
+                    cursor: 'grab',
+                    outline: dragOverIdx === idx ? `1px solid ${C.accent}` : 'none',
+                  }}
+                >
+                  {/* Left bracket with screws */}
+                  <div className="flex flex-col items-center justify-between px-1 py-1 flex-shrink-0"
+                    style={{ width: 18, background: `linear-gradient(180deg, ${C.metalDark} 0%, ${C.metalMid}88 100%)`, borderRight: `1px solid ${C.metalLight}22` }}>
+                    <Screw />
+                    {/* Drag grip dots */}
+                    <div className="flex flex-col gap-0.5">
+                      {[0,1,2].map(i => (
+                        <div key={i} style={{ width: 3, height: 3, borderRadius: '50%', background: C.metalLight, opacity: 0.5 }} />
+                      ))}
+                    </div>
+                    <Screw />
+                  </div>
+
+                  {/* Faceplate body */}
+                  <div className="flex-1 flex items-center gap-3 px-3 py-2">
+                    {/* Power LED */}
+                    <button
+                      title={slot.enabled ? 'Bypass' : 'Enable'}
+                      onClick={e => { e.stopPropagation(); onTogglePlugin(slot.id) }}
+                      style={{
+                        width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                        background: `radial-gradient(circle at 38% 38%, ${slot.enabled ? ownerColor : C.metalDark}, ${slot.enabled ? ownerColor + '88' : C.metalDark})`,
+                        boxShadow: slot.enabled ? `0 0 6px ${ownerColor}, 0 0 12px ${ownerColor}66` : `inset 0 1px 2px rgba(0,0,0,0.6)`,
+                        border: `1px solid ${C.metalLight}44`,
+                        cursor: 'pointer',
+                        transition: 'box-shadow 0.15s, background 0.15s',
+                      }}
+                      aria-label={slot.enabled ? 'Bypass plugin' : 'Enable plugin'}
+                      aria-pressed={slot.enabled}
+                    />
+
+                    {/* Plugin name + type */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wide truncate"
+                        style={{ fontSize: 10, color: slot.enabled ? C.textPri : C.textSec, letterSpacing: '0.1em' }}>
+                        {slot.type}
+                      </p>
+                    </div>
+
+                    {/* LCD param readout */}
+                    <div className="flex flex-col items-end gap-px rounded px-1.5 py-0.5 flex-shrink-0"
+                      style={{ background: C.well, border: `1px solid ${C.border}`, minWidth: 72 }}>
+                      {keyParams(slot).slice(0, 2).map(([key, val]) => (
+                        <div key={key} className="flex items-center gap-1.5">
+                          <span style={{ fontSize: 8, color: C.textSec, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{key}</span>
+                          <span className="font-mono" style={{ fontSize: 9, color: C.vuAmber }}>{formatParam(key, val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right bracket with screws */}
+                  <div className="flex flex-col items-center justify-between px-1 py-1 flex-shrink-0"
+                    style={{ width: 18, background: `linear-gradient(180deg, ${C.metalDark} 0%, ${C.metalMid}88 100%)`, borderLeft: `1px solid ${C.metalLight}22` }}>
+                    <Screw />
+                    <Screw />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {/* Final drop zone */}
+            {dragOverIdx === plugins.length && (
+              <div style={{ height: 2, background: C.accent, margin: '0 12px', borderRadius: 1 }} />
+            )}
+          </div>
+        )}
+
+        {/* Add Unit slot — always visible at bottom of chain */}
+        <div className="relative mx-3 mb-3 mt-1" style={{ position: 'relative' }}>
+          <button
+            className="w-full rounded flex items-center justify-center gap-2 transition-all"
+            onClick={() => setShowBrowser(b => !b)}
+            style={{
+              height: 40, background: 'transparent', cursor: 'pointer',
+              border: `1px dashed ${C.border}`,
+              color: C.textSec, fontSize: 11, fontWeight: 600,
+              letterSpacing: '0.06em',
+            }}
+            onMouseEnter={e => {
+              const el = e.currentTarget as HTMLElement
+              el.style.borderColor = ownerColor + '88'
+              el.style.color = ownerColor
+            }}
+            onMouseLeave={e => {
+              const el = e.currentTarget as HTMLElement
+              el.style.borderColor = C.border
+              el.style.color = C.textSec
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+            ADD UNIT
           </button>
+          {showBrowser && (
+            <PluginBrowser
+              ownerColor={ownerColor}
+              onAdd={slot => { onAddPlugin(slot); setShowBrowser(false) }}
+              onClose={() => setShowBrowser(false)}
+            />
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Wood cabinet bottom rail */}
+      <div style={{ height: 2, background: `linear-gradient(90deg, ${ownerColor}22, ${ownerColor}88)`, flexShrink: 0 }} />
+      <div className="wood-panel w-full flex-shrink-0 flex items-center justify-between px-4"
+        style={{ height: 20, borderTop: `2px solid ${ownerColor}44` }}>
+        <Screw />
+        <span style={{ fontSize: 8, color: C.textSec, letterSpacing: '0.08em' }}>SIGNAL CHAIN · {plugins.length} UNIT{plugins.length !== 1 ? 'S' : ''}</span>
+        <Screw />
+      </div>
     </div>
   )
 }
@@ -2553,12 +3074,16 @@ export default function App() {
   const [bpm, setBpm]                     = useState(128)
   const [playheadBar, setPlayheadBar]     = useState(0)
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
+  const [selectedClipId, setSelectedClipId]   = useState<string | null>(null)
   const [showInvite, setShowInvite]       = useState(false)
   const [tool, setTool]                   = useState<Tool>('select')
   const [audioCtxReady, setAudioCtxReady] = useState(false)
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
   const barAtStartRef = useRef<number>(0)
+  // Ref for keyboard handler to access selectedClipId without stale closure
+  const selectedClipIdRef = useRef<string | null>(null)
+  selectedClipIdRef.current = selectedClipId
 
   useEffect(() => {
     if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return }
@@ -2662,11 +3187,36 @@ export default function App() {
       }
       if (e.key === 'v' || e.key === 'V') { setTool('select'); return }
       if (e.key === 'c' || e.key === 'C') { setTool('cut'); return }
-      if (e.key === 'x' || e.key === 'X') { setTool('crossfade'); return }
+
+      // Shift+, / Shift+. — adjust active clip fade curve ±0.05
+      if (e.shiftKey && e.key === '<') {
+        setTracks(prev => prev.map(t => ({
+          ...t, clips: t.clips.map(c => {
+            if (c.id !== selectedClipIdRef.current) return c
+            return { ...c,
+              fadeInCurve:  clamp(c.fadeInCurve  - 0.05, 0.05, 0.95),
+              fadeOutCurve: clamp(c.fadeOutCurve - 0.05, 0.05, 0.95),
+            }
+          })
+        })))
+        return
+      }
+      if (e.shiftKey && e.key === '>') {
+        setTracks(prev => prev.map(t => ({
+          ...t, clips: t.clips.map(c => {
+            if (c.id !== selectedClipIdRef.current) return c
+            return { ...c,
+              fadeInCurve:  clamp(c.fadeInCurve  + 0.05, 0.05, 0.95),
+              fadeOutCurve: clamp(c.fadeOutCurve + 0.05, 0.05, 0.95),
+            }
+          })
+        })))
+        return
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [setTracks])
 
   function handleSelectTrack(id: string) {
     setSelectedTrackId(prev => prev === id ? null : id)
@@ -2683,6 +3233,19 @@ export default function App() {
         s.id !== slotId ? s : { ...s, enabled: !s.enabled }
       ),
     }))
+  }
+
+  function addPlugin(slot: PluginSlot) {
+    if (!selectedTrackId) return
+    setPluginChains(prev => ({
+      ...prev,
+      [selectedTrackId]: [...(prev[selectedTrackId] ?? []), slot],
+    }))
+  }
+
+  function reorderPlugins(newOrder: PluginSlot[]) {
+    if (!selectedTrackId) return
+    setPluginChains(prev => ({ ...prev, [selectedTrackId]: newOrder }))
   }
 
   return (
@@ -2702,6 +3265,7 @@ export default function App() {
             selectedTrackId={selectedTrackId} onSelectTrack={handleSelectTrack}
             tool={tool} setTool={setTool}
             audioCtxReady={audioCtxReady}
+            selectedClipId={selectedClipId} onSelectClip={setSelectedClipId}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
@@ -2748,6 +3312,8 @@ export default function App() {
           trackName={selectedTrack?.name ?? ''}
           plugins={pluginChain}
           onTogglePlugin={togglePlugin}
+          onAddPlugin={addPlugin}
+          onReorderPlugins={reorderPlugins}
           ownerColor={selectedTrackId === 'master' ? C.accent : (tracks.find(t => t.id === selectedTrackId)?.owner.color ?? C.accent)}
           onClose={() => setSelectedTrackId(null)}
         />
