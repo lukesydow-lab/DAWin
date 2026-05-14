@@ -71,7 +71,7 @@ interface Track {
   clips: ClipData[]
 }
 
-type PluginType = 'compressor' | 'reverb' | 'delay' | 'maximizer' | 'eq'
+type PluginType = 'compressor' | 'reverb' | 'delay' | 'maximizer' | 'eq' | 'limiter'
 interface PluginSlot {
   id: string
   type: PluginType
@@ -456,11 +456,163 @@ interface ActiveSource {
 }
 const _activeSources = new Map<string, ActiveSource>()  // trackId → nodes
 
+// Per-track plugin node map: trackId → (pluginId → primary AudioNode)
+// Delay also stores a feedback GainNode under key `${pluginId}__fb`
+const _pluginNodeMap: Map<string, Map<string, AudioNode>> = new Map()
+
+// Generates a synthetic reverb impulse response via filtered noise + exponential decay.
+// No file fetch — entirely procedural.
+function createReverbIR(ctx: AudioContext, duration: number, decay: number): AudioBuffer {
+  const sr = ctx.sampleRate
+  const length = Math.ceil(sr * duration)
+  const ir = ctx.createBuffer(2, length, sr)
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch)
+    for (let i = 0; i < length; i++) {
+      const t = i / sr
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t / duration, decay)
+    }
+  }
+  return ir
+}
+
+// Creates a Web Audio node (or nodes) for a given plugin type.
+// Returns the primary AudioNode that signals enter and exit through.
+// For delay, also wires the internal feedback loop and stores the feedback GainNode
+// in the track's plugin node map under key `${pluginId}__fb`.
+function createPluginNode(
+  ctx: AudioContext,
+  plugin: PluginSlot,
+  trackPluginMap: Map<string, AudioNode>,
+): AudioNode {
+  switch (plugin.type) {
+    case 'compressor': {
+      const comp = ctx.createDynamicsCompressor()
+      comp.threshold.value = -24
+      comp.knee.value      = 30
+      comp.ratio.value     = 4
+      comp.attack.value    = 0.003
+      comp.release.value   = 0.25
+      return comp
+    }
+    case 'reverb': {
+      const conv = ctx.createConvolver()
+      conv.buffer = createReverbIR(ctx, 2.5, 3)
+      return conv
+    }
+    case 'delay': {
+      const delay = ctx.createDelay(2)
+      delay.delayTime.value = 0.25
+      const fb = ctx.createGain()
+      fb.gain.value = 0.3
+      // Internal feedback loop: delay → fb → delay
+      delay.connect(fb)
+      fb.connect(delay)
+      // Store feedback gain for cleanup
+      trackPluginMap.set(`${plugin.id}__fb`, fb)
+      return delay
+    }
+    case 'eq': {
+      const eq = ctx.createBiquadFilter()
+      eq.type      = 'peaking'
+      eq.frequency.value = 1000
+      eq.gain.value      = 0
+      return eq
+    }
+    case 'limiter':
+    case 'maximizer': {
+      const lim = ctx.createDynamicsCompressor()
+      lim.threshold.value = -3
+      lim.knee.value      = 0
+      lim.ratio.value     = 20
+      lim.attack.value    = 0.001
+      lim.release.value   = 0.1
+      return lim
+    }
+  }
+}
+
+// Disconnects and removes all plugin nodes for a single track.
+function clearTrackPluginNodes(trackId: string) {
+  const map = _pluginNodeMap.get(trackId)
+  if (!map) return
+  for (const node of map.values()) {
+    try { node.disconnect() } catch { /* already disconnected */ }
+  }
+  map.clear()
+  _pluginNodeMap.delete(trackId)
+}
+
+// Wires the plugin chain for a single track between `source` and `gain`.
+// Creates missing nodes, skips nodes that already exist (reconcile).
+// Disabled plugins are bypassed: signal flows directly from the previous
+// node to the next enabled plugin (or to `gain` if none remain).
+function rewirePluginChain(
+  ctx: AudioContext,
+  trackId: string,
+  plugins: PluginSlot[],
+  source: AudioBufferSourceNode,
+  gain: GainNode,
+) {
+  if (!_pluginNodeMap.has(trackId)) _pluginNodeMap.set(trackId, new Map())
+  const map = _pluginNodeMap.get(trackId)!
+
+  // Ensure all enabled plugin nodes are created
+  for (const plugin of plugins) {
+    if (!map.has(plugin.id)) {
+      const node = createPluginNode(ctx, plugin, map)
+      map.set(plugin.id, node)
+    }
+  }
+
+  // Remove nodes for plugins no longer in the chain
+  const currentIds = new Set(plugins.map(p => p.id))
+  for (const key of [...map.keys()]) {
+    const baseId = key.replace('__fb', '')
+    if (!currentIds.has(baseId)) {
+      try { map.get(key)!.disconnect() } catch { /* ok */ }
+      map.delete(key)
+    }
+  }
+
+  // Disconnect source so we can rewire cleanly
+  try { source.disconnect() } catch { /* ok */ }
+
+  // Disconnect all plugin primary nodes (feedback loops stay internal)
+  for (const plugin of plugins) {
+    const node = map.get(plugin.id)
+    if (node) try { node.disconnect() } catch { /* ok */ }
+  }
+
+  // Build ordered list of enabled plugins only
+  const enabled = plugins.filter(p => p.enabled)
+
+  if (enabled.length === 0) {
+    source.connect(gain)
+    return
+  }
+
+  // source → first enabled plugin
+  source.connect(map.get(enabled[0].id)!)
+
+  // chain enabled plugins in order
+  for (let i = 0; i < enabled.length - 1; i++) {
+    map.get(enabled[i].id)!.connect(map.get(enabled[i + 1].id)!)
+  }
+
+  // last enabled plugin → fader gain
+  map.get(enabled[enabled.length - 1].id)!.connect(gain)
+}
+
 function stopAllSources() {
   for (const { source, gain, analyser, panner } of _activeSources.values()) {
     try { source.stop(); source.disconnect(); gain.disconnect(); analyser.disconnect(); panner.disconnect() } catch { /* already stopped */ }
   }
   _activeSources.clear()
+  // Also clear all plugin nodes when transport stops
+  for (const trackId of [..._pluginNodeMap.keys()]) {
+    clearTrackPluginNodes(trackId)
+  }
 }
 
 // RMS over the analyser's time-domain buffer — returns 0..1 (approximately; clamp upstream)
@@ -2693,6 +2845,9 @@ function StatusBar() {
 
 // ─── Plugin chain seed data ───────────────────────────────────────────────────
 const INITIAL_PLUGIN_CHAINS: Record<string, PluginSlot[]> = {
+  t1: [
+    { id: 'p0', type: 'compressor', enabled: true,  params: { threshold: -24, ratio: 4, attack: 3, release: 250 } },
+  ],
   t4: [
     { id: 'p1', type: 'compressor', enabled: true,  params: { threshold: -18, ratio: 4, attack: 10, release: 100 } },
     { id: 'p2', type: 'reverb',     enabled: false, params: { wet: 20, size: 40 } },
@@ -2711,11 +2866,12 @@ const DEMO_PRESENCE = [
 
 // ─── PluginBrowser popover ────────────────────────────────────────────────────
 const PLUGIN_REGISTRY: { type: PluginType; label: string; category: string; defaultParams: Record<string, number> }[] = [
-  { type: 'compressor', label: 'Compressor',  category: 'Dynamics',       defaultParams: { threshold: -18, ratio: 4, attack: 10, release: 100 } },
-  { type: 'eq',         label: 'Parametric EQ', category: 'EQ',           defaultParams: { gain: 0 } },
-  { type: 'reverb',     label: 'Reverb',      category: 'Reverb/Delay',   defaultParams: { wet: 20, size: 40 } },
-  { type: 'delay',      label: 'Delay',       category: 'Reverb/Delay',   defaultParams: { time: 250, feedback: 30, wet: 25 } },
-  { type: 'maximizer',  label: 'Maximizer',   category: 'Utility',        defaultParams: { ceiling: -0.3, gain: 3 } },
+  { type: 'compressor', label: 'Compressor',    category: 'Dynamics',     defaultParams: { threshold: -18, ratio: 4, attack: 10, release: 100 } },
+  { type: 'limiter',    label: 'Limiter',        category: 'Dynamics',     defaultParams: { threshold: -3, ceiling: 0 } },
+  { type: 'eq',         label: 'Parametric EQ',  category: 'EQ',           defaultParams: { gain: 0 } },
+  { type: 'reverb',     label: 'Reverb',          category: 'Reverb/Delay', defaultParams: { wet: 20, size: 40 } },
+  { type: 'delay',      label: 'Delay',           category: 'Reverb/Delay', defaultParams: { time: 250, feedback: 30, wet: 25 } },
+  { type: 'maximizer',  label: 'Maximizer',       category: 'Utility',      defaultParams: { ceiling: -0.3, gain: 3 } },
 ]
 
 let _pluginSeq = 100
@@ -3084,6 +3240,9 @@ export default function App() {
   // Ref for keyboard handler to access selectedClipId without stale closure
   const selectedClipIdRef = useRef<string | null>(null)
   selectedClipIdRef.current = selectedClipId
+  // Ref so Effect A can read pluginChains without taking a dep that restarts sources
+  const pluginChainsRef = useRef<Record<string, PluginSlot[]>>(pluginChains)
+  pluginChainsRef.current = pluginChains
 
   useEffect(() => {
     if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return }
@@ -3137,7 +3296,10 @@ export default function App() {
       const panner  = ctx.createStereoPanner()
       panner.pan.value = track.pan / 100
 
-      source.connect(gain)
+      // Wire plugin chain before fader: source → [plugins] → gain
+      const trackPlugins = pluginChainsRef.current[track.id] ?? []
+      rewirePluginChain(ctx, track.id, trackPlugins, source, gain)
+
       gain.connect(analyser)
       analyser.connect(panner)
       // Route through master gain instead of directly to destination
@@ -3168,6 +3330,19 @@ export default function App() {
       active.panner.pan.setTargetAtTime(track.pan / 100, now, 0.01)
     })
   }, [playing, tracks])
+
+  // Effect C — live plugin chain rewiring: runs when pluginChains changes while playing.
+  // Reconciles nodes (create missing, remove stale) and rewires the chain without
+  // restarting sources or touching the fader/analyser/panner nodes.
+  useEffect(() => {
+    if (!playing) return
+    const ctx = getAudioCtx()
+    for (const [trackId, plugins] of Object.entries(pluginChains)) {
+      const active = _activeSources.get(trackId)
+      if (!active) continue
+      rewirePluginChain(ctx, trackId, plugins, active.source, active.gain)
+    }
+  }, [playing, pluginChains])
 
   // Global keyboard shortcuts — skip when focus is in a text input
   useEffect(() => {
