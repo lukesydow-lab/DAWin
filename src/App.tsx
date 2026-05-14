@@ -980,7 +980,10 @@ function PanKnob({ pan, onChange }: { pan: number; onChange?: (v: number) => voi
     const onMove = (me: MouseEvent) => {
       if (!dragRef.current) return
       const delta = me.clientX - dragRef.current.startX
-      onChange(clamp(dragRef.current.startPan + Math.round(delta * 0.8), -100, 100))
+      const raw = dragRef.current.startPan + Math.round(delta * 0.8)
+      // Center detent: snap to 0 within ±4 units so the user feels center as they drag through
+      const snapped = Math.abs(raw) <= 4 ? 0 : raw
+      onChange(clamp(snapped, -100, 100))
     }
     const onUp = () => {
       dragRef.current = null
