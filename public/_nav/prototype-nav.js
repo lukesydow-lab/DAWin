@@ -45,6 +45,8 @@
       items: [
         { label: 'Waveform · detail study',   path: '/comps/waveform-detail.html',                               icon: '~' },
         { label: 'Waveform · premium',        path: '/comps/waveform-premium.html',                              icon: '~' },
+        { label: 'Plugin browser · inline',   path: '/comps/plugin-browser-inline.html',                         icon: '+' },
+        { label: 'Plugin browser · hi-fi',    path: '/comps/plugin-browser-hifi.html',                           icon: '◆' },
       ],
     },
   ];

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GDAW · Plugin Browser — Inline Popover (lo-fi)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 32px 48px 80px;
+    min-width: 1280px;
+  }
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888899; margin-bottom: 24px; max-width: 720px; line-height: 1.5; }
+
+  .pull-quote {
+    font-size: 12px; line-height: 1.6; color: #888899; max-width: 760px;
+    padding: 14px 18px; background: #111118; border-left: 2px solid #6B5CE7;
+    border-radius: 4px; margin-bottom: 28px;
+  }
+  .pull-quote strong { color: #F0F0F5; }
+
+  /* ── Stage: simulated DAW edge ─────────────────────────────────────────── */
+  .stage {
+    display: flex;
+    background: #0A0A0F;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 560px;
+    position: relative;
+  }
+
+  .arranger-mock {
+    flex: 1;
+    background: #0A0A0F;
+    background-image:
+      linear-gradient(#111118 1px, transparent 1px),
+      linear-gradient(90deg, #111118 1px, transparent 1px);
+    background-size: 72px 64px;
+    position: relative;
+    padding: 20px;
+  }
+  .arranger-mock::before {
+    content: 'ARRANGER (placeholder)';
+    position: absolute;
+    top: 14px; left: 14px;
+    font-size: 9px; letter-spacing: 0.18em; color: #555567; font-weight: 700;
+  }
+  /* fake clips */
+  .clip {
+    position: absolute;
+    height: 44px;
+    border-radius: 3px;
+    border-left: 2px solid;
+    padding: 6px 8px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ── Plugin chain panel ─────────────────────────────────────────────────── */
+  .chain-panel {
+    width: 300px;
+    background: #1A1A24;
+    border-left: 1px solid #1E1E28;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .chain-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #1E1E28;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .chain-header .label {
+    font-size: 10px; letter-spacing: 0.18em; color: #888899; font-weight: 700; text-transform: uppercase;
+  }
+  .chain-header .track-name {
+    font-size: 13px; font-weight: 600; color: #F0F0F5;
+  }
+  .chain-header .slot-count {
+    font-size: 10px; color: #888899; font-family: 'SF Mono', monospace;
+    background: #2A2A38; padding: 2px 6px; border-radius: 3px;
+  }
+  .chain-cards { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  .plugin-card {
+    padding: 10px 12px 10px 22px;   /* extra left padding for grip */
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 6px;
+    position: relative;
+    cursor: grab;
+    transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+  }
+  .plugin-card:hover { background: #14141c; }
+  .plugin-card:hover .grip { opacity: 1; }
+  .plugin-card:active { cursor: grabbing; }
+
+  /* Drag grip — dotted handle on the left edge */
+  .plugin-card .grip {
+    position: absolute;
+    left: 5px; top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    display: grid;
+    grid-template-columns: repeat(2, 2px);
+    gap: 2px 2px;
+    opacity: 0.35;
+    transition: opacity 0.12s ease;
+  }
+  .plugin-card .grip i {
+    width: 2px; height: 2px; border-radius: 50%; background: #888899;
+  }
+
+  .plugin-card .row {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+  }
+  .plugin-card .name { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #F0F0F5; }
+
+  /* Power button — round, glows when on (studio-rack feel) */
+  .power-btn {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #0D0D14;
+    border: 1.5px solid #2A2A38;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+  .power-btn::after {
+    content: '';
+    position: absolute;
+    inset: 2.5px;
+    border-radius: 50%;
+    background: #2A2A38;
+    transition: all 0.15s ease;
+  }
+  .power-btn.on {
+    border-color: #6B5CE7;
+    box-shadow: 0 0 8px rgba(107,92,231,0.5), inset 0 0 4px rgba(107,92,231,0.3);
+  }
+  .power-btn.on::after {
+    background: #6B5CE7;
+    box-shadow: 0 0 6px #6B5CE7;
+  }
+  .plugin-card.disabled .name { color: #888899; }
+  .plugin-card .params { font-size: 10px; color: #888899; font-family: 'SF Mono', monospace; }
+
+  /* Drop indicator while dragging — purple line between cards */
+  .drop-line {
+    height: 2px;
+    background: #6B5CE7;
+    border-radius: 1px;
+    margin: -3px 0;
+    box-shadow: 0 0 8px #6B5CE7;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+  }
+  .drop-line.active { opacity: 1; }
+
+  /* ── Add Plugin button + popover anchor ────────────────────────────────── */
+  .add-plugin-wrap { padding: 0 12px 14px; flex-shrink: 0; position: relative; }
+  .add-plugin-btn {
+    width: 100%;
+    padding: 11px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: transparent;
+    color: #888899;
+    border: 1px dashed #2A2A38;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .add-plugin-btn:hover {
+    color: #6B5CE7;
+    border-color: #6B5CE7;
+    background: rgba(107, 92, 231, 0.06);
+  }
+  .add-plugin-btn .plus { font-size: 13px; font-weight: 700; }
+
+  /* ── The popover (the main thing this mockup shows) ────────────────────── */
+  .popover {
+    position: absolute;
+    bottom: 14px;
+    right: 320px;
+    width: 340px;
+    max-height: 480px;
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 10;
+    opacity: 0;
+    transform: translateX(8px) scale(0.96);
+    transform-origin: bottom right;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0s 0.2s;
+  }
+  .popover.open {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.16s ease, transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15), visibility 0s;
+  }
+  .popover-arrow {
+    position: absolute;
+    right: -7px;
+    bottom: 22px;
+    width: 14px; height: 14px;
+    background: #1A1A24;
+    border-right: 1px solid #2A2A38;
+    border-top: 1px solid #2A2A38;
+    transform: rotate(45deg);
+  }
+
+  /* Popover search */
+  .popover-search {
+    padding: 12px 14px;
+    border-bottom: 1px solid #1E1E28;
+  }
+  .popover-search input {
+    width: 100%;
+    background: #0D0D14;
+    border: 1px solid #2A2A38;
+    border-radius: 5px;
+    padding: 7px 10px 7px 28px;
+    font-size: 12px;
+    color: #F0F0F5;
+    font-family: inherit;
+    outline: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='5' cy='5' r='3.5' fill='none' stroke='%23888899' stroke-width='1.4'/%3E%3Cline x1='7.5' y1='7.5' x2='10' y2='10' stroke='%23888899' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 9px center;
+  }
+  .popover-search input::placeholder { color: #555567; }
+  .popover-search input:focus { border-color: #6B5CE7; }
+
+  /* Popover body */
+  .popover-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .section-label {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: #555567; font-weight: 700;
+    padding: 10px 14px 6px;
+  }
+  .plugin-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #B8B8C2;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .plugin-row:hover { background: rgba(255, 255, 255, 0.04); color: #F0F0F5; }
+  .plugin-row .icon {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    background: #2A2A38;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    color: #888899;
+    font-weight: 700;
+  }
+  .plugin-row .name { flex: 1; }
+  .plugin-row .category {
+    font-size: 9px; color: #555567; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .plugin-row.recent .icon { background: rgba(107,92,231,0.18); color: #6B5CE7; }
+  .plugin-row.favorite .icon { background: rgba(245,166,35,0.14); color: #F5A623; }
+
+  /* Popover footer */
+  .popover-footer {
+    padding: 8px 14px;
+    border-top: 1px solid #1E1E28;
+    background: #111118;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .browse-all {
+    font-size: 11px; font-weight: 600; color: #6B5CE7;
+    background: transparent; border: 0; cursor: pointer; padding: 4px 0;
+    font-family: inherit;
+  }
+  .browse-all:hover { color: #8C7BFF; }
+  .keyboard-hint {
+    font-size: 9px; color: #555567; letter-spacing: 0.06em;
+  }
+  .keyboard-hint kbd {
+    background: #1A1A24; border: 1px solid #2A2A38; border-radius: 3px;
+    padding: 1px 5px; margin: 0 2px; font-family: 'SF Mono', monospace;
+    font-size: 9px; color: #888899;
+  }
+
+  /* ── Annotations on the right ──────────────────────────────────────────── */
+  .annotations { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .annotation {
+    padding: 16px 18px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+  }
+  .annotation h3 {
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #6B5CE7; margin-bottom: 10px; font-weight: 700;
+  }
+  .annotation p { font-size: 12px; color: #888899; line-height: 1.55; margin-bottom: 8px; }
+  .annotation strong { color: #F0F0F5; }
+  .annotation code {
+    font-family: 'SF Mono', monospace; font-size: 11px;
+    background: #1A1A24; color: #F0F0F5; padding: 1px 5px; border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Plugin Browser — Inline Popover (lo-fi)</h1>
+<div class="subtitle">
+  Anchored to the "+ Add Plugin" button in the existing PluginChainPanel. Click the button to open. Click outside to dismiss. Esc closes.
+</div>
+
+<div class="pull-quote">
+  <strong>The shape of the interaction.</strong> Press "+ Add Plugin" → popover opens to the left of the chain panel with the arranger still fully visible behind it → search, scan, click. The session never disappears. For deep discovery, "Browse all plugins…" opens a modal as a secondary path.
+</div>
+
+<!-- ── Stage ─────────────────────────────────────────────────────────────── -->
+<div class="stage">
+  <!-- Arranger placeholder -->
+  <div class="arranger-mock">
+    <div class="clip" style="background: rgba(107,92,231,0.14); border-color: #6B5CE7; color: #6B5CE7; top: 60px; left: 20px; width: 180px;">Guitar A</div>
+    <div class="clip" style="background: rgba(233,69,96,0.14); border-color: #E94560; color: #E94560; top: 130px; left: 90px; width: 220px;">Vocals</div>
+    <div class="clip" style="background: rgba(29,158,117,0.14); border-color: #1D9E75; color: #1D9E75; top: 200px; left: 40px; width: 140px;">Keys</div>
+    <div class="clip" style="background: rgba(245,166,35,0.14); border-color: #F5A623; color: #F5A623; top: 270px; left: 160px; width: 200px;">Bass</div>
+    <div class="clip" style="background: rgba(232,126,62,0.14); border-color: #E87E3E; color: #E87E3E; top: 340px; left: 20px; width: 260px;">Drums</div>
+  </div>
+
+  <!-- Plugin chain panel on the right -->
+  <div class="chain-panel">
+    <div class="chain-header">
+      <div>
+        <div class="label">FX Chain</div>
+        <div class="track-name">Vocals</div>
+      </div>
+      <div class="slot-count">3 slots</div>
+    </div>
+
+    <div class="chain-cards">
+      <div class="plugin-card">
+        <div class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="row">
+          <div class="name">EQ — Channel Strip</div>
+          <div class="power-btn on" onclick="this.classList.toggle('on'); this.closest('.plugin-card').classList.toggle('disabled', !this.classList.contains('on'));"></div>
+        </div>
+        <div class="params">low-cut · 80Hz &nbsp; q · 0.7</div>
+      </div>
+      <div class="plugin-card">
+        <div class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="row">
+          <div class="name">Compressor — Vintage</div>
+          <div class="power-btn on" onclick="this.classList.toggle('on'); this.closest('.plugin-card').classList.toggle('disabled', !this.classList.contains('on'));"></div>
+        </div>
+        <div class="params">ratio · 4:1 &nbsp; attack · 12ms</div>
+      </div>
+      <div class="plugin-card disabled">
+        <div class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="row">
+          <div class="name">Reverb — Plate</div>
+          <div class="power-btn" onclick="this.classList.toggle('on'); this.closest('.plugin-card').classList.toggle('disabled', !this.classList.contains('on'));"></div>
+        </div>
+        <div class="params">mix · 22% &nbsp; pre · 30ms</div>
+      </div>
+    </div>
+
+    <div class="add-plugin-wrap">
+      <button class="add-plugin-btn" id="add-btn" onclick="togglePopover()">
+        <span class="plus">+</span> Add Plugin
+      </button>
+
+      <!-- The popover (opens to the LEFT of the chain panel) -->
+      <div class="popover" id="popover">
+        <div class="popover-search">
+          <input type="text" placeholder="Search plugins…" autofocus>
+        </div>
+
+        <div class="popover-body">
+          <div class="section-label">Recent</div>
+          <div class="plugin-row recent">
+            <div class="icon">↻</div>
+            <div class="name">Tape Saturator</div>
+            <div class="category">Drive</div>
+          </div>
+          <div class="plugin-row recent">
+            <div class="icon">↻</div>
+            <div class="name">Pultec EQ</div>
+            <div class="category">EQ</div>
+          </div>
+
+          <div class="section-label">Favorites</div>
+          <div class="plugin-row favorite">
+            <div class="icon">★</div>
+            <div class="name">Spring Reverb</div>
+            <div class="category">Reverb</div>
+          </div>
+
+          <div class="section-label">EQ</div>
+          <div class="plugin-row">
+            <div class="icon">EQ</div>
+            <div class="name">Parametric EQ</div>
+            <div class="category">EQ</div>
+          </div>
+          <div class="plugin-row">
+            <div class="icon">EQ</div>
+            <div class="name">Linear-Phase EQ</div>
+            <div class="category">EQ</div>
+          </div>
+
+          <div class="section-label">Dynamics</div>
+          <div class="plugin-row">
+            <div class="icon">▪</div>
+            <div class="name">Compressor</div>
+            <div class="category">Dynamics</div>
+          </div>
+          <div class="plugin-row">
+            <div class="icon">▪</div>
+            <div class="name">Multi-band Comp</div>
+            <div class="category">Dynamics</div>
+          </div>
+          <div class="plugin-row">
+            <div class="icon">▪</div>
+            <div class="name">Gate</div>
+            <div class="category">Dynamics</div>
+          </div>
+
+          <div class="section-label">Reverb &amp; Delay</div>
+          <div class="plugin-row">
+            <div class="icon">~</div>
+            <div class="name">Plate Reverb</div>
+            <div class="category">Reverb</div>
+          </div>
+          <div class="plugin-row">
+            <div class="icon">~</div>
+            <div class="name">Room Reverb</div>
+            <div class="category">Reverb</div>
+          </div>
+          <div class="plugin-row">
+            <div class="icon">~</div>
+            <div class="name">Tape Delay</div>
+            <div class="category">Delay</div>
+          </div>
+        </div>
+
+        <div class="popover-footer">
+          <button class="browse-all">Browse all plugins…</button>
+          <div class="keyboard-hint"><kbd>↑↓</kbd> nav &nbsp; <kbd>↵</kbd> add</div>
+        </div>
+
+        <div class="popover-arrow"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Annotations ────────────────────────────────────────────────────────── -->
+<div class="annotations">
+  <div class="annotation">
+    <h3>Anchor &amp; placement</h3>
+    <p>Popover anchors to the <strong>"+ Add Plugin" button</strong> at the bottom of the existing <code>PluginChainPanel</code>.</p>
+    <p>Opens to the <strong>left</strong> of the chain panel (away from the screen edge). Width <code>340px</code>, max-height <code>480px</code>.</p>
+    <p>The arranger remains fully visible — collaboration cues, clip drops, playhead, and other channels all stay in view.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Information hierarchy</h3>
+    <p><strong>1. Search</strong> at top — autofocused on open. Power users never leave the keyboard.</p>
+    <p><strong>2. Recent</strong> — last 2–3 used plugins. Most adds repeat recent choices.</p>
+    <p><strong>3. Favorites</strong> — user-pinned plugins.</p>
+    <p><strong>4. By category</strong> — EQ, Dynamics, Reverb/Delay, Modulation, etc.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Interaction model</h3>
+    <p>• Click <strong>"+ Add Plugin"</strong> → popover scales in from bottom-right with a soft spring (240ms)</p>
+    <p>• Type to filter — categories collapse to match results</p>
+    <p>• <code>↑↓</code> nav, <code>Enter</code> to add, <code>Esc</code> closes</p>
+    <p>• Click outside the popover → closes</p>
+    <p>• Clicking a plugin adds it to the chain, popover closes, new card slides in at the bottom with a brief confirmation pulse</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Power button + drag handle</h3>
+    <p><strong>Power button</strong> (the round dot on each card) replaces the slidey toggle. Off = dark, on = purple core with halo. Reads as a hardware power button — matches studio-rack convention.</p>
+    <p><strong>Drag grip</strong> appears on hover at the left edge of each card. Grab to reorder the chain; a purple drop-line appears between cards to show the insertion point. Order matters in a signal chain — this needs to be obvious.</p>
+    <p>Try it now: hover any card to see the grip dots appear; click any power button to toggle.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Future: hi-fi as studio FX rack</h3>
+    <p>The lo-fi above is the <strong>structure</strong>. When this goes to hi-fi the plugin cards become <strong>rack units</strong>: brushed metal faceplates, recessed power indicator LEDs, drop-shadow depth, screw heads at corners, mini parameter readouts in a black inset panel.</p>
+    <p>The chain becomes a vertical stack of rack units in a wooden cabinet — owner color appears as the cabinet trim. Audible "click" sound when a unit is enabled/disabled (optional).</p>
+    <p>Same interaction model, premium aesthetic.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>The escape hatch</h3>
+    <p><strong>"Browse all plugins…"</strong> in the footer opens a richer modal for deep discovery: full descriptions, screenshots, presets, "try before you add" preview.</p>
+    <p>This is the secondary path — most adds happen inline. Modal is a future spec.</p>
+  </div>
+</div>
+
+<script>
+  const popover = document.getElementById('popover');
+  const addBtn = document.getElementById('add-btn');
+
+  function togglePopover() {
+    popover.classList.toggle('open');
+    if (popover.classList.contains('open')) {
+      setTimeout(() => popover.querySelector('input').focus(), 50);
+    }
+  }
+
+  document.addEventListener('click', e => {
+    if (!popover.classList.contains('open')) return;
+    if (popover.contains(e.target) || addBtn.contains(e.target)) return;
+    popover.classList.remove('open');
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && popover.classList.contains('open')) {
+      popover.classList.remove('open');
+    }
+  });
+
+  // Open briefly on first load to demonstrate the animation, then close so
+  // the viewer can also see the closed default state and click the button
+  // themselves.
+  setTimeout(() => popover.classList.add('open'), 600);
+  setTimeout(() => popover.classList.remove('open'), 2400);
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>

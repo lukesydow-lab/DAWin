@@ -5,8 +5,32 @@
 **Live URL:** `http://localhost:5173/motion-prototypes/03-vu-meter-animation.html`
 **Reference reading:** [mastering.com — Understanding VU Meters](https://mastering.com/vu-meter/)
 **Date:** 2026-05-12
+**Approved:** 2026-05-13
 **Designer:** UX/UI Agent
 **Routed to:** Tech Lead
+**Status:** ✅ APPROVED — ready for engineering assignment
+
+---
+
+## Approval
+
+Design is approved and locked. The Tech Lead can now break this work down for the engineering team. Open questions below are **engineering decisions to resolve during planning**, not blockers on the design.
+
+---
+
+## What's verified working in the prototype
+
+Engineering can reference the prototype at `/motion-prototypes/03-vu-meter-animation.html` as the source of truth for the meter's motion behavior. Each of the following is functional and inspectable:
+
+- ✅ **Attack/decay physics** — drag any signal slider; meter rises fast (32/sec), decays slow (4/sec)
+- ✅ **Peak-hold dots** — white bars hover at the highest recent level for 700ms, then drop at 0.5/sec; color shifts to amber/red in those zones
+- ✅ **Transient flash** — topmost lit segment intensifies its glow for 120ms whenever level jumps >5%
+- ✅ **Partial-segment shading** — leading edge fades between off and full color based on fractional level (smooth, not steppy)
+- ✅ **Audition mode** — toggle the synthetic audio source (120 BPM rhythmic pattern) to see all 6 meters animate together
+- ✅ **Heartbeat startup integration** — Launch Sequence button runs the full performance: faders + meters bloom together (easeOutQuint rise → breath at peak → easeInOutQuart fall → staggered motorized recall)
+- ✅ **Peak hold toggle** — On/Off control to disable the peak-hold dots entirely
+
+The motion code in the prototype is structured to be portable; the per-strip update loop in particular can lift directly into the React component with minor adaptation.
 
 ---
 
