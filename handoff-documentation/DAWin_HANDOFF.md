@@ -1,20 +1,21 @@
 # DAWin — Project Handoff Document
 
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
-> **Last updated:** 2026-05-12  
+> **Last updated:** 2026-05-14  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 1 — Core Session Room (active)
+> **Sprint:** 2 — Real-Time Collaboration (active, one item remaining: #20)
 
 ---
 
 ## 1. Project Overview
 
-DAWin is a browser-based collaborative digital audio workstation (DAW) UI prototype. It is being designed and built by an AI agent team orchestrated by a human PM. The prototype currently runs locally (no deployed backend) and is built as a single React/TypeScript application.
+DAWin is a browser-based collaborative digital audio workstation (DAW) UI prototype. It is being designed and built by an AI agent team orchestrated by a human PM. The prototype currently runs locally with a Fastify backend scaffold at `server/` (TypeScript, tsc-clean) and is built as a single React/TypeScript frontend application.
 
-The project is at an early-but-substantial prototype stage: the session room is fully interactive, audio plays through the Web Audio API, all core mixer controls are wired, and a Neve-inspired studio visual theme is applied. No backend exists yet — all data lives in seed state in `src/App.tsx`.
+The project is at a substantial prototype stage: the session room is fully interactive, audio plays through the Web Audio API with a live plugin chain in the signal path, all core mixer controls are wired, a Neve-inspired studio visual theme is applied, and real-time WebSocket transport sync and collaborator presence are implemented server-side. The one remaining Sprint 2 item is server-side track locking and JWT role enforcement (#20).
 
 **Repository root:** `/Users/lukesydow/daw-design`  
-**Primary source file:** `src/App.tsx` (2,759 lines — all components in one file by design during early sprint)  
+**Primary source file:** `src/App.tsx` (~3,500 lines — all components in one file by design during early sprint)  
+**Backend:** `server/` (Fastify + `@fastify/websocket`, TypeScript, tsc-clean)  
 **Dev server:** `npm run dev` → `http://localhost:5173`
 
 ---
@@ -42,6 +43,17 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 ├── src/
 │   └── App.tsx                   # All components (single file — intentional)
 │   └── App.css                   # Minimal CSS (wood panel class, CSS animations)
+├── server/                       # Fastify backend scaffold (Sprint 2)
+│   ├── index.ts                  # Fastify app with @fastify/websocket
+│   ├── store.ts                  # In-memory Map<sessionId, SessionState>
+│   ├── types.ts                  # ClientMeta, SessionState, WsClientMessage, WsBroadcast<T>
+│   ├── routes/
+│   │   ├── sessions.ts           # GET /api/v1/sessions/:id
+│   │   └── auth.ts               # GET /api/v1/auth/me
+│   ├── ws/
+│   │   └── handler.ts            # Full WebSocket message routing
+│   ├── package.json
+│   └── tsconfig.json
 ├── public/
 │   └── motion-prototypes/
 │       └── 03-vu-meter-animation.html   # Standalone VU meter motion prototype
@@ -49,31 +61,32 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 │   ├── adr/
 │   │   └── 001-dsp-locality.md         # Accepted: DSP runs in browser via Web Audio API
 │   ├── specs/                          # Feature specs (PM/Designer write; agents implement)
+│   │   ├── PRD.md                      # Product Requirements Document v1.1
+│   │   ├── ROADMAP.md                  # Sprint-by-sprint roadmap v1.1
 │   │   ├── session-room.md
 │   │   ├── arranger-view.md
 │   │   ├── track-ownership.md
 │   │   ├── mix-view.md
 │   │   ├── fx-chain-pan-rms-redesign.md
+│   │   ├── crossfade-direct-manipulation.md
 │   │   ├── invite-flow.md
 │   │   ├── status-bar.md
 │   │   ├── transport-bar.md
-│   │   ├── multitrack-backend-api.md   # Full backend contract (draft rev 1)
-│   │   ├── sprint1-defect-work-order.md
-│   │   └── vu-meter-motion.md          # VU physics + audio wiring spec (complete)
+│   │   └── multitrack-backend-api.md
 │   ├── handoffs/                       # Agent → Tech Lead review requests
 │   │   └── [one file per feature]
-│   └── defects.md                      # Sprint 1 UAT defect register
+│   └── defects.md                      # UAT defect register
+├── screenshots/
+│   └── sprint-1-2026-05-14/            # Visual archive: 3 JPGs + NOTES.md
 ├── .claude/
 │   └── agents/                         # Agent persona definitions
-│       ├── product-manager.md
-│       ├── tech-lead.md
-│       ├── frontend-engineer.md
-│       ├── designer.md
-│       ├── backend-engineer.md
-│       └── uat.md
+├── .github/
+│   └── workflows/
+│       └── ci.yml                      # tsc --noEmit --noUnusedLocals --noUnusedParameters + Vite build
 ├── STATUS.md                           # Live project status board (Tech Lead writes)
-├── DAWin_PROJECT_STATE.md              # Technical state snapshot (generated 2026-05-12)
-└── DAWin_HANDOFF.md                    # This file
+└── handoff-documentation/
+    ├── DAWin_PROJECT_STATE.md          # Technical state snapshot
+    └── DAWin_HANDOFF.md                # This file
 ```
 
 ### Frontend architecture
@@ -81,13 +94,21 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 - **Framework:** React 18 + Vite + TypeScript (strict mode)
 - **Styling:** Tailwind CSS v4 via `@tailwindcss/vite` plugin. No `tailwind.config.js`. No `@apply`. No CSS modules. All layout/spacing/typography via utility classes. Dynamic values (collaborator colors, calculated widths) via inline `style` prop only.
 - **State:** `useState` / `useReducer` / `useContext`. No external state library. The PM agent must approve any introduction of Redux, Zustand, or equivalent.
-- **Audio:** Web Audio API. One shared `AudioContext` (`_audioCtx`) at module scope, lazy-initialized on first user gesture via `getAudioCtx()`. All per-track nodes live in this context.
-- **Component structure:** All components currently in `src/App.tsx`. Migration to `src/components/<ComponentName>.tsx` begins when a second screen (Track Ownership, Mix View) is scaffolded. No barrel exports until 5+ components in a directory.
+- **Audio:** Web Audio API. One shared `AudioContext` (`_audioCtx`) at module scope, lazy-initialized on first user gesture via `getAudioCtx()`. All per-track nodes live in this context. Plugin chain nodes are tracked via `_pluginNodeMap`.
+- **Component structure:** All components currently in `src/App.tsx`. Migration to `src/components/<ComponentName>.tsx` begins when a second screen is scaffolded. No barrel exports until 5+ components in a directory.
 
-### Audio graph (current, post-VU-wiring)
+### Audio graph (current — post Sprint 2)
 
 ```
 Track AudioBuffer (procedurally synthesized)
+        │
+        ▼
+  [Plugin Chain]  ←── per-track plugin nodes (rewirePluginChain reconciler)
+  DynamicsCompressorNode
+  ConvolverNode (procedural IR reverb)
+  DelayNode + feedback GainNode
+  BiquadFilterNode (EQ)
+  GainNode (Limiter)
         │
         ▼
   GainNode  ←── track.volume (0–100) mapped via faderToDb() log curve
@@ -96,10 +117,13 @@ Track AudioBuffer (procedurally synthesized)
   AnalyserNode  ←── VU meter taps RMS here (POST-FADER, IEC 60268-17)
         │
         ▼
-  StereoPannerNode  ←── track.pan (-1..1)
+  StereoPannerNode  ←── track.pan mapped (-1..1)
         │
         ▼
   _masterGain  ←── masterVol (0–100), wired to real GainNode
+        │
+        ▼
+  _masterPanner  ←── masterPan (0–100) → (masterPan-50)/50
         │
         ▼
   _masterAnalyser  ←── master strip VU tap
@@ -107,6 +131,8 @@ Track AudioBuffer (procedurally synthesized)
         ▼
   AudioDestination
 ```
+
+`rewirePluginChain(trackId, plugins, ctx)` reconciler: creates/removes nodes as the chain changes without rebuilding the full graph. Enable/disable (bypass) removes the node from the chain silently. `_pluginNodeMap: Map<string, Map<string, AudioNode>>` at module scope.
 
 ### Key layout constants (do not change without updating DSM)
 
@@ -156,7 +182,7 @@ const COLLAB_COLORS = ['#6B5CE7', '#1D9E75', '#E94560', '#F5A623', '#00B4D8']
 // Luke=Owner(purple), Anna=Editor(teal), Miguel=Editor(red), Priya=Viewer(amber)
 ```
 
-Each collaborator's hex color appears on: track header accent bar + background tint, clip waveform fill and border, MixerStrip wood cap border, avatar ring, FX badge when their track is selected. This is the most important visual system in the product — it must be honored in every new screen.
+Each collaborator's hex color appears on: track header accent bar + background tint, clip waveform fill and border, MixerStrip wood cap border, avatar ring, FX badge when their track is selected, power LED in plugin rack. This is the most important visual system in the product — it must be honored in every new screen.
 
 ---
 
@@ -167,9 +193,9 @@ Each collaborator's hex color appears on: track header accent bar + background t
 | Screen | Status | Notes |
 |---|---|---|
 | Session room (arranger + mixer) | ✅ Complete | Full interaction, audio playback, all controls wired |
-| Track ownership (color avatars, record arm, input routing) | ⚠️ Partial | Visuals done; locking logic + role enforcement incomplete |
+| Track ownership (color avatars, record arm, input routing) | ⚠️ Partial | Visuals done; server-side locking + JWT enforcement not built (#20) |
 | Invite flow modal | ✅ Complete | Role picker, email input, "Send invite" wired, Escape closes |
-| Mix view (shared fader, mute/solo, plugin chain) | ⚠️ Partial | MixerPanel + FX chain done; plugin parameter editing not implemented |
+| Mix view (shared fader, mute/solo, plugin chain) | ⚠️ Partial | Plugin chain audibly wired; plugin parameter editing not implemented |
 | Mobile capture | ❌ Not started | Intentionally deferred — desktop-first |
 
 ### Session room capabilities (what works today)
@@ -177,41 +203,54 @@ Each collaborator's hex color appears on: track header accent bar + background t
 **Arranger:**
 - 7 tracks, 32 bars, drag-to-scroll
 - Clip drag (bar-snapped, preserves grab offset), resize (left/right handles), cut tool
-- Fade in/out handles on clips with linear/ease/sharp curve modes
+- Bezier fade in/out handles with draggable midpoint control points
+- Crossfade: implicit bezier crossfade on clip overlap; `crossfadeLocked: boolean` on ClipData mirrors paired handles; padlock icon in overlap zone
 - Right-click context menu: Delete ✅, Duplicate ✅, Bounce-to-clip ✅, Loop region (stub), Rename (stub)
 - Bounce-to-clip modal with virtual instrument + preset + humanizer style picker
 - Playhead seek (click ruler), keyboard spacebar play/pause, stop holds position, Return-to-Zero resets
-- Tool keyboard shortcuts: V (select), C (cut), X (crossfade — UI only, no implementation)
+- Tool keyboard shortcuts: V (select), C (cut)
 - BPM input with 40–300 range validation
 
 **Mixer:**
 - 7 track strips + master strip with Neve-inspired studio theme (wood rails, metal faders)
 - Fader: logarithmic curve with unity at ~75% travel, grip ridges, `faderToDb()` / `formatDb()` (floor: −90 dB)
-- Pan knob: horizontal drag control
+- `StudioFader`: `role="slider"`, track-scoped `aria-label`, ArrowUp/Down ±1, Shift+ArrowUp/Down ±10
+- Pan knob: horizontal drag wired, double-click to center, ±4 unit dead zone snaps to 0 during drag (center detent), 2px notch indicator at center position
 - Mute, Solo buttons: fully wired on track headers and mixer strips
 - Record arm: wired; role-based (Viewers cannot arm)
-- FX badge: shows real plugin chain count per track; click opens FX chain overlay
+- FX badge: shows real plugin chain count per track; click opens PluginChainPanel for that track
 - VU meters: post-fader RMS from `AnalyserNode`, attack 32/sec, decay 4/sec, peak-hold dot (700ms hold, 0.5/sec drop), transient glow flash (120ms), partial segment shading
+- VU heartbeat startup: bloom + staggered motorized recall animation on mount; `heartbeatSignalRef` overrides live RMS in shared rAF loop during startup sequence
 - Single `requestAnimationFrame` loop drives all strips (no state, direct DOM writes)
 - `prefers-reduced-motion`: disables transient glow and peak-hold drop
+- Master pan: `_masterPanner` StereoPannerNode inserted between `_masterGain` and `_masterAnalyser`; mapping `(masterPan-50)/50`; default 50 (center)
 
 **FX chain:**
 - 720px overlay panel slides in from right (220ms cubic-bezier), backdrop dim
-- Shows populated state (plugin cards with enable toggle and key params) or empty state (signal flow SVG + "Add Plugin +" CTA)
-- Plugin enable/disable toggle wired
-- "Add Plugin +" button has no handler — PM interaction spec required
+- Rack aesthetic: wood cabinet rails, brushed-metal faceplates, amber LCD param readout, power LED in owner color, Screw SVGs at corners
+- Plugin cards with enable/disable toggle (bypasses node without graph rebuild), drag-to-reorder
+- PluginBrowser inline popover: text search + category list; plugin added to chain immediately on selection
+- Plugin chain is wired into the audio graph — enabling/disabling plugins audibly affects the track
+- Kick track seeded with a compressor plugin by default
 
 **Audio playback:**
 - 7 procedurally synthesized instruments (kick, snare, hihat, bass, synthLead, pad, vox)
 - No sample files required — all generated via Web Audio API synthesis
 - Waveform rendered to `<canvas>` per clip (RMS peak downsampling)
 - Cold-load ghost waveform: seeded deterministic bars when buffer unavailable (no flash/flicker)
-- Master `GainNode` + `AnalyserNode` wired; `masterVol` drives real audio gain
+- Per-track plugin chain nodes audibly affect output
 
-**Presence (stub):**
-- Collaborator avatars shown in transport bar and track headers
-- StatusBar shows online count and CPU/RAM/Latency labels
-- No real-time WebSocket sync yet — presence is seed data
+**Backend (server/):**
+- Fastify server with `@fastify/websocket`, tsc-clean
+- In-memory session store: `Map<sessionId, SessionState>` with `addClient`, `removeClient`, `updateTransport`, `getClients`
+- WebSocket routing: `session.join` → `presence.joined` fan-out; `session.leave` → `presence.left` fan-out; `transport.play/pause/stop/seek/bpm_change` → `transport.state_sync` broadcast; `presence.update` → fan-out to other clients; `session.snapshot` sent on connect
+- REST stubs: `GET /api/v1/sessions/:id`, `GET /api/v1/auth/me`
+- `WsMessage.from` stamped server-side (not client-sent)
+
+**Presence (partial):**
+- Collaborator avatars shown in transport bar and track headers (seed data)
+- StatusBar shows online count and CPU/RAM/Latency labels (seed data)
+- Backend fan-out implemented; frontend WebSocket client not yet connected to backend
 
 ---
 
@@ -272,9 +311,8 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ### Backend Engineer
 - Owns API contracts, WebSocket message schemas, and data models
-- Shared TypeScript interfaces in `src/shared/types.ts` are the contract between layers
-- Currently designing contracts only — no server exists yet
 - REST endpoints versioned at `/api/v1/...` from day one; no GraphQL without PM approval
+- Backend scaffold exists at `server/` (tsc-clean). Remaining work: JWT enforcement + server-side track locking (#20)
 - Does NOT make frontend implementation decisions
 
 ### UAT Agent
@@ -296,8 +334,17 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 | TypeScript | Strict mode | Type safety across frontend |
 | Vite | Latest | Dev server + build tool |
 | Tailwind CSS | v4 (via `@tailwindcss/vite`) | Utility-class styling — no config file |
+| Fastify | Latest | Backend HTTP + WebSocket server |
+| `@fastify/websocket` | Latest | WebSocket plugin for Fastify |
 | Web Audio API | Browser native | Audio synthesis, playback, metering |
 | `requestAnimationFrame` | Browser native | VU meter animation loop (direct DOM writes, no state) |
+| puppeteer | devDependency | Sprint screenshot capture |
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`):
+1. `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` — strict typecheck
+2. `npm run build` — Vite build (blocked on typecheck passing)
 
 ### AI Agent Tooling
 
@@ -314,7 +361,6 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - State management (no Redux/Zustand/Jotai)
 - Animation (no Framer Motion — all animation via CSS transitions and `requestAnimationFrame`)
 - Audio routing (no Tone.js — raw Web Audio API only)
-- Backend (no server, no database, no auth)
 
 ---
 
@@ -352,11 +398,11 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - Width: 64px
 - Wood cap: 8px height, gradient `#3D2210 → #2E1A0E`
 - Owner color bar: 2px, sits below wood cap
-- FX badge: 8px font-mono, `C.control` background, shows `"FX:{n}"`
+- FX badge: 8px font-mono, `C.control` background, shows `"FX:{n}"`; click opens PluginChainPanel
 - M/S buttons: 22×14px each, `C.control` background, 2px corner radius
-- Pan knob: 28×28px SVG — metallic radial gradient, accent arc, indicator dot
+- Pan knob: 28×28px SVG — metallic radial gradient, accent arc, indicator dot; center detent ±4 unit dead zone; 2px notch at C position
 - VU meter: 2 channels × 20 segments × 3px height × 1px gap = 79px total
-- StudioFader: 22px wide handle with 3 grip ridges; 80px travel
+- StudioFader: 22px wide handle with 3 grip ridges; 80px travel; `role="slider"`; arrow key nav
 - dB readout: 9px monospace
 - Avatar ring: 16px diameter, 2px owner-color stroke
 
@@ -371,47 +417,30 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - 540×316px (7 tracks × 64px + master × 64px + 2 cheeks × 14px = 540px; 6px rail + 310px body = 316px)
 - Wood top rail: 6px, gradient `#3D2210 → #2E1A0E → #1E0F06`
 - Left/right cheeks: 14px wide, matching wood gradient
+- Master strip is intentionally slightly taller than track strips (hardware convention — by-design)
 
 ---
 
-## 9. GitHub Repository References
+## 9. GitHub Repository
 
-**No remote repository is currently configured.** The project exists as a local git repository only.
+**Remote:** https://github.com/lukesydow-lab/DAWin
 
-```
-git remote -v  →  (no output)
-```
+**CI:** GitHub Actions — typecheck + Vite build on push/PR to `main`. `--noUnusedLocals --noUnusedParameters` enforced.
 
-**Local git history (6 commits):**
+**Milestones:** Sprint 1 (closed), Sprint 2 (active), Sprint 3 (open)
 
-```
-3507382  feat: VU meter live audio wiring + motion physics
-bc786ba  fix: formatDb threshold, mute opacity, waveform cold-load
-18273f8  fix: left-side layout shift — track headers and arranger flush
-b6a770f  chore: update .gitignore, tag sprint-1-complete
-cb05b3f  chore: enforce source ownership and commit discipline
-6fff143  chore: initialize git — Sprint 1 complete (WP-1 through WP-7)
-```
+**Labels:** `type:feature-request`, `status:triage`, `sprint:1`, `sprint:2`, `sprint:3`, `type:open-decision`, `priority:p0`–`priority:p3`, `component:frontend`, `component:backend`, `component:design`, `type:bug`, `type:chore`
 
-**If a GitHub remote is added in the future:**
-- Branch strategy: feature branches per work package (e.g., `wp9-plugin-browser`)
-- PRs require Tech Lead review before merge to `main`
-- Commit message format: `feat/fix/chore: <short description of what and why>`
-- Every commit body must include: `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+**Issue templates:** Feature Request (`.github/ISSUE_TEMPLATE/feature-request.md`)
+
+**Open Sprint 2 issue:**
+- #20 Track locking + JWT role enforcement
 
 ---
 
-## 10. Slack Channel / Notification Setup
+## 10. Slack / Notification Setup
 
-**No Slack workspace or notification infrastructure is currently configured.** All coordination happens through:
-- `STATUS.md` — live project board (Tech Lead maintains)
-- `docs/handoffs/` — agent-to-agent handoff files
-- Direct conversation with the PM (Luke) in the Claude Code session
-
-If Slack is added in the future, the recommended channel structure would be:
-- `#dawing-sprint` — daily status, blockers, approvals
-- `#dawing-defects` — UAT findings piped from `docs/defects.md`
-- `#dawing-design` — Designer → FE handoffs
+No Slack workspace configured. All coordination via `STATUS.md`, `docs/handoffs/`, and PM sessions.
 
 ---
 
@@ -419,33 +448,40 @@ If Slack is added in the future, the recommended channel structure would be:
 
 ### What is fully wired and working
 
-- **Session room layout:** transport bar (top), arranger (center), mixer (bottom), status bar (bottom edge), FX chain overlay (right slide-in)
+- **Session room layout:** transport bar (top), arranger (center), mixer (bottom), status bar (bottom edge), FX chain overlay (right slide-in — viewport positioning bug fixed)
 - **Transport:** play/pause (spacebar), stop (holds position), return-to-zero, record arm toggle, BPM control (40–300 validated)
-- **Arranger clip editing:** drag (grab-offset correct), resize (left/right), fade handles (3 curve modes), cut tool, right-click menu (Delete/Duplicate/Bounce wired)
-- **Mixer:** fader (log curve, unity at ~75%), pan, mute, solo — all wired and updating shared track state
+- **Arranger clip editing:** drag (grab-offset correct), resize (left/right), bezier fade handles with draggable midpoints, cut tool, right-click menu (Delete/Duplicate/Bounce wired)
+- **Crossfade:** implicit bezier crossfade on clip overlap; symmetry lock toggle (padlock icon); `crossfadeLocked` on ClipData
+- **Mixer:** fader (log curve, unity at ~75%), pan (center detent ±4 dead zone, 2px notch), mute, solo — all wired and updating shared track state
+- **StudioFader ARIA:** `role="slider"`, track-scoped `aria-label`, ArrowUp/Down ±1, Shift+Arrow ±10
 - **VU meters:** live post-fader RMS, attack/decay physics, peak-hold dot, transient glow, `prefers-reduced-motion` respected
-- **Master bus:** real `GainNode` + `AnalyserNode` — `masterVol` drives actual audio gain
-- **FX chain:** plugin enable/disable toggle wired; plugin cards show key params; empty state with signal flow diagram
+- **VU heartbeat startup:** bloom + staggered motorized recall on mount; `heartbeatSignalRef` overrides live RMS
+- **Master bus:** real `GainNode` + `StereoPannerNode` + `AnalyserNode` — `masterVol` and `masterPan` drive real audio
+- **Plugin chain (audio graph):** DynamicsCompressorNode, ConvolverNode (procedural IR), DelayNode + feedback GainNode, BiquadFilterNode, Limiter GainNode — all wired into per-track signal path; enable/disable bypasses without graph rebuild
+- **Plugin rack UI:** wood cabinet, brushed-metal faceplates, amber LCD, power LED in owner color, Screw SVGs, drag-to-reorder; PluginBrowser inline popover with search
+- **FX badge → panel:** clicking FX badge on any mixer strip opens PluginChainPanel for that track
+- **Backend scaffold:** Fastify + WebSocket routing for all transport and presence events; in-memory session store; tsc-clean
 - **Invite modal:** role picker, email input, "Send invite" CTA wired, Escape closes
-- **Keyboard shortcuts:** spacebar (play/pause), V/C/X (tools), Escape (modals)
-- **Collaborator color system:** tints track headers, clip fills/waveforms, mixer strip wood caps, avatar rings throughout
+- **Keyboard shortcuts:** spacebar (play/pause), V/C (tools), Escape (modals)
+- **Collaborator color system:** tints track headers, clip fills/waveforms, mixer strip wood caps, avatar rings, plugin power LED throughout
 - **Accessibility:** ARIA labels on all icon-only controls, focus-visible rings, keyboard nav on fader/pan/MiniBtn, VU containers `aria-hidden`, dB readout `aria-live`
+- **CI:** tsc strict + Vite build passing; `--noUnusedLocals --noUnusedParameters` enforced
 
 ### What is partially implemented
 
-- **Track ownership locking:** `track.lockedBy` field exists but lock enforcement between users is not complete (no real-time sync yet)
-- **Role-based access:** `IS_VIEWER` disables arm/mute/solo buttons, but this is a client-side constant — server-side role enforcement not built
-- **Context menu:** Delete + Duplicate wired; Loop region + Rename are disabled stubs
-- **Crossfade tool:** toolbar UI exists, keyboard shortcut (X) switches tool — but no clip crossfade logic is implemented
-- **Heartbeat startup → VU integration:** the startup animation drives faders but does not yet drive the VU meter `signalTarget` from the heartbeat curve (the spec is written; implementation deferred)
+- **Frontend ↔ backend WebSocket connection:** Backend routing is implemented and tsc-clean; frontend does not yet open a WebSocket connection to the server. Presence and transport state are still seed data in React state client-side.
+- **Track ownership locking:** `track.lockedBy` field exists but enforcement between clients requires #20 (server-side lock check + JWT role)
+- **Role-based access:** `IS_VIEWER` constant disables arm/mute/solo buttons (client-side only); server-side JWT validation not built (#20)
+- **Context menu:** Delete + Duplicate wired; Loop region + Rename are disabled stubs (Sprint 3)
+- **Plugin parameter editing:** plugin cards display key params as read-only text in the amber LCD; no inline editing — PM decision required (§8.8)
 
 ### What is a stub or not started
 
-- **"Add Plugin +" handler:** button exists in FX chain empty state and populated state; `onClick` logs a TODO. PM interaction spec required.
-- **Real-time presence:** collaborator dots in the StatusBar are seed data; no WebSocket
-- **Transport sync:** playhead position is local React state; no multi-client sync
-- **Clip conflict resolution:** no conflict modal implementation (component set exists in Figma DSM only)
-- **Backend:** no server, no database, no auth, no API
+- **Disabled controls tooltip:** "View only — upgrade to Editor" tooltip not implemented (part of #20)
+- **Real-time presence cursors:** collaborator presence cursors in arranger are seed data; no live WebSocket update from backend
+- **Clip conflict resolution:** no conflict modal implementation
+- **Backend persistence:** session store is in-memory only (Map); no database
+- **Backend auth:** JWT issuance not implemented — `/auth/me` is a stub
 - **Mobile capture screen:** not started
 
 ---
@@ -454,11 +490,10 @@ If Slack is added in the future, the recommended channel structure would be:
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| "Add Plugin +" interaction spec not written | Frontend Engineer | PM writes the plugin browser UX spec (what happens when user clicks the button — search, category browse, preview?) |
-| Crossfade tool has no spec | Frontend Engineer | PM scopes the interaction model or explicitly deprioritizes it |
-| Backend spec has 4 required revisions before scaffold | Backend Engineer | Backend self-resolves: (1) stamp `WsMessage.from` server-side, (2) `PUT /chain` delete semantics, (3) add `GET /auth/me` endpoint, (4) define upload timeout and retry |
-| No GitHub remote | All agents | Luke sets up remote repo; agents cannot push to GitHub without it |
-| Heartbeat startup → VU integration | Frontend Engineer | Non-blocking; the HTML prototype has the reference implementation at `public/motion-prototypes/03-vu-meter-animation.html` |
+| Server-side track locking not built | Backend + Frontend | #20: Backend enforces `track.lockedBy`; JWT role decoded server-side |
+| Frontend WebSocket client not connected to backend | Frontend | After #20: FE opens WS connection, subscribes to transport.state_sync + presence events |
+| Plugin parameter editing spec not written | Frontend | PM writes the parameter editing UX spec (expanding card? popover?). Gates Sprint 3. |
+| Context menu stubs (Loop region + Rename) | Frontend | PM decides: scope Sprint 3 or remove stubs |
 
 ---
 
@@ -466,35 +501,21 @@ If Slack is added in the future, the recommended channel structure would be:
 
 ### For PM (product decisions required)
 
-1. **Plugin browser UX** — What happens when "Add Plugin +" is clicked? Options: a modal with search + categories, an inline dropdown, a full-screen browser. This is the most important open question for the next sprint.
+1. **Plugin parameter editing UX** (§8.8) — Expanding card, side panel, or popover? No spec exists. This is the most important open question for Sprint 3.
 
-2. **VU meter calibration marker** — Should there be a visible tick mark at the 0 VU reference point (−18 dBFS, the boundary between the green and amber zones)? Pro Tools, Logic, and Ableton all show this marker. The mastering.com spec in `docs/specs/vu-meter-motion.md` recommends it.
+2. **Context menu stubs** (§8.5) — Loop region + Rename are disabled with "(soon)" labels. Scope for Sprint 3, or remove from UI?
 
-3. **VU meter color bands** — Current assignment: 0–65% green, 65–85% amber, 85–100% red. Audio convention puts the amber transition at the −18 dBFS calibration point. Recalibrate, or keep as-is?
+3. **VU meter calibration marker** (§8.2) — Visible tick mark at 0 VU reference (−18 dBFS boundary)?
 
-4. **Stereo metering** — The VU meter renders two channels (L/R). For v1: should both channels read real stereo data from the `AnalyserNode`, or is mono-summed metering (same signal, cosmetically offset) acceptable?
+4. **VU meter color bands** (§8.3) — Current: 0–65% green, 65–85% amber, 85–100% red. Recalibrate to −18 dBFS convention?
 
-5. **Context menu stubs** — Loop region and Rename are disabled stubs. Are these in scope for Sprint 2, or should they be removed from the UI to avoid misleading users?
+5. **Stereo metering** (§8.4) — Both L/R channels currently read same AnalyserNode (mono-summed). True stereo via SplitterNode: acceptable for v1?
 
-6. **Crossfade tool** — Currently has keyboard shortcut (X) and toolbar button but zero implementation. Scope it for Sprint 2, or disable/hide the tool entirely?
-
-7. **Ownership transfer** — Track ownership is currently set at track creation and is immutable in the prototype. Is ownership transfer a Sprint 2 requirement or post-MVP?
+6. **Ownership transfer** (§8.7) — Post-MVP or Sprint 3?
 
 ### For Tech Lead (architectural sign-off needed)
 
-1. **VU meter implementation review** — Commit `3507382` implements the full VU motion spec. Needs Tech Lead sign-off before WP-3 is marked done in `STATUS.md`.
-
-2. **Plugin chain in the audio graph** — Currently, the plugin chain (compressor, reverb, delay, etc.) exists only as UI state — plugin parameters are stored in `pluginChains` React state but no audio processing nodes are inserted into the Web Audio graph. When should this be wired? It affects metering (the spec defines `source → plugins → fader → meter`) and must be sequenced correctly.
-
-3. **Pre-fader meter mode** — Confirmed out of scope for now (ADR-adjacent). If added later, the analyser tap moves before the `GainNode`. No structural changes needed — just document the decision.
-
-### For Designer
-
-1. **Track Ownership screen** — Currently partial. Full spec not yet written for: lock state visuals when another user is recording, input routing badge interaction, ownership transfer UI if PM approves it.
-
-2. **0 VU calibration tick** — Pending PM answer above; if approved, Designer specifies exact placement, size, and color.
-
-3. **Conflict modal** — Component set exists in Figma DSM but no interaction spec written. What triggers it? What are the resolution options?
+1. **Frontend WS client integration** — When #20 backend is ready, Tech Lead should specify the connection pattern: singleton WS client at App root? Custom hook? How does transport.state_sync merge with local React state?
 
 ---
 
@@ -502,142 +523,131 @@ If Slack is added in the future, the recommended channel structure would be:
 
 ### ADR 001 — DSP Locality (accepted 2026-05-10)
 **Decision:** All DSP runs in the browser via the Web Audio API for the prototype.  
-**Rationale:** Server-side DSP requires ~32 Mbps sustained for a 7-track session — impractical on general internet. Web Audio API nodes cover all needed plugin types (compressor, reverb, delay, maximizer, EQ) natively. Plugin parameter state is still server-persisted and synced via WebSocket `plugin.param_change` events.  
-**Future path:** If CLAP/VST3 support is needed, add an Electron/Tauri sidecar process using shared memory + local loopback WebSocket — server architecture does not change.
+**Rationale:** Server-side DSP requires ~32 Mbps sustained for a 7-track session — impractical on general internet. Web Audio API nodes cover all needed plugin types natively. Plugin parameter state is server-persisted and synced via WebSocket `plugin.param_change` events.  
+**Future path:** CLAP/VST3 requires Electron/Tauri sidecar using shared memory + local loopback WebSocket.
 
-### Post-fader metering (2026-05-12)
-**Decision:** VU meters tap the `AnalyserNode` after the `GainNode` (post-fader), not before.  
-**Rationale:** IEC 60268-17 standard; matches Pro Tools, Logic, Ableton. Pre-fader metering would mean dragging the fader doesn't change the meter, which breaks the purpose of the instrument.
+### Crossfade interaction model (2026-05-14 — PM decision)
+**Decision:** Crossfade toolbar tool removed. Crossfades are implicit on clip overlap: bezier crossfade region created automatically. `crossfadeLocked: boolean` on ClipData. When locked: mirrored handles (fadeInCurve = n ↔ fadeOutCurve = 1-n). When unlocked: independent. Padlock icon in overlap zone. Locked = `C.textSec`, unlocked = `C.accent`.
 
-### Master bus `GainNode` introduction (2026-05-12)
-**Decision:** Created `_masterGain: GainNode` and `_masterAnalyser: AnalyserNode` at module scope. All per-track `StereoPannerNode`s now route through `_masterGain` before reaching `AudioDestination`. `masterVol` React state is wired to `_masterGain.gain.value`.  
-**Impact:** `masterVol` previously controlled only the UI fader label and played no role in the audio graph. This is now corrected.
+### Master fader height (2026-05-14 — PM decision)
+**Decision:** Master strip being slightly taller than track strips is by-design (hardware convention). Issue #12 closed as won't fix.
+
+### Plugin browser UX (2026-05-14 — §8.1 resolved)
+**Decision:** Inline popover anchored to "+ ADD UNIT" button. Text search + category list. Plugin added to chain immediately on selection. Implemented as `PluginBrowser` inside `PluginChainPanel`.
+
+### masterPan default + _masterPanner (2026-05-14)
+**Decision:** `masterPan` initialized at 50 (center), not 0. `_masterPanner: StereoPannerNode` inserted between `_masterGain` and `_masterAnalyser`. Mapping: `(masterPan-50)/50`. Previous mapping `masterPan/100` produced hard-left output.
+
+### PanKnob center detent (2026-05-14)
+**Decision:** ±4 unit dead zone in drag `onMove` handler (`const snapped = Math.abs(raw) <= 4 ? 0 : raw`). Visual 2px center notch indicator extends above/below bar; width 2px when `pan === 0`, 1px otherwise.
+
+### FX chain panel viewport positioning (2026-05-14 — Sprint 2 fix)
+**Decision:** `overflow: clip` scoped to `html, body` only (not `#root`). `#root` had `overflow: clip` which created a BFC containing block for `position: fixed` children, causing the PluginChainPanel to anchor 1px off the right edge of the 1920px viewport. Removed from `#root`.
+
+### CI tightened (2026-05-14)
+**Decision:** `--noUnusedLocals --noUnusedParameters` added to `tsc --noEmit` step. Prevents accumulation of dead code. Three unused variables fixed at same time (rawY, _instrId, showInvite).
 
 ### Single rAF loop for all VU strips (2026-05-12)
 **Decision:** One shared `requestAnimationFrame` loop in `MixerPanel` drives all strip meters. Refs (not state) are used for level values; `renderVUChannel()` writes directly to DOM style properties.  
-**Rationale:** Using `useState` for 60fps values would trigger re-renders of 240+ DOM elements per frame. Direct DOM writes keep CPU flat regardless of track count.
+**Rationale:** `useState` for 60fps values would trigger re-renders of 240+ DOM elements per frame.
 
-### DSM canonical layout grid (2026-05-11)
-**Decision:** Locked layout for all Figma pages: component content starts at x=380, section gap=120px, component gap=40px, label column at x=80.  
-**Rationale:** Previous sessions produced overlapping components as loose frames. All components must be `COMPONENT_SET` nodes (wrapped via `figma.combineAsVariants`) — plain frames are not persisted between Figma plugin executions.
+### Post-fader metering (2026-05-12)
+**Decision:** VU meters tap the `AnalyserNode` after the `GainNode` (post-fader). IEC 60268-17 standard; matches Pro Tools, Logic, Ableton.
 
 ---
 
 ## 15. Features in Progress
 
-### VU meter motion + audio wiring (WP-3) — 95% complete
-**What's done:** Full post-fader RMS wiring, attack/decay physics, peak-hold dot, transient glow, partial segment shading, `prefers-reduced-motion`, ARIA labels, master bus wired, single rAF loop.  
-**What remains:** (1) Tech Lead sign-off on commit `3507382`; (2) Heartbeat startup → VU `signalTarget` integration — the heartbeat sequence in the HTML prototype needs to be ported to the React `App` component so the meters animate alongside faders during the startup choreography.
-
-### Figma DSM completeness pass — complete
-All components that exist in the shipped code now have representation in the Figma Design System. Completed 2026-05-11.
-
-### Backend spec revision — in progress
-Backend Engineer has a rev 1 spec. 4 revisions required before Fastify scaffold begins (see Blockers section). No timeline set.
+### #20 — Track locking + JWT role enforcement
+**What remains:**
+- Backend: enforce `track.lockedBy` — reject concurrent arm attempts from other clients
+- Backend: JWT issuance + role decoding server-side; `GET /auth/me` returns real role
+- Frontend: replace `IS_VIEWER` constant with decoded JWT claim
+- Frontend: tooltip on disabled controls: "View only — upgrade to Editor to make changes"
+- Done when: two clients cannot simultaneously arm the same track; Viewer cannot arm/mute/solo even with modified client code
 
 ---
 
 ## 16. Feature Backlog / Ideas
 
-Items below are not formally scoped. They represent known future work and exploratory ideas discussed in the project. None of these should be started without a PM-written spec.
+Items below are not formally scoped. None should be started without a PM-written spec.
 
-### Sprint 2 candidates (ordered by impact on collaborative loop)
+### Sprint 3 candidates (ordered by impact)
 
-1. **Real-time presence and transport sync (WebSocket)** — The most important missing feature. Without this, the "collaborative" claim is not verifiable. Requires backend scaffold first.
+1. **Plugin parameter editing UI** — Expanding plugin card shows inline knobs/sliders per param. Compressor: threshold, ratio, attack, release. Gates Sprint 3.
 
-2. **Plugin browser ("Add Plugin +")** — High user-facing impact. Blocked on PM interaction spec. The FX chain empty state has the CTA wired up to a `console.log` placeholder.
+2. **Context menu completions (Loop region + Rename)** — Loop region sets `loopStart`/`loopEnd`; playhead loops within range. Rename: inline text edit on track header name field.
 
-3. **Track ownership screen polish** — Complete the partial screens: lock state when another user is recording, input routing badge fully wired, role-enforcement from server.
+3. **VU calibration polish** — 0 VU tick mark, color band recalibration, true stereo via SplitterNode (pending PM decisions §8.2–8.4).
 
-4. **Plugin chain in audio graph** — Wire the UI plugin chain (compressor, reverb, delay, etc.) to actual Web Audio nodes. Currently all plugin params are UI state only; no audio processing occurs.
+4. **Frontend WebSocket client** — Connect frontend to Fastify backend; subscribe to transport.state_sync + presence events. Replaces seed data with live server state.
 
-5. **Heartbeat startup → VU integration** — Port the fader/meter startup choreography from the HTML prototype to the React app. Reference: `public/motion-prototypes/03-vu-meter-animation.html`.
+### Future / post-MVP
 
-### Sprint 3 / post-MVP ideas
-
-6. **Crossfade tool** — Toolbar and keyboard shortcut (X) exist. Full implementation requires drag between adjacent clips to create a crossfade region with a configurable curve.
-
-7. **Context menu: Loop region + Rename** — Currently disabled stubs.
-
-8. **0 VU calibration tick on meter** — Small visual addition pending PM decision.
-
-9. **Plugin parameter editing** — Click on a plugin card in the FX chain to expand inline parameter controls (knobs for each param). Design spec not started.
-
-10. **Mobile capture screen** — Minimal record + playback on mobile. Explicitly lowest priority — desktop-first.
-
-11. **Pre-fader / post-fader meter toggle** — Per-track toggle between pre-fader and post-fader metering. Spec says "move the analyser tap" — architecturally simple. Low priority.
-
-12. **Ownership transfer UI** — Drag an avatar from one track to another, or a context menu option. Depends on backend auth model for enforcement.
-
-13. **Clip color picker** — Allow overriding the owner color on individual clips (for marking regions, loops, etc.).
-
-14. **MIDI track type** — Currently all tracks show "Audio" or "MIDI" as a label but only audio synthesis is implemented.
-
-15. **Session history / undo** — No undo stack exists. Complex to implement without operational transforms for collaborative edits.
-
-16. **VST/CLAP native plugin support** — Requires Electron/Tauri sidecar (per ADR 001). Post-MVP.
+| Feature | Why deferred | Prerequisite |
+|---|---|---|
+| Mobile capture screen | Desktop-first mandate | PM formal scope decision + Designer full mobile spec |
+| CLAP/VST3 native plugin support | Requires Electron/Tauri sidecar (per ADR-001) | Electron integration decision |
+| Undo stack | Requires operational transforms | Tech Lead design + PM approval |
+| Session history / restore points | Depends on stable server persistence | Backend persistence layer |
+| Ownership transfer UI | Backend auth must enforce it | #20 complete; PM decision on §8.7 |
+| Pre-fader / post-fader meter toggle | Low value; architecturally simple | PM decision |
+| Clip color picker | Override owner color on individual clips | Sprint 3 complete |
+| Real audio recording (getUserMedia) | Requires backend blob storage | Backend recording pipeline |
+| MIDI track type | All tracks are audio synthesis only | New spec + PM scope decision |
+| Session loading state / skeleton | Relevant when real session hydration introduced | Backend hydration |
+| Error states | No error state designed for any screen | PM + Designer scope decision |
 
 ---
 
 ## 17. What Should Not Be Changed
 
-The following are deliberate decisions that should be treated as constraints unless explicitly overridden by the PM + Tech Lead together.
-
 ### Architecture constraints
 
-- **One `AudioContext` per session.** Do not create a second one. All Web Audio nodes must use the `_audioCtx` singleton from `getAudioCtx()`.
+- **One `AudioContext` per session.** Do not create a second one. All Web Audio nodes must use `_audioCtx` from `getAudioCtx()`.
 - **No external state library** without PM approval. `useState` / `useReducer` / `useContext` only.
 - **No CSS modules, no styled-components, no `@apply`.** Tailwind v4 utility classes + inline `style` only.
-- **No GraphQL.** REST + WebSocket per the backend spec. PM must approve any deviation.
-- **`src/App.tsx` is the only file in `src/` right now.** Do not create new files in `src/` until a second screen is scaffolded (Tech Lead decides when).
-- **TypeScript strict mode.** No `any`. If a type is unknown, use `unknown` with a TODO comment.
-- **Plugin chain in the audio graph** must follow: `source → plugins → GainNode(fader) → AnalyserNode → StereoPannerNode → masterGain → masterAnalyser → destination`. The tap order is load-bearing — VU correctness depends on it.
+- **No GraphQL.** REST + WebSocket per the backend spec.
+- **`src/App.tsx` is the only file in `src/` right now.** Do not create new files without Tech Lead approval.
+- **TypeScript strict mode.** No `any`. Use `unknown` + TODO if type is genuinely unknown.
+- **Audio graph signal order is load-bearing:** `source → [plugin chain] → GainNode(fader) → AnalyserNode(VU tap) → StereoPannerNode → _masterGain → _masterPanner → _masterAnalyser → destination`. VU correctness depends on tap placement after fader.
+- **CI must pass before merge:** `tsc --noEmit --noUnusedLocals --noUnusedParameters` + `vite build`.
 
 ### Design constraints
 
-- **Collaborator color model is sacred.** Every new surface must show the owner's hex color on their tracks/clips. No new screen should omit this.
+- **Collaborator color model is sacred.** Every new surface must show the owner's hex color on their tracks/clips/strips. No new screen should omit this.
 - **Never hardcode hex values in `src/`.** Always use `C.*` tokens. Collaborator colors use inline `style` props.
-- **Desktop-first, 1280px minimum.** Do not design for smaller viewports until the mobile capture screen is formally scoped.
-- **Dense information density is correct.** Do not add padding, whitespace, or simplification "to make it cleaner" — this is a pro audio tool.
-- **Standard DAW conventions must be honored.** Spacebar = play/pause. Stop preserves position. Return-to-Zero resets. These are muscle-memory behaviors. Breaking them will be noticed immediately.
-- **The Designer agent may not write to `src/`.** All code comes from the Frontend Engineer implementing the Designer's spec. This separation is absolute.
+- **Desktop-first, 1280px minimum.** Do not design for smaller viewports until mobile capture is formally scoped.
+- **Dense information density is correct.** Do not add padding or simplification — this is a pro audio tool.
+- **Standard DAW conventions must be honored.** Spacebar = play/pause. Stop preserves position. Return-to-Zero resets. Fader unity at ~75%. VU meters are post-fader. These are muscle-memory behaviors.
+- **The Designer agent may not write to `src/`.** All code comes from the Frontend Engineer.
 
 ### Token constraints
 
-- **Layout constants (`BAR_W`, `TRACK_H`, etc.) may not change** without updating both the code and the Figma DSM. These values are used in clip width calculations, drag math, ruler rendering, and VU meter geometry.
-- **VU meter bands:** 0–12 segments = green (`C.vuGreen`), 13–16 = amber (`C.vuAmber`), 17–19 = red (`C.vuRed`). These match the 20-segment layout in the DSM. Do not change without a PM decision and DSM update.
+- **Layout constants (`BAR_W`, `TRACK_H`, etc.) may not change** without updating both code and Figma DSM.
+- **VU meter bands:** 0–12 segments = green (`C.vuGreen`), 13–16 = amber (`C.vuAmber`), 17–19 = red (`C.vuRed`). 20-segment layout. Do not change without PM decision + DSM update.
 
 ---
 
 ## 18. Current Assumptions
 
-These are explicitly held assumptions that should be revisited as the project evolves.
-
-1. **Single `AudioContext` is sufficient.** Web Audio API spec allows one context per page. This works for the prototype; if multi-window support or worker-based playback is needed, the architecture changes.
-
-2. **All 7 tracks are always present.** Track creation and deletion are not yet implemented. The seed data defines 7 fixed tracks.
-
-3. **The backend will be server-authoritative for transport state.** Play/pause/position are currently local React state. The assumption is that the server will be the source of truth when WebSocket sync is added — last write wins for clip edits, server wins for transport.
-
-4. **Collaborator color is assigned at session join and immutable within a session.** Colors are stored in seed data. The backend will assign colors server-side per `(userId, sessionId)`.
-
-5. **JWT-based auth with guest/anonymous join support.** Auth doesn't exist yet. The assumption is that role enforcement will happen server-side — client-side role checks (`IS_VIEWER`) are UI hints only and will be validated against the server token.
-
-6. **No CLAP/VST3 for the prototype.** All plugin processing uses Web Audio API nodes. If users need native plugins, the Electron/Tauri sidecar path (per ADR 001) is available but not in scope.
-
-7. **Mono-summed metering is acceptable for v1.** The VU meter currently reads the same `AnalyserNode` data for both L and R channels. True per-channel stereo analysis requires panning the signal through a `SplitterNode` before the analyser — deferred pending PM decision.
-
-8. **32 bars is sufficient for the prototype.** `BARS = 32`. The UI renders all bars eagerly (no virtualization). At `BAR_W = 72`, this is a 2,304px canvas. Virtualization is needed before increasing to 128+ bars.
-
-9. **Procedural audio synthesis is sufficient.** Real sample import is not implemented. The 7 synthesized instruments are enough to demonstrate the collaborative features.
-
-10. **No undo stack.** All clip/track mutations are immediate and irreversible in the current prototype. An undo stack requires either full state snapshots or an operation log — both are non-trivial to retrofit.
+1. **Single `AudioContext` is sufficient.** Works for the prototype; multi-window or worker-based playback would require architectural changes.
+2. **All 7 tracks are always present.** Track creation and deletion not yet implemented.
+3. **The backend will be server-authoritative for transport state.** Current React state is local; server will be source of truth when WS client is connected.
+4. **Collaborator color is assigned at session join and immutable within a session.** Stored in seed data; backend will assign server-side per `(userId, sessionId)`.
+5. **JWT-based auth with guest/anonymous join support.** Auth doesn't exist yet; `IS_VIEWER` is a UI hint only — will be validated against server token in #20.
+6. **No CLAP/VST3 for the prototype.** All plugin processing uses Web Audio API nodes.
+7. **Mono-summed metering is acceptable for v1.** True stereo requires SplitterNode — deferred pending PM decision §8.4.
+8. **32 bars is sufficient for the prototype.** Eager render at `BAR_W=72` = 2,304px canvas. Virtualization needed before 128+ bars.
+9. **Procedural audio synthesis is sufficient.** Real sample import is not implemented.
+10. **No undo stack.** All clip/track mutations are immediate and irreversible.
+11. **In-memory session store is sufficient for prototype.** No database; sessions lost on server restart.
 
 ---
 
 ## 19. How New Feature Work Orders Should Be Structured
 
-When submitting a new feature request to this project (whether to Claude or another AI), structure it using the following template. Vague requests produce vague implementations — specificity here directly determines output quality.
+When submitting a new feature request to this project, structure it using the following template.
 
 ### Work order template
 
@@ -687,20 +697,12 @@ So that [specific outcome].
 2. [Question] → [Who answers it]
 
 ### Definition of done
-- [ ] tsc --noEmit passes (no type errors)
+- [ ] tsc --noEmit passes (no type errors, no unused locals/parameters)
 - [ ] Feature matches spec — UAT agent has validated acceptance criteria
 - [ ] Committed to git with Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - [ ] Handoff dropped to docs/handoffs/ for Tech Lead review
 - [ ] STATUS.md updated
 ```
-
-### Rules for work orders
-
-- **Never skip the acceptance criteria.** If you can't write a testable criterion, the feature is not defined enough to implement.
-- **"Add Plugin +" is a good example of a blocked work order** — the PM has not written the interaction spec, so the FE has a `console.log` placeholder and cannot proceed. The work order would have caught this.
-- **Arranger timeline changes need a perf callout.** Anything touching clip rendering, track row rendering, or the ruler is the hot path. Call it out explicitly so the Tech Lead reviews the rAF budget.
-- **Designer output is a spec, not code.** The Designer agent produces a `docs/specs/<feature>.md` file. The Frontend Engineer reads it and implements. Do not ask the Designer agent to produce React components.
-- **Backend work requires shared types.** Any new entity or API endpoint must update `src/shared/types.ts` (or create it if it doesn't exist for that feature). The frontend stubs against these types.
 
 ---
 
@@ -708,37 +710,25 @@ So that [specific outcome].
 
 Ordered by impact on the collaborative core value proposition.
 
-### Immediate (this sprint)
+### Immediate (complete Sprint 2)
 
-1. **PM: Write the "Add Plugin +" interaction spec.**  
-   This is the longest-running blocker. Define: what happens on click (modal? panel? dropdown?), what the search/browse experience looks like, what happens on install, how the plugin card is added to the chain. File to: `docs/specs/plugin-browser.md`.
+1. **Backend + Frontend: #20 Track locking + JWT role enforcement**  
+   - Backend: enforce `track.lockedBy` server-side; implement JWT issuance and role claim; make `GET /auth/me` real
+   - Frontend: replace `IS_VIEWER` constant with decoded JWT claim; add tooltip on disabled controls
+   - Done when: two clients cannot simultaneously arm the same track; Viewer role enforced server-side
 
-2. **Tech Lead: Sign off on VU meter implementation (commit `3507382`).**  
-   Unblocks WP-3 close and STATUS.md update. Check: post-fader tap order, rAF loop correctness, type safety, `prefers-reduced-motion` behavior.
+### Sprint 2 → Sprint 3 bridge
 
-3. **PM: Answer the 3 VU meter calibration questions** (0 VU marker, color band recalibration, stereo vs mono-summed). These are small decisions that unblock a polishing pass.
+2. **PM: Answer open decisions §8.2, §8.3, §8.4, §8.5, §8.8** — These gate all Sprint 3 audio depth work. Plugin parameter editing UX is the most impactful.
 
-4. **Backend: Self-resolve 4 spec revisions and begin Fastify scaffold.**  
-   The 4 revisions are clearly documented in the backend spec: stamp `WsMessage.from`, PUT chain delete semantics, `GET /auth/me`, upload timeout. None require PM input.
+3. **Tech Lead: Design frontend WebSocket client integration pattern** — Singleton at App root? Custom hook? How does `transport.state_sync` merge with local React state? Document in ADR before FE implements.
 
-### Next sprint
+### Sprint 3
 
-5. **Frontend: Port heartbeat startup → VU `signalTarget` integration.**  
-   The reference implementation is in `public/motion-prototypes/03-vu-meter-animation.html`. This is the final piece of WP-3.
+4. **Plugin parameter editing UI** — Expanding plugin card with inline knobs. Requires PM spec first.
 
-6. **Designer + Frontend: Track Ownership screen (screen 2).**  
-   Currently partial. Designer writes the full spec for: record lock state visuals, input routing badge interaction, and (if PM approves) ownership transfer UI. Frontend implements.
+5. **Context menu completions** — Loop region + Rename (or remove stubs if descoped).
 
-7. **Backend + Frontend: WebSocket presence and transport sync (Sprint 2 foundation).**  
-   Real-time presence is the product's core differentiator — it must work before the prototype is meaningful to test with real users. Requires backend scaffold first.
+6. **VU calibration polish** — Pending PM decisions on tick mark, color bands, stereo metering.
 
-8. **Frontend: Wire plugin chain into audio graph.**  
-   Currently, plugin params (compressor ratio, reverb size, etc.) are stored in React state but no audio processing nodes are inserted. The signal flow should be `source → DynamicsCompressorNode → ConvolverNode → DelayNode → GainNode(fader) → AnalyserNode → ...`. This makes the FX chain audibly functional.
-
-### Future
-
-9. **Crossfade tool implementation** — after PM scopes the interaction model.
-10. **Context menu Loop region + Rename** — after PM decides scope.
-11. **Plugin parameter editing UI** — expand plugin cards to show inline knobs.
-12. **Mobile capture screen** — lowest priority; explicitly deferred.
-```
+7. **Frontend WebSocket client** — Connect to Fastify backend; replace seed data presence with live events.

@@ -1,7 +1,7 @@
 # DAWin — Project State Snapshot
 
 **Last updated:** 2026-05-14  
-**Sprint:** 2 — Real-Time Collaboration (active)  
+**Sprint:** 2 — Real-Time Collaboration (active, one item remaining)  
 **Repo:** https://github.com/lukesydow-lab/DAWin  
 **Raw handoff:** https://raw.githubusercontent.com/lukesydow-lab/DAWin/main/handoff-documentation/DAWin_PROJECT_STATE.md
 
@@ -10,10 +10,10 @@
 ## Current stack
 
 - **Frontend:** React + Vite + TypeScript + Tailwind CSS v4
-- **Backend:** Not yet built. Contracts designed in `docs/specs/multitrack-backend-api.md`. Fastify scaffold is Sprint 2 first task.
-- **Real-time:** WebSocket planned (Fastify + ws). Sprint 2.
-- **Audio:** Web Audio API — single `_audioCtx` singleton, 7 procedural synthesis tracks
-- **All code:** `src/App.tsx` (single file, ~3500 lines). No split until Tech Lead approves.
+- **Backend:** Fastify scaffold at `server/` (TypeScript, tsc-clean). Routes: `GET /api/v1/sessions/:id`, `GET /api/v1/auth/me`. WebSocket: full message routing (session.join/leave, transport.play/pause/stop/seek/bpm_change, presence.update fan-out, session.snapshot on connect).
+- **Real-time:** WebSocket active (Fastify + `@fastify/websocket`). In-memory session store (`Map<sessionId, SessionState>`).
+- **Audio:** Web Audio API — single `_audioCtx` singleton, 7 procedural synthesis tracks, plugin chain audio nodes wired per track.
+- **All frontend code:** `src/App.tsx` (single file, ~3500 lines). No split until Tech Lead approves.
 
 ---
 
@@ -25,7 +25,7 @@
 | `TransportBar` | Logo, play/pause/stop/record, BPM, avatars, Invite | ✅ |
 | `ArrangeView` | 7-track timeline, ruler, playhead, clips | ✅ |
 | `Clip` | Draggable/resizable clip with bezier fade handles + symmetry lock | ✅ |
-| `MixerPanel` | Neve-themed mixer, single rAF VU loop | ✅ |
+| `MixerPanel` | Neve-themed mixer, single rAF VU loop, heartbeat startup | ✅ |
 | `MixerStrip` | Per-track fader, pan, mute/solo, VU meters, FX badge | ✅ |
 | `PluginChainPanel` | Fixed overlay (right: 0), rack-style FX units, plugin browser | ✅ |
 | `PluginBrowser` | Inline popover — search + add plugin to chain | ✅ |
@@ -38,14 +38,17 @@
 
 ```
 OscillatorNode/BufferSource
-  → plugin chain (DynamicsCompressorNode etc. — Sprint 2)
+  → plugin chain (DynamicsCompressorNode → ConvolverNode → DelayNode+GainNode → BiquadFilterNode → Limiter)
   → GainNode (fader, logarithmic)
   → AnalyserNode (VU tap — post-fader, IEC 60268-17)
   → StereoPannerNode
   → _masterGain
+  → _masterPanner (StereoPannerNode)
   → _masterAnalyser
   → AudioContext.destination
 ```
+
+`rewirePluginChain` reconciler manages node lifecycle. Bypass (enable/disable) removes/reinserts a node without rebuilding the full graph. `_pluginNodeMap: Map<trackId, Map<pluginId, AudioNode>>` tracks all allocated nodes.
 
 ---
 
@@ -62,16 +65,18 @@ Everything in the session room is interactive and visually complete:
 - Collaborator color model on all surfaces
 - GitHub: milestones, labels, issue templates, PRD, Roadmap
 
-## Sprint 2 — active
+## Sprint 2 — active (one item remaining)
 
 **Goal:** Real-time collaboration. Two clients share live session state.
 
-**Open issues:**
-- #3 Backend: Fastify scaffold (blocks all WS work)
-- #7 Plugin chain in audio graph
-- #8 Track ownership polish (PanKnob drag, FX badge → panel, StudioFader ARIA)
-- #19 WebSocket presence + transport sync
-- #20 Track locking + JWT role enforcement
+**Completed issues:**
+- ✅ #3 Backend Fastify scaffold — tsc-clean, WebSocket routing active
+- ✅ #7 Plugin chain in audio graph — DynamicsCompressor, Reverb, Delay, EQ, Limiter wired
+- ✅ #8 Track ownership polish — PanKnob detent, FX badge → panel, StudioFader ARIA, master pan fix
+- ✅ #19 WebSocket presence + transport sync — session.join/leave, transport fan-out, session.snapshot
+
+**Open issue:**
+- 🟡 #20 Track locking + JWT role enforcement — server-side enforcement not yet built; client-side `IS_VIEWER` constant remains; no tooltip on disabled controls
 
 ---
 
@@ -80,11 +85,12 @@ Everything in the session room is interactive and visually complete:
 ```
 bg: #0A0A0F        surface: #111118    elevated: #1A1A24
 accent: #6B5CE7    danger: #E94560     success: #1D9E75
-textPri: #F0F0F5   textSec: #888899
-wood: #3D2B1F      woodLight: #5C4033
-metalDark: #1C1C1E metalMid: #2A2A2E   metalLight: #3A3A3F
-vuGreen: #1DB954   vuAmber: #F59E0B    vuRed: #E94560
-well: #0D0D12
+textPri: #F0F0F5   textSec: #888899    control: #2A2A38
+border: #1E1E28    well: #0D0D14       warn: #F5A623
+accentMuted: rgba(107,92,231,0.13)
+wood: #2E1A0E      woodLight: #4A2C17
+metalDark: #14141E metalMid: #2A2A3C   metalLight: #3A3A52
+vuGreen: #1EC94A   vuAmber: #F5A623    vuRed: #E94560
 ```
 
 ---
