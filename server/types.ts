@@ -150,25 +150,69 @@ export interface CollaboratorPresence {
 }
 
 // ---------------------------------------------------------------------------
+// Session store
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-connection metadata held in the server-side session store.
+ * `ws` is the raw WebSocket socket from @fastify/websocket — typed as unknown
+ * here to avoid a hard coupling to the ws module's internal types; cast at
+ * the call site where `.send()` / `.readyState` are needed.
+ */
+export interface ClientMeta {
+  userId: UserId;
+  displayName: string;
+  color: string;
+  role: Role;
+  isGuest: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ws: any; // raw WebSocket — intentionally opaque; cast to WebSocket at use site
+}
+
+/** Live in-memory state for one collaborative session. */
+export interface SessionState {
+  sessionId: SessionId;
+  transport: TransportState;
+  /** keyed by clientId (a uuid generated per WS connection) */
+  clients: Map<string, ClientMeta>;
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket messages
 // ---------------------------------------------------------------------------
 
 /**
- * All non-binary WebSocket frames use this envelope.
+ * Shape the client sends on the wire.
  *
  * RESOLUTION (Sprint 2): Clients send { type, sessionId, payload } only.
  * The server stamps `from: userId` (derived from the WS ticket) before
  * broadcasting. Any `from` field in an inbound client frame is discarded.
  */
-export interface WsMessageInbound<T = unknown> {
+export interface WsClientMessage {
+  type: string;
+  sessionId: SessionId;
+  payload: unknown;
+}
+
+/** @deprecated — use WsClientMessage for inbound, WsBroadcast for outbound. */
+export type WsMessageInbound<T = unknown> = {
   type: string;
   sessionId: SessionId;
   payload: T;
+};
+
+/** Outbound broadcast frame — server stamps `from` and `ts`. */
+export interface WsBroadcast<T = unknown> {
+  type: string;
+  sessionId: SessionId;
+  from: UserId; // stamped server-side; never trust client-supplied value
+  payload: T;
+  ts: number; // epoch ms — server-side timestamp
 }
 
-/** Outbound frame — server adds `from` before fan-out. */
+/** @deprecated — use WsBroadcast. Kept for backward compat with existing handler stub. */
 export interface WsMessage<T = unknown> extends WsMessageInbound<T> {
-  from: UserId; // stamped server-side; never trust client-supplied value
+  from: UserId;
 }
 
 // ---------------------------------------------------------------------------
