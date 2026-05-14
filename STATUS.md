@@ -1,26 +1,31 @@
 # Project DAWin — Status Board
 
-> **Last updated:** 2026-05-11 (Figma DSM completeness pass + UAT bug fixes)  
-> **Sprint:** 1 — Core session room  
+> **Last updated:** 2026-05-14 — Sprint 1 closed, Sprint 2 active  
+> **Sprint:** 2 — Real-Time Collaboration  
 > **Owner:** Luke (PM)
 
 ---
 
 ## Active Work
 
-| Agent | Task | Status | Blocking? |
-|-------|------|--------|-----------|
-| Frontend | WP-3 (reduced): VU meter animation only — all other WP-2/WP-3 items shipped in WP-1 pass | Queued | No |
-| Backend | Spec revisions (4 clarifications) + Fastify scaffold | Queued | No |
-| PM | "Add Plugin +" interaction spec — needed before FE can implement plugin browser | Queued | Yes (FE blocked) |
+| Agent | Task | Issue | Status | Blocking? |
+|-------|------|-------|--------|-----------|
+| Backend | Fastify scaffold + resolve 4 spec revisions before WebSocket work begins | #3 | Up next | Yes — gates all Sprint 2 backend work |
+| Frontend | PanKnob drag interaction in track header | — | Queued | No |
+| Frontend | FX badge click → opens PluginChainPanel for that track | — | Queued | No |
+| Frontend | StudioFader ARIA (role=slider, ArrowUp/Down keyboard) | — | Queued | No |
 
 ## Review Queue (waiting on Tech Lead)
 
 | Agent | Task | Files changed | Submitted |
 |-------|------|---------------|-----------|
-| —     | —    | —             | —         |
+| — | — | — | — |
 
-## Done ✓
+## Done ✓ — Sprint 2
+
+*(Sprint 2 just opened — nothing complete yet)*
+
+## Done ✓ — Sprint 1 (closed 2026-05-14)
 
 | Task | Completed by | Date |
 |------|--------------|------|
@@ -28,40 +33,67 @@
 | Clip editing (resize, fade, cut, drag, bounce) | Frontend | 2026-05-10 |
 | Playhead animation + seek | Frontend | 2026-05-10 |
 | Neve studio theme (knobs, faders, VU, wood) | Frontend | 2026-05-10 |
-| Sprint 1 UAT defect triage — 19 defects prioritized into WP-1/2/3 | Tech Lead | 2026-05-10 |
-| WP-1 defect pass — 16/19 defects fixed (incl. most WP-2/3 items shipped early) | Frontend | 2026-05-10 |
-| Backend shared types contract + API spec + ADR-001 DSP locality | Backend | 2026-05-10 |
-| Audio waveform rendering + procedural synth playback (all 7 tracks) | Frontend | 2026-05-10 |
-| Backend spec rev 1 — 4 Tech Lead revisions + prototype audio stub section | Backend | 2026-05-10 |
-| WP-4 Tech Lead review pass — 6 fixes (fade curve wiring, plugin enable toggle, formatDb floor, InviteModal placement, effect split for gap-free playback, synthBass type cleanup) | Frontend | 2026-05-10 |
-| WP-5 Designer handoff — ARIA pass (MiniBtn, MixerStrip, StudioFader keyboard nav, master pan knob, master fader height) | Frontend | 2026-05-10 |
-| WP-6 FX chain view, interactive PanKnob, always-visible R/M/S + designed empty state | Frontend + Designer | 2026-05-10 |
-| WP-7 PluginChainPanel → 720px fixed overlay with slide animation + backdrop | Frontend | 2026-05-10 |
-| UAT WP-8 bug fixes: formatDb threshold (-90 floor), mute opacity double-hit, cold-load waveform ghost | Frontend | 2026-05-11 |
-| Figma DSM completeness pass — Clip molecule (5 variants), Toolbar (3), StatusBar (2), TransportBar repositioned, MixerPanel organism with full wood surround + 7 tracks + master strip, FXChainPanel accuracy fix (owner border on header only), Knob atom (3 variants), PanKnob (3), TransBtn (10), canonical grid locked on Organisms page | Designer | 2026-05-11 |
+| Sprint 1 UAT defect triage — 19 defects prioritized | Tech Lead | 2026-05-10 |
+| WP-1 defect pass — 16/19 defects fixed | Frontend | 2026-05-10 |
+| Backend shared types + API spec + ADR-001 | Backend | 2026-05-10 |
+| Audio waveform rendering + procedural synth (7 tracks) | Frontend | 2026-05-10 |
+| Backend spec rev 1 — 4 Tech Lead revisions | Backend | 2026-05-10 |
+| WP-4 Tech Lead review pass — 6 fixes | Frontend | 2026-05-10 |
+| WP-5 ARIA pass (MiniBtn, MixerStrip, StudioFader, pan/fader) | Frontend + Designer | 2026-05-10 |
+| WP-6 FX chain view, interactive PanKnob, R/M/S, empty state | Frontend + Designer | 2026-05-10 |
+| WP-7 PluginChainPanel 720px overlay with slide animation | Frontend | 2026-05-10 |
+| UAT WP-8 bug fixes (formatDb, mute opacity, cold-load waveform) | Frontend | 2026-05-11 |
+| Figma DSM completeness pass (Clip, Toolbar, StatusBar, MixerPanel organism, FXChainPanel, atoms) | Designer | 2026-05-11 |
+| VU meters — live post-fader RMS, 60fps rAF, peak-hold, transient glow | Frontend | 2026-05-14 |
+| VU heartbeat startup — bloom + staggered motorized recall on mount | Frontend | 2026-05-14 |
+| Bezier fade curves — draggable midpoint handle, symmetry lock on crossfade pairs | Frontend | 2026-05-14 |
+| Plugin rack browser — wood cabinet, metal faceplates, power LED, drag-to-reorder | Frontend | 2026-05-14 |
+| FX chain panel viewport positioning fix (overflow:clip #root BFC bug) | Frontend | 2026-05-14 |
+| PRD v1.0 + Roadmap (3 sprints + future table) | PM | 2026-05-14 |
+| GitHub sprint infrastructure (milestones, labels, issue templates, Projects board) | PM | 2026-05-14 |
+| Sprint 1 screenshot archive | UAT | 2026-05-14 |
 
 ## Blocked
 
 | Agent | Blocker | Who can unblock |
 |-------|---------|-----------------|
-| Frontend | "Add Plugin +" — needs PM interaction spec before implementation | PM |
-| Frontend | Crossfade tool — L effort, no spec; deferred | PM |
-| Backend | 4 spec revisions required before scaffold: (1) stamp WsMessage.from server-side, (2) PUT chain delete semantics, (3) add GET /auth/me, (4) upload timeout | Backend self-resolves, then scaffold begins |
+| Backend | Must resolve 4 spec items before Fastify scaffold (#3): (1) stamp WsMessage.from server-side, (2) PUT /chain delete semantics, (3) GET /auth/me, (4) upload timeout | Backend self-resolves |
+| Frontend (WS features) | Fastify scaffold must exist before any WebSocket frontend work begins | Backend |
+
+---
+
+## Sprint 2 Goals
+
+1. **WebSocket presence + transport sync** (#19) — two clients share live play/pause/seek/BPM state
+2. **Track locking + JWT role enforcement** (#20) — server enforces lockedBy; Viewer role via JWT
+3. **Plugin chain in audio graph** (#7) — DynamicsCompressor, Convolver, Delay wired to real Web Audio nodes
+4. **Track ownership polish** (#8) — PanKnob drag, FX badge → chain panel, StudioFader ARIA
+
+## Sprint 2 Exit Criteria
+
+- [ ] Two browser tabs share transport state via WebSocket (play in one, other moves within 100ms)
+- [ ] Viewer client cannot arm/mute/solo even with modified client code
+- [ ] Plugin enable/disable toggle audibly changes track sound
+- [ ] All interactivity gaps in mix-view.md closed
+- [ ] Zero P0 or P1 defects at UAT sign-off
 
 ---
 
 ## Handoff Protocol
 
-1. **FE / BE → Tech Lead:** Drop a file in `docs/handoffs/` describing what was built, files changed, and what to review. Update the Review Queue above.
-2. **Tech Lead → You:** Updates STATUS.md "Done" table and DMs you when a feature passes review.
-3. **You → PM:** Direction, priorities, and new feature requests.
-4. **PM → Agents:** Specs land in `docs/specs/`. Agents pick up from there.
+1. **FE / BE → Tech Lead:** Drop a file in `docs/handoffs/` describing what was built, files changed, and what to review.
+2. **Tech Lead → PM:** Updates STATUS.md "Done" table on approval.
+3. **UAT:** Runs after each work package. Defects logged to `docs/defects.md`.
+4. **PM:** Closes GitHub issues and updates this file.
 
 ## Shared Directories
 
 | Path | Purpose |
 |------|---------|
-| `docs/specs/` | Feature specs and API contracts (PM writes, agents read) |
+| `docs/specs/` | Feature specs and API contracts |
 | `docs/adr/` | Architecture Decision Records (Tech Lead writes) |
-| `docs/handoffs/` | FE/BE → Tech Lead review requests |
-| `STATUS.md` | This file — single source of truth on what's in flight |
+| `docs/handoffs/` | Agent → Tech Lead review requests |
+| `docs/specs/PRD.md` | Full product requirements |
+| `docs/specs/ROADMAP.md` | Sprint-by-sprint roadmap |
+| `STATUS.md` | This file — single source of truth |
+| `screenshots/` | Visual archive per sprint |
