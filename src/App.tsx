@@ -2426,7 +2426,7 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
   selectedTrackId: string | null
 }) {
   const [masterVol, setMasterVol] = useState(95)
-  const [masterPan, setMasterPan] = useState(0)
+  const [masterPan, setMasterPan] = useState(50)
 
   // Wire masterVol → _masterGain whenever it changes
   useEffect(() => {
@@ -2434,9 +2434,9 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
   }, [masterVol])
 
   // Wire masterPan → _masterPanner whenever it changes
-  // pan state is 0 (center) defaulting; maps -100..100 → -1..1
+  // pan state 0-100, center=50; maps to StereoPanner range -1..1 via (value-50)/50
   useEffect(() => {
-    if (_masterPanner) _masterPanner.pan.value = masterPan / 100
+    if (_masterPanner) _masterPanner.pan.value = (masterPan - 50) / 50
   }, [masterPan])
 
   // Per-strip handles: DOM refs for the rAF loop to write to
