@@ -1256,7 +1256,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, onDragStart, o
   useEffect(() => {
     if (!fadeDrag) return
     function onMove(e: MouseEvent) {
-      const rawY = fadeDrag!.startY + (e.clientY - fadeDrag!.startY) + (e.clientY - fadeDrag!.startY)
+      // rawY computed from mouse position relative to drag start
       // Compute new curve from absolute mouse Y relative to clip top
       // We need a ref to the clip element — compute via initial startY and current mouse
       // Strategy: track delta from drag start, map to curve delta
@@ -1872,7 +1872,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
   }
 
   // ── Bounce handler ────────────────────────────────────────────────────────────
-  function handleBounce(instrId: string, preset: string, humanStyle: string | null) {
+  function handleBounce(_instrId: string, preset: string, humanStyle: string | null) {
     if (!bounceTarget) return
     const srcTrack = tracks.find(t => t.id === bounceTarget.trackId)!
     const clip     = srcTrack.clips.find(c => c.id === bounceTarget.clipId)!
@@ -2702,7 +2702,7 @@ interface TransportBarProps {
   playheadBar: number;  setPlayheadBar: (v: number) => void
   showInvite: boolean;  setShowInvite: (v: boolean) => void
 }
-function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, showInvite, setShowInvite }: TransportBarProps) {
+function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite }: TransportBarProps) {
 
   const bar   = Math.floor(playheadBar) + 1
   const beat  = Math.floor((playheadBar % 1) * 4) + 1
