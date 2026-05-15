@@ -38,7 +38,6 @@ const COLLABORATORS = [
   { id: 'priya',  name: 'Priya',  initial: 'P', color: COLLAB_COLORS[3], role: 'Viewer' },
 ]
 const CURRENT_USER = COLLABORATORS[0]
-const IS_VIEWER = CURRENT_USER.role === 'Viewer'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tool = 'select' | 'cut'
@@ -745,7 +744,7 @@ function MiniBtn({ active, activeColor, label, title, disabled = false, onClick,
     <button
       aria-label={title}
       aria-pressed={active}
-      title={disabled ? 'View only' : title}
+      title={title}
       disabled={disabled}
       onClick={e => { e.stopPropagation(); onClick?.() }}
       className={`w-5 h-5 rounded text-xs font-bold flex items-center justify-center transition-all hover:brightness-125 active:scale-95${pulse && active ? ' record-pulse' : ''}`}
@@ -1088,13 +1087,14 @@ function Toolbar({ tool, setTool }: { tool: Tool; setTool: (t: Tool) => void }) 
 interface TrackHeaderProps {
   track: Track
   selected?: boolean
+  isViewer: boolean
   onSelect?: () => void
   onToggleMute?: () => void
   onToggleSolo?: () => void
   onToggleArm?: () => void
   onPanChange?: (trackId: string, value: number) => void
 }
-function TrackHeader({ track, selected = false, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange }: TrackHeaderProps) {
+function TrackHeader({ track, selected = false, isViewer, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange }: TrackHeaderProps) {
   const lockingCollab = track.lockedBy !== null && track.lockedBy !== CURRENT_USER.id
     ? COLLABORATORS.find(c => c.id === track.lockedBy) ?? null
     : null
@@ -1133,9 +1133,9 @@ function TrackHeader({ track, selected = false, onSelect, onToggleMute, onToggle
           {lockingCollab !== null && (
             <span title={`${lockingCollab.name} is recording`} style={{ fontSize: 12, color: lockingCollab.color, lineHeight: 1 }}>🔒</span>
           )}
-          <MiniBtn active={track.armed}  activeColor={C.danger}  label="R" title={lockingCollab ? `${lockingCollab.name} is recording` : 'Record arm'} disabled={IS_VIEWER || lockingCollab !== null} onClick={onToggleArm}  pulse={track.armed} />
-          <MiniBtn active={track.muted}  activeColor={C.warn}    label="M" title="Mute" disabled={IS_VIEWER} onClick={onToggleMute} />
-          <MiniBtn active={track.soloed} activeColor={C.success} label="S" title="Solo" disabled={IS_VIEWER} onClick={onToggleSolo} />
+          <MiniBtn active={track.armed}  activeColor={C.danger}  label="R" title={isViewer ? 'View only — upgrade to Editor to arm tracks' : lockingCollab ? `${lockingCollab.name} is recording` : 'Record arm'} disabled={isViewer || lockingCollab !== null} onClick={onToggleArm}  pulse={track.armed} />
+          <MiniBtn active={track.muted}  activeColor={C.warn}    label="M" title={isViewer ? 'View only — upgrade to Editor to mute tracks' : 'Mute'} disabled={isViewer} onClick={onToggleMute} />
+          <MiniBtn active={track.soloed} activeColor={C.success} label="S" title={isViewer ? 'View only — upgrade to Editor to solo tracks' : 'Solo'} disabled={isViewer} onClick={onToggleSolo} />
         </div>
         <PanKnob pan={track.pan} onChange={onPanChange ? (v) => onPanChange(track.id, v) : undefined} />
       </div>
@@ -1647,9 +1647,10 @@ interface ArrangeViewProps {
   audioCtxReady: boolean
   selectedClipId: string | null
   onSelectClip: (clipId: string) => void
+  isViewer: boolean
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -1933,6 +1934,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   key={t.id}
                   track={t}
                   selected={selectedTrackId === t.id}
+                  isViewer={isViewer}
                   onSelect={() => onSelectTrack?.(t.id)}
                   onToggleMute={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, muted: !tr.muted }))}
                   onToggleSolo={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, soloed: !tr.soloed }))}
@@ -3257,6 +3259,8 @@ export default function App() {
   const [showInvite, setShowInvite]       = useState(false)
   const [tool, setTool]                   = useState<Tool>('select')
   const [audioCtxReady, setAudioCtxReady] = useState(false)
+  const [userRole, setUserRole]           = useState<'owner' | 'collaborator' | 'viewer'>('owner')
+  const isViewer = userRole === 'viewer'
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
   const barAtStartRef = useRef<number>(0)
@@ -3266,6 +3270,17 @@ export default function App() {
   // Ref so Effect A can read pluginChains without taking a dep that restarts sources
   const pluginChainsRef = useRef<Record<string, PluginSlot[]>>(pluginChains)
   pluginChainsRef.current = pluginChains
+
+  useEffect(() => {
+    fetch('http://localhost:3000/api/v1/auth/me')
+      .then(r => r.json())
+      .then((body: { data: { role: 'owner' | 'collaborator' | 'viewer' } }) => {
+        setUserRole(body.data.role)
+      })
+      .catch(() => {
+        // Server not running in dev — stay with default 'owner'
+      })
+  }, [])
 
   useEffect(() => {
     if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return }
@@ -3464,6 +3479,7 @@ export default function App() {
             tool={tool} setTool={setTool}
             audioCtxReady={audioCtxReady}
             selectedClipId={selectedClipId} onSelectClip={setSelectedClipId}
+            isViewer={isViewer}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
