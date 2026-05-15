@@ -172,6 +172,92 @@ const INITIAL_TRACKS: Track[] = [
   { id: 't7', name: 'Vox Bus',    type: 'Bus',   owner: COLLABORATORS[0], armed: false, muted: false, soloed: false, volume: 95, pan: 0,   lockedBy: null,   audioInput: null,     clips: [] },
 ]
 
+// ─── WebSocket client singleton ───────────────────────────────────────────────
+// Follows the _audioCtx / getAudioCtx() pattern: module-level, lazily initialized.
+interface WsFrame { type: string; sessionId: string; from: string; payload: unknown; ts: number }
+
+let _wsClient: WebSocket | null = null
+let _wsSessionId: string | null = null
+let _wsReconnectAttempts = 0
+let _wsConnFailed = false
+let _wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
+const WS_MAX_RECONNECT = 5
+const WS_BASE_DELAY_MS = 500
+
+function getWsClient(
+  sessionId: string,
+  onMessage: (msg: WsFrame) => void,
+  onStatusChange: (status: 'connected' | 'reconnecting' | 'failed' | 'idle') => void,
+): WebSocket {
+  if (_wsClient && _wsClient.readyState === WebSocket.OPEN && _wsSessionId === sessionId) {
+    return _wsClient
+  }
+
+  _wsSessionId = sessionId
+
+  const ws = new WebSocket(`ws://localhost:3001/ws?sessionId=${sessionId}`)
+  _wsClient = ws
+
+  ws.addEventListener('open', () => {
+    _wsReconnectAttempts = 0
+    _wsConnFailed = false
+    onStatusChange('connected')
+    ws.send(JSON.stringify({ type: 'session.join', sessionId, payload: {} }))
+  })
+
+  ws.addEventListener('message', e => {
+    try {
+      const frame = JSON.parse(e.data as string) as WsFrame
+      onMessage(frame)
+    } catch {
+      // Non-JSON frame — ignore
+    }
+  })
+
+  function scheduleReconnect() {
+    if (_wsReconnectAttempts >= WS_MAX_RECONNECT) {
+      _wsConnFailed = true
+      onStatusChange('failed')
+      return
+    }
+    onStatusChange('reconnecting')
+    const delay = WS_BASE_DELAY_MS * Math.pow(2, _wsReconnectAttempts)
+    _wsReconnectAttempts++
+    _wsReconnectTimer = setTimeout(() => {
+      getWsClient(sessionId, onMessage, onStatusChange)
+    }, delay)
+  }
+
+  ws.addEventListener('close', () => {
+    if (_wsConnFailed) return
+    scheduleReconnect()
+  })
+
+  ws.addEventListener('error', () => {
+    if (_wsConnFailed) return
+    scheduleReconnect()
+  })
+
+  return ws
+}
+
+function sendWsMessage(type: string, payload: unknown): void {
+  if (!_wsClient || _wsClient.readyState !== WebSocket.OPEN || !_wsSessionId) return
+  _wsClient.send(JSON.stringify({ type, sessionId: _wsSessionId, payload }))
+}
+
+// ─── Deep link utility ────────────────────────────────────────────────────────
+function copyDeepLink(anchor: { t?: number; track?: string; clip?: string; range?: string }): void {
+  const params = new URLSearchParams()
+  params.set('session', 'dev-session-001')
+  if (anchor.t !== undefined) params.set('t', String(anchor.t))
+  if (anchor.track) params.set('track', anchor.track)
+  if (anchor.clip) params.set('clip', anchor.clip)
+  if (anchor.range) params.set('range', anchor.range)
+  const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`
+  navigator.clipboard.writeText(url).catch(() => {/* silent — clipboard permission denied */})
+}
+
 // ─── Audio engine ─────────────────────────────────────────────────────────────
 // Single shared AudioContext — created on first user gesture to satisfy autoplay policy.
 let _audioCtx: AudioContext | null = null
@@ -1088,13 +1174,15 @@ interface TrackHeaderProps {
   track: Track
   selected?: boolean
   isViewer: boolean
+  highlighted?: boolean
   onSelect?: () => void
   onToggleMute?: () => void
   onToggleSolo?: () => void
   onToggleArm?: () => void
   onPanChange?: (trackId: string, value: number) => void
+  onCopyLink?: (trackId: string) => void
 }
-function TrackHeader({ track, selected = false, isViewer, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange }: TrackHeaderProps) {
+function TrackHeader({ track, selected = false, isViewer, highlighted = false, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange, onCopyLink }: TrackHeaderProps) {
   const lockingCollab = track.lockedBy !== null && track.lockedBy !== CURRENT_USER.id
     ? COLLABORATORS.find(c => c.id === track.lockedBy) ?? null
     : null
@@ -1103,6 +1191,7 @@ function TrackHeader({ track, selected = false, isViewer, onSelect, onToggleMute
     <div
       className="flex items-center gap-1.5 px-2 border-b flex-shrink-0 group relative cursor-pointer"
       onClick={onSelect}
+      onContextMenu={e => { e.preventDefault(); onCopyLink?.(track.id) }}
       style={{
         height: TRACK_H,
         background: selected
@@ -1110,6 +1199,9 @@ function TrackHeader({ track, selected = false, isViewer, onSelect, onToggleMute
           : `linear-gradient(90deg, ${track.owner.color}18 0%, ${C.surface} 48px)`,
         borderColor: selected ? track.owner.color : C.border,
         outline: selected ? `1px solid ${track.owner.color}44` : 'none',
+        // Deep link highlight: left border widens and a subtle accent tint is added
+        borderLeft: highlighted ? `3px solid ${C.accent}` : undefined,
+        backgroundColor: highlighted ? `rgba(107,92,231,0.10)` : undefined,
       }}>
       <div className="flex-shrink-0 rounded-full" style={{ width: 4, height: 40, background: track.owner.color }} />
       {track.armed && <div className="absolute left-0 top-0 bottom-0 record-pulse" style={{ width: 3, background: C.danger, borderRadius: '0 2px 2px 0' }} />}
@@ -1161,6 +1253,7 @@ interface ClipProps {
   isDragging: boolean
   isGhost: boolean
   selected: boolean
+  highlighted: boolean
   onDragStart: (clipId: string, trackId: string, mode: DragState['mode'], e: React.MouseEvent, barOffset?: number) => void
   onContextMenu: (e: React.MouseEvent, clipId: string, trackId: string) => void
   onCut: (clipId: string, trackId: string, bar: number) => void
@@ -1176,7 +1269,7 @@ interface FadeHandleDrag {
   clipH: number
 }
 
-function Clip({ clip, track, tool, isDragging, isGhost, selected, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady }: ClipProps) {
+function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady }: ClipProps) {
   const [hovered, setHovered] = useState(false)
   const [fadeDrag, setFadeDrag] = useState<FadeHandleDrag | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1338,7 +1431,9 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, onDragStart, o
         width: clipW,
         background: texture,
         borderLeft: `2px solid ${track.owner.color}`,
-        boxShadow: `inset 0 0 0 1px ${track.owner.color}44`,
+        boxShadow: highlighted
+          ? `inset 0 0 0 1px ${track.owner.color}44, 0 0 0 2px ${C.accent}`
+          : `inset 0 0 0 1px ${track.owner.color}44`,
         outline: (hovered || selected) && !isDragging ? `1px solid ${track.owner.color}88` : 'none',
         opacity: isGhost ? 0.35 : isDragging ? 0.85 : track.muted ? 0.5 : 1,
         filter: hovered ? 'brightness(1.12)' : 'brightness(1)',
@@ -1648,9 +1743,13 @@ interface ArrangeViewProps {
   selectedClipId: string | null
   onSelectClip: (clipId: string) => void
   isViewer: boolean
+  highlightBar: number | null
+  highlightTrackId: string | null
+  highlightClipId: string | null
+  onCopyTrackLink: (trackId: string) => void
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -1935,11 +2034,13 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   track={t}
                   selected={selectedTrackId === t.id}
                   isViewer={isViewer}
+                  highlighted={highlightTrackId === t.id}
                   onSelect={() => onSelectTrack?.(t.id)}
                   onToggleMute={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, muted: !tr.muted }))}
                   onToggleSolo={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, soloed: !tr.soloed }))}
                   onToggleArm={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, armed: !tr.armed }))}
                   onPanChange={(trackId, v) => setTracks(prev => prev.map(tr => tr.id !== trackId ? tr : { ...tr, pan: v }))}
+                  onCopyLink={onCopyTrackLink}
                 />
               ))}
             </div>
@@ -1970,6 +2071,21 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   </span>
                 </div>
               ))}
+              {/* Deep link bar highlight flash — positioned absolute within the flex ruler */}
+              {highlightBar !== null && (
+                <div
+                  className="pointer-events-none"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: highlightBar * BAR_W,
+                    width: BAR_W,
+                    height: RULER_H,
+                    background: C.accent,
+                    opacity: 0.6,
+                  }}
+                />
+              )}
             </div>
 
             {/* Track rows */}
@@ -2014,6 +2130,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                             isDragging={isThisDragging && drag?.targetTrackId === track.id}
                             isGhost={isGhost}
                             selected={selectedClipId === clip.id}
+                            highlighted={highlightClipId === clip.id}
                             onDragStart={startDrag}
                             onContextMenu={openCtxMenu}
                             onCut={cutClip}
@@ -2726,8 +2843,9 @@ interface TransportBarProps {
   bpm: number;          setBpm: (v: number) => void
   playheadBar: number;  setPlayheadBar: (v: number) => void
   showInvite: boolean;  setShowInvite: (v: boolean) => void
+  linkIconActive: boolean; onLinkIconClick: () => void
 }
-function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite }: TransportBarProps) {
+function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite, linkIconActive, onLinkIconClick }: TransportBarProps) {
 
   const bar   = Math.floor(playheadBar) + 1
   const beat  = Math.floor((playheadBar % 1) * 4) + 1
@@ -2769,6 +2887,20 @@ function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, s
         <span className="text-xs" style={{ color: C.textSec, letterSpacing: '0.05em' }}>POS</span>
         <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: C.textPri }}>{pos}</span>
       </div>
+      {/* Playhead copy-link icon — immediately right of the POS display */}
+      <button
+        onClick={onLinkIconClick}
+        aria-label="Copy link to current playhead position"
+        title="Copy link to playhead"
+        className="flex items-center justify-center rounded transition-colors"
+        style={{ width: 28, height: 28, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"
+          style={{ color: linkIconActive ? C.accent : C.textSec, transition: 'color 0.15s' }}>
+          {/* Chain link icon — two linked rings */}
+          <path d="M6.5 9.5a3.5 3.5 0 0 0 4.95 0l2-2a3.5 3.5 0 0 0-4.95-4.95L7.5 3.55" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M9.5 6.5a3.5 3.5 0 0 0-4.95 0l-2 2a3.5 3.5 0 0 0 4.95 4.95l1-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
       <div className="flex-1" />
       <div className="flex items-center gap-3">
         <span className="text-xs" style={{ color: C.textSec }}>Live session</span>
@@ -2842,7 +2974,15 @@ function InviteModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
-function StatusBar() {
+function StatusBar({ wsStatus }: { wsStatus: 'connected' | 'reconnecting' | 'failed' | 'idle' }) {
+  const wsDot = wsStatus === 'connected'
+    ? { color: C.success, label: null }
+    : wsStatus === 'reconnecting'
+    ? { color: C.warn, label: null }
+    : wsStatus === 'failed'
+    ? { color: C.danger, label: 'Sync offline' }
+    : { color: C.textSec, label: null }
+
   return (
     <footer className="flex items-center px-4 gap-4 flex-shrink-0 text-xs border-t"
       style={{ height: 28, background: C.surface, borderColor: C.border, color: C.textSec }}>
@@ -2864,6 +3004,12 @@ function StatusBar() {
       <span>CPU 14%</span>
       <span>RAM 1.4 GB</span>
       <span>Latency 12 ms</span>
+      <span style={{ color: C.border }}>│</span>
+      <div className="flex items-center gap-1.5">
+        <span className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+          style={{ background: wsDot.color, boxShadow: wsStatus === 'connected' ? `0 0 4px ${wsDot.color}` : 'none' }} />
+        {wsDot.label && <span style={{ color: C.danger }}>{wsDot.label}</span>}
+      </div>
     </footer>
   )
 }
@@ -3260,6 +3406,14 @@ export default function App() {
   const [tool, setTool]                   = useState<Tool>('select')
   const [audioCtxReady, setAudioCtxReady] = useState(false)
   const [userRole, setUserRole]           = useState<'owner' | 'collaborator' | 'viewer'>('owner')
+  // WS + deep link state
+  const [wsStatus, setWsStatus]           = useState<'connected' | 'reconnecting' | 'failed' | 'idle'>('idle')
+  const [highlightBar, setHighlightBar]   = useState<number | null>(null)
+  const [highlightTrackId, setHighlightTrackId] = useState<string | null>(null)
+  const [highlightClipId, setHighlightClipId]   = useState<string | null>(null)
+  const [toastMessage, setToastMessage]   = useState<string | null>(null)
+  // Whether playhead link icon is in its post-click accent flash
+  const [linkIconActive, setLinkIconActive] = useState(false)
   const isViewer = userRole === 'viewer'
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
@@ -3281,6 +3435,107 @@ export default function App() {
         // Server not running in dev — stay with default 'owner'
       })
   }, [])
+
+  // ── WS client + deep link init ────────────────────────────────────────────
+  useEffect(() => {
+    // WebSocket singleton — fails silently if server is not running
+    function handleWsMessage(frame: WsFrame) {
+      switch (frame.type) {
+        case 'transport.state_sync': {
+          const p = frame.payload as Partial<{ bpm: number; isRecording: boolean }>
+          if (typeof p.bpm === 'number') setBpm(p.bpm)
+          if (typeof p.isRecording === 'boolean') setIsRecording(p.isRecording)
+          break
+        }
+        case 'presence.joined':
+        case 'presence.left':
+          console.log('ws:', frame.type, frame)
+          break
+        case 'track.locked': {
+          const p = frame.payload as { trackId: string; lockedBy: string }
+          setTracks(prev => prev.map(t => t.id !== p.trackId ? t : { ...t, lockedBy: p.lockedBy }))
+          break
+        }
+        case 'track.unlocked': {
+          const p = frame.payload as { trackId: string }
+          setTracks(prev => prev.map(t => t.id !== p.trackId ? t : { ...t, lockedBy: null }))
+          break
+        }
+        case 'comment.add':
+        case 'comment.reply':
+        case 'comment.resolve':
+        case 'comment.reopen':
+          // No-op until comment UI ticket
+          break
+        default:
+          console.debug('ws:', frame.type, frame)
+      }
+    }
+
+    try {
+      getWsClient('dev-session-001', handleWsMessage, setWsStatus)
+    } catch {
+      // WebSocket constructor throws if URL is invalid — should not happen in practice
+    }
+
+    // Deep link URL param parsing
+    const params = new URLSearchParams(window.location.search)
+    const tParam      = params.get('t')
+    const trackParam  = params.get('track')
+    const clipParam   = params.get('clip')
+    // threadParam is a no-op until comment UI ticket
+    // const threadParam = params.get('thread')
+
+    let didApplyHighlights = false
+
+    if (tParam !== null) {
+      const bar = parseInt(tParam, 10)
+      if (!isNaN(bar)) {
+        setPlayheadBar(bar)
+        setHighlightBar(bar)
+        didApplyHighlights = true
+      }
+    }
+
+    if (trackParam !== null) {
+      const trackExists = INITIAL_TRACKS.some(t => t.id === trackParam)
+      if (trackExists) {
+        setSelectedTrackId(trackParam)
+        setHighlightTrackId(trackParam)
+        didApplyHighlights = true
+      } else {
+        setToastMessage('Linked track not found in this session.')
+        setTimeout(() => setToastMessage(null), 5000)
+      }
+    }
+
+    if (clipParam !== null) {
+      const clipExists = INITIAL_TRACKS.some(t => t.clips.some(c => c.id === clipParam))
+      if (clipExists) {
+        setSelectedClipId(clipParam)
+        setHighlightClipId(clipParam)
+        didApplyHighlights = true
+      } else {
+        setToastMessage('Linked clip not found in this session.')
+        setTimeout(() => setToastMessage(null), 5000)
+      }
+    }
+
+    let clearHighlightTimer: ReturnType<typeof setTimeout> | null = null
+    if (didApplyHighlights) {
+      clearHighlightTimer = setTimeout(() => {
+        setHighlightBar(null)
+        setHighlightTrackId(null)
+        setHighlightClipId(null)
+      }, 1500)
+    }
+
+    return () => {
+      // Clear reconnect timer on unmount
+      if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer)
+      if (clearHighlightTimer) clearTimeout(clearHighlightTimer)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return }
@@ -3461,6 +3716,22 @@ export default function App() {
     setPluginChains(prev => ({ ...prev, [selectedTrackId]: newOrder }))
   }
 
+  function handleCopyTrackLink(trackId: string) {
+    copyDeepLink({ track: trackId })
+    setToastMessage('Link copied')
+    setTimeout(() => setToastMessage(null), 2000)
+  }
+
+  function handleLinkIconClick() {
+    copyDeepLink({ t: Math.round(playheadBar) })
+    setLinkIconActive(true)
+    setToastMessage('Link copied')
+    setTimeout(() => {
+      setLinkIconActive(false)
+      setToastMessage(null)
+    }, 1500)
+  }
+
   return (
     <div className="flex flex-col" style={{ minWidth: 1280, height: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <TransportBar
@@ -3469,6 +3740,7 @@ export default function App() {
         bpm={bpm} setBpm={setBpm}
         playheadBar={playheadBar} setPlayheadBar={setPlayheadBar}
         showInvite={showInvite} setShowInvite={setShowInvite}
+        linkIconActive={linkIconActive} onLinkIconClick={handleLinkIconClick}
       />
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -3480,11 +3752,15 @@ export default function App() {
             audioCtxReady={audioCtxReady}
             selectedClipId={selectedClipId} onSelectClip={setSelectedClipId}
             isViewer={isViewer}
+            highlightBar={highlightBar}
+            highlightTrackId={highlightTrackId}
+            highlightClipId={highlightClipId}
+            onCopyTrackLink={handleCopyTrackLink}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
       </div>
-      <StatusBar />
+      <StatusBar wsStatus={wsStatus} />
 
       {/* FX chain overlay backdrop — always in DOM so exit animation plays */}
       <div
@@ -3534,6 +3810,31 @@ export default function App() {
       </div>
 
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
+
+      {/* Toast notification — bottom-center fixed position, auto-dismisses */}
+      {toastMessage !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            bottom: 40,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: C.elevated,
+            border: `1px solid ${C.border}`,
+            color: C.textPri,
+            fontSize: 12,
+            padding: '6px 12px',
+            borderRadius: 4,
+            zIndex: 100,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {toastMessage}
+        </div>
+      )}
     </div>
   )
 }
