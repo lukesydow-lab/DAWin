@@ -42,6 +42,37 @@ const CURRENT_USER = COLLABORATORS[0]
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tool = 'select' | 'cut'
 
+// ─── Comment types (copied from server/types.ts per ADR-003) ─────────────────
+type CommentAnchorType = 'timeline' | 'timeRange' | 'track' | 'clip' | 'trackMoment'
+
+interface CommentAnchor {
+  anchorType: CommentAnchorType
+  trackId?: string
+  clipId?: string
+  startBar?: number
+  endBar?: number
+}
+
+interface CommentReply {
+  id: string
+  commentId: string
+  authorId: string
+  body: string
+  createdAt: string
+}
+
+interface SessionComment {
+  id: string
+  sessionId: string
+  authorId: string
+  body: string
+  anchor: CommentAnchor
+  status: 'open' | 'resolved'
+  replies: CommentReply[]
+  createdAt: string
+  updatedAt: string
+}
+
 interface ClipData {
   id: string
   bar: number
@@ -1181,8 +1212,12 @@ interface TrackHeaderProps {
   onToggleArm?: () => void
   onPanChange?: (trackId: string, value: number) => void
   onCopyLink?: (trackId: string) => void
+  commentCount?: number
+  firstCommentId?: string
+  firstCommentColor?: string
+  onOpenThread?: (commentId: string) => void
 }
-function TrackHeader({ track, selected = false, isViewer, highlighted = false, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange, onCopyLink }: TrackHeaderProps) {
+function TrackHeader({ track, selected = false, isViewer, highlighted = false, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange, onCopyLink, commentCount = 0, firstCommentId, firstCommentColor, onOpenThread }: TrackHeaderProps) {
   const lockingCollab = track.lockedBy !== null && track.lockedBy !== CURRENT_USER.id
     ? COLLABORATORS.find(c => c.id === track.lockedBy) ?? null
     : null
@@ -1209,13 +1244,26 @@ function TrackHeader({ track, selected = false, isViewer, highlighted = false, o
 
       {/* Center column: name + type */}
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5" style={{ maxWidth: 68 }}>
-        <p
-          className="text-xs font-medium truncate"
-          title={track.name}
-          style={{ color: C.textPri, opacity: track.muted ? 0.5 : 1, transition: 'opacity 0.15s' }}
-        >
-          {track.name}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <p
+            className="text-xs font-medium truncate"
+            title={track.name}
+            style={{ color: C.textPri, opacity: track.muted ? 0.5 : 1, transition: 'opacity 0.15s', margin: 0 }}
+          >
+            {track.name}
+          </p>
+          {commentCount > 0 && firstCommentId && (
+            <button
+              aria-label={`${commentCount} comment${commentCount > 1 ? 's' : ''} on this track`}
+              onClick={e => { e.stopPropagation(); onOpenThread?.(firstCommentId) }}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              <svg width="8" height="8" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
+                <polygon points="0,0 8,0 4,8" style={{ fill: firstCommentColor ?? C.textSec }} />
+              </svg>
+            </button>
+          )}
+        </div>
         <p className="text-xs" style={{ color: C.textSec }}>{track.type}</p>
       </div>
 
@@ -1728,6 +1776,225 @@ function BounceModal({ clipLabel, onBounce, onClose }: { clipLabel: string; onBo
   )
 }
 
+// ─── Comment helpers ──────────────────────────────────────────────────────────
+function relTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return 'just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffH = Math.floor(diffMin / 60)
+  return `${diffH}h ago`
+}
+
+function anchorLabel(anchor: CommentAnchor, tracks: Track[]): string {
+  if (anchor.anchorType === 'timeline') return `Bar ${(anchor.startBar ?? 0) + 1}`
+  if (anchor.anchorType === 'timeRange') return `Bars ${(anchor.startBar ?? 0) + 1}–${(anchor.endBar ?? 0) + 1}`
+  if (anchor.anchorType === 'track' || anchor.anchorType === 'trackMoment') {
+    const t = tracks.find(tr => tr.id === anchor.trackId)
+    return t ? `${t.name} track` : 'Track'
+  }
+  if (anchor.anchorType === 'clip') {
+    const t = tracks.find(tr => tr.id === anchor.trackId)
+    const clip = t?.clips.find(c => c.id === anchor.clipId)
+    return clip ? `Clip: ${clip.label}` : 'Clip'
+  }
+  return 'Session'
+}
+
+// ─── ThreadPopover ────────────────────────────────────────────────────────────
+interface ThreadPopoverProps {
+  comment: SessionComment
+  tracks: Track[]
+  isViewer: boolean
+  onClose: () => void
+  onResolve: (id: string) => void
+  onReopen: (id: string) => void
+  onReply: (id: string, body: string) => void
+}
+
+const ThreadPopover = ({ comment, tracks, isViewer, onClose, onResolve, onReopen, onReply }: ThreadPopoverProps) => {
+  const [replyText, setReplyText] = React.useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const author = COLLABORATORS.find(c => c.id === comment.authorId)
+  const pinLeft = (comment.anchor.startBar ?? 0) * BAR_W
+  const rawLeft = pinLeft - 100
+  const clampedLeft = Math.min(Math.max(8, rawLeft), window.innerWidth - 336)
+  // Position above the transport bar per spec
+  const popoverHeight = 320
+  const topPos = TRANSPORT_H - popoverHeight - 8
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  function handleReplyKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    const trimmed = replyText.trim()
+    if (!trimmed) return
+    onReply(comment.id, trimmed)
+    setReplyText('')
+  }
+
+  const isResolved = comment.status === 'resolved'
+
+  return (
+    <>
+      {/* Click-outside backdrop */}
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+        onClick={onClose}
+      />
+      {/* Popover */}
+      <div
+        style={{
+          position: 'fixed',
+          top: Math.max(8, topPos),
+          left: clampedLeft,
+          width: 320,
+          maxHeight: 480,
+          overflowY: 'auto',
+          background: C.elevated,
+          border: `1px solid ${C.border}`,
+          borderRadius: 6,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          ...(isResolved ? { borderLeft: `2px solid ${C.success}` } : {}),
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          height: 40, background: C.surface, borderBottom: `1px solid ${C.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 8px 0 12px', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: author?.color ?? C.textSec, flexShrink: 0, display: 'inline-block' }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: C.textPri, whiteSpace: 'nowrap' }}>{author?.name ?? 'Unknown'}</span>
+            <span style={{ fontSize: 12, color: C.textSec, whiteSpace: 'nowrap' }}>{anchorLabel(comment.anchor, tracks)}</span>
+            <span style={{ fontSize: 11, color: C.textSec, whiteSpace: 'nowrap' }}>· {relTime(comment.createdAt)}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {!isViewer && (
+              isResolved ? (
+                <button
+                  aria-label="Reopen thread"
+                  title="Reopen thread"
+                  onClick={() => onReopen(comment.id)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: C.textSec, display: 'flex', alignItems: 'center' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.warn }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 8a6 6 0 1 0 1.5-3.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <path d="M2 4v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  aria-label="Resolve thread"
+                  title="Resolve thread"
+                  onClick={() => onResolve(comment.id)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: C.textSec, display: 'flex', alignItems: 'center' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.success }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              )
+            )}
+            <button
+              aria-label="Close thread"
+              onClick={onClose}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: C.textSec, fontSize: 14, display: 'flex', alignItems: 'center' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textPri }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Comment body */}
+        <div style={{ padding: 12, flexShrink: 0 }}>
+          <p style={{ fontSize: 13, color: C.textPri, lineHeight: 1.5, margin: 0 }}>{comment.body}</p>
+        </div>
+
+        {/* Replies */}
+        {comment.replies.length > 0 && (
+          <div style={{ borderTop: `1px solid ${C.border}`, maxHeight: 240, overflowY: 'auto', flexShrink: 0 }}>
+            {comment.replies.map((reply, i) => {
+              const replyAuthor = COLLABORATORS.find(c => c.id === reply.authorId)
+              return (
+                <div key={reply.id} style={{
+                  padding: '8px 12px',
+                  borderTop: i > 0 ? `1px solid ${C.border}` : 'none',
+                  display: 'flex', gap: 8, alignItems: 'flex-start',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: replyAuthor?.color ?? C.textSec, flexShrink: 0, marginTop: 3, display: 'inline-block' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: C.textPri }}>{replyAuthor?.name ?? 'Unknown'}</span>
+                      <span style={{ fontSize: 11, color: C.textSec }}>· {relTime(reply.createdAt)}</span>
+                    </div>
+                    <p style={{ fontSize: 13, color: C.textPri, margin: 0 }}>{reply.body}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Reply input or resolved banner */}
+        {isResolved ? (
+          <div style={{ borderTop: `1px solid ${C.border}`, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: C.textSec }}>Thread resolved</span>
+          </div>
+        ) : !isViewer && (
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: '8px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: CURRENT_USER.color, flexShrink: 0, display: 'inline-block' }} />
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Reply…"
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              onKeyDown={handleReplyKeyDown}
+              style={{
+                flex: 1, background: C.well, border: `1px solid ${C.border}`, borderRadius: 4,
+                padding: '0 8px', height: 28, fontSize: 13, color: C.textPri,
+                outline: 'none',
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = C.accent }}
+              onBlur={e => { e.currentTarget.style.borderColor = C.border }}
+            />
+            {replyText.length > 0 && (
+              <button
+                onClick={() => { const t = replyText.trim(); if (t) { onReply(comment.id, t); setReplyText('') } }}
+                style={{ fontSize: 11, color: C.accent, background: 'transparent', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                Send
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 // ─── ArrangeView ──────────────────────────────────────────────────────────────
 interface ArrangeViewProps {
   tracks: Track[]
@@ -1747,9 +2014,11 @@ interface ArrangeViewProps {
   highlightTrackId: string | null
   highlightClipId: string | null
   onCopyTrackLink: (trackId: string) => void
+  comments: SessionComment[]
+  onOpenThread: (commentId: string) => void
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -2028,21 +2297,32 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
           <div className="flex flex-col flex-1" style={{ background: C.surface }}>
             <div className="flex-shrink-0 border-b" style={{ height: RULER_H, background: C.surface, borderColor: C.border }} />
             <div className="overflow-y-auto overflow-x-hidden flex-1">
-              {tracks.map(t => (
-                <TrackHeader
-                  key={t.id}
-                  track={t}
-                  selected={selectedTrackId === t.id}
-                  isViewer={isViewer}
-                  highlighted={highlightTrackId === t.id}
-                  onSelect={() => onSelectTrack?.(t.id)}
-                  onToggleMute={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, muted: !tr.muted }))}
-                  onToggleSolo={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, soloed: !tr.soloed }))}
-                  onToggleArm={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, armed: !tr.armed }))}
-                  onPanChange={(trackId, v) => setTracks(prev => prev.map(tr => tr.id !== trackId ? tr : { ...tr, pan: v }))}
-                  onCopyLink={onCopyTrackLink}
-                />
-              ))}
+              {tracks.map(t => {
+                const trackComments = comments.filter(c => c.anchor.anchorType === 'track' && c.anchor.trackId === t.id && c.status === 'open')
+                const firstTrackComment = trackComments[0]
+                const firstTrackCommentColor = firstTrackComment
+                  ? (COLLABORATORS.find(col => col.id === firstTrackComment.authorId)?.color ?? C.textSec)
+                  : undefined
+                return (
+                  <TrackHeader
+                    key={t.id}
+                    track={t}
+                    selected={selectedTrackId === t.id}
+                    isViewer={isViewer}
+                    highlighted={highlightTrackId === t.id}
+                    onSelect={() => onSelectTrack?.(t.id)}
+                    onToggleMute={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, muted: !tr.muted }))}
+                    onToggleSolo={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, soloed: !tr.soloed }))}
+                    onToggleArm={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, armed: !tr.armed }))}
+                    onPanChange={(trackId, v) => setTracks(prev => prev.map(tr => tr.id !== trackId ? tr : { ...tr, pan: v }))}
+                    onCopyLink={onCopyTrackLink}
+                    commentCount={trackComments.length}
+                    firstCommentId={firstTrackComment?.id}
+                    firstCommentColor={firstTrackCommentColor}
+                    onOpenThread={onOpenThread}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>
@@ -2086,6 +2366,105 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   }}
                 />
               )}
+
+              {/* ── Anchor pins for timeline/timeRange comments ──────────────── */}
+              {(() => {
+                // Group comments by startBar for cluster pins
+                const pinMap = new Map<number, SessionComment[]>()
+                for (const c of comments) {
+                  if (c.anchor.anchorType !== 'timeline' && c.anchor.anchorType !== 'timeRange') continue
+                  const bar = c.anchor.startBar ?? 0
+                  const existing = pinMap.get(bar) ?? []
+                  pinMap.set(bar, [...existing, c])
+                }
+                return Array.from(pinMap.entries()).flatMap(([bar, group]) => {
+                  // For cluster: use most recent open comment's author color, or resolved color if all resolved
+                  const openComments = group.filter(c => c.status === 'open')
+                  const representative = openComments[0] ?? group[0]
+                  const isAllResolved = openComments.length === 0
+                  const repAuthor = COLLABORATORS.find(c => c.id === representative.authorId)
+                  const pinColor = isAllResolved ? C.textSec : (repAuthor?.color ?? C.textSec)
+                  const count = group.length
+
+                  const elements: React.ReactNode[] = []
+
+                  // timeRange bar: render for any comment in group that has a range
+                  group.forEach(c => {
+                    if (c.anchor.anchorType === 'timeRange' && c.anchor.endBar !== undefined) {
+                      const rangeAuthor = COLLABORATORS.find(col => col.id === c.authorId)
+                      const rangeColor = c.status === 'resolved' ? C.textSec : (rangeAuthor?.color ?? C.textSec)
+                      elements.push(
+                        <div
+                          key={`range-${c.id}`}
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: (c.anchor.startBar ?? 0) * BAR_W,
+                            width: ((c.anchor.endBar ?? 0) - (c.anchor.startBar ?? 0)) * BAR_W,
+                            height: 2,
+                            background: rangeColor,
+                            opacity: 0.4,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      )
+                    }
+                  })
+
+                  // The pin itself
+                  elements.push(
+                    <div
+                      key={`pin-${bar}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Comment at Bar ${bar + 1} by ${repAuthor?.name ?? 'Unknown'}, ${isAllResolved ? 'resolved' : 'open'}, ${count} ${count === 1 ? 'thread' : 'threads'}`}
+                      title={representative.body.slice(0, 60)}
+                      onClick={() => onOpenThread(representative.id)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenThread(representative.id) } }}
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: bar * BAR_W,
+                        width: 8,
+                        height: 10,
+                        cursor: 'pointer',
+                        zIndex: 10,
+                        outline: 'none',
+                      }}
+                    >
+                      <svg width="8" height="10" style={{ display: 'block' }}>
+                        <polygon points="0,0 8,0 4,10" style={{ fill: pinColor }} />
+                      </svg>
+                      {count > 1 && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            top: -4,
+                            right: -4,
+                            minWidth: 12,
+                            height: 12,
+                            borderRadius: 6,
+                            background: C.elevated,
+                            border: `1px solid ${pinColor}`,
+                            color: C.textPri,
+                            fontSize: 9,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0 2px',
+                            lineHeight: 1,
+                          }}
+                        >
+                          {count > 9 ? '9+' : count}
+                        </span>
+                      )}
+                    </div>
+                  )
+
+                  return elements
+                })
+              })()}
             </div>
 
             {/* Track rows */}
@@ -3035,6 +3414,13 @@ const DEMO_PRESENCE = [
   { userId: 'miguel', playheadBar: 14.0, activeTrackId: 't4', color: '#E94560' },
 ]
 
+// ─── Comment seed data ────────────────────────────────────────────────────────
+const SEED_COMMENTS: SessionComment[] = [
+  { id: 'c1', sessionId: 'dev-session-001', authorId: 'luke', body: 'Kick needs more attack here', anchor: { anchorType: 'timeline', startBar: 4 }, status: 'open', replies: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'c2', sessionId: 'dev-session-001', authorId: 'anna', body: 'Bass line feels too busy — simplify bars 8–12?', anchor: { anchorType: 'timeRange', startBar: 8, endBar: 12 }, status: 'open', replies: [{ id: 'r1', commentId: 'c2', authorId: 'luke', body: 'Agreed, trying a simpler pattern', createdAt: new Date().toISOString() }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'c3', sessionId: 'dev-session-001', authorId: 'miguel', body: 'Hi-hat panning sounds wide, nice.', anchor: { anchorType: 'track', trackId: 't3' }, status: 'resolved', replies: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+]
+
 // ─── PluginBrowser popover ────────────────────────────────────────────────────
 const PLUGIN_REGISTRY: { type: PluginType; label: string; category: string; defaultParams: Record<string, number> }[] = [
   { type: 'compressor', label: 'Compressor',    category: 'Dynamics',     defaultParams: { threshold: -18, ratio: 4, attack: 10, release: 100 } },
@@ -3415,6 +3801,12 @@ export default function App() {
   // Whether playhead link icon is in its post-click accent flash
   const [linkIconActive, setLinkIconActive] = useState(false)
   const isViewer = userRole === 'viewer'
+  // Comment state
+  const [comments, setComments]         = useState<SessionComment[]>(SEED_COMMENTS)
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null)
+  const [chatOpen, setChatOpen]         = useState(false)
+  const [chatInput, setChatInput]       = useState('')
+  const lastChatOpenedAt                = useRef<number>(Date.now())
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
   const barAtStartRef = useRef<number>(0)
@@ -3462,11 +3854,29 @@ export default function App() {
           break
         }
         case 'comment.add':
-        case 'comment.reply':
-        case 'comment.resolve':
-        case 'comment.reopen':
-          // No-op until comment UI ticket
+          setComments(prev => [...prev, frame.payload as SessionComment])
           break
+        case 'comment.reply': {
+          const p = frame.payload as { commentId: string; reply: CommentReply }
+          setComments(prev => prev.map(c =>
+            c.id === p.commentId ? { ...c, replies: [...c.replies, p.reply] } : c
+          ))
+          break
+        }
+        case 'comment.resolve': {
+          const p = frame.payload as { commentId: string }
+          setComments(prev => prev.map(c =>
+            c.id === p.commentId ? { ...c, status: 'resolved' } : c
+          ))
+          break
+        }
+        case 'comment.reopen': {
+          const p = frame.payload as { commentId: string }
+          setComments(prev => prev.map(c =>
+            c.id === p.commentId ? { ...c, status: 'open' } : c
+          ))
+          break
+        }
         default:
           console.debug('ws:', frame.type, frame)
       }
@@ -3716,6 +4126,59 @@ export default function App() {
     setPluginChains(prev => ({ ...prev, [selectedTrackId]: newOrder }))
   }
 
+  function handleResolveComment(id: string) {
+    setComments(prev => prev.map(c => c.id !== id ? c : { ...c, status: 'resolved' }))
+    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${id}/resolve`, { method: 'PATCH' })
+      .catch(() => { /* server not running in dev — local state already updated */ })
+  }
+
+  function handleReopenComment(id: string) {
+    setComments(prev => prev.map(c => c.id !== id ? c : { ...c, status: 'open' }))
+    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${id}/reopen`, { method: 'PATCH' })
+      .catch(() => { /* server not running in dev */ })
+  }
+
+  function handleReply(commentId: string, body: string) {
+    const newReply: CommentReply = {
+      id: `r-${Date.now()}`,
+      commentId,
+      authorId: CURRENT_USER.id,
+      body,
+      createdAt: new Date().toISOString(),
+    }
+    setComments(prev => prev.map(c =>
+      c.id !== commentId ? c : { ...c, replies: [...c.replies, newReply] }
+    ))
+    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${commentId}/replies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }).catch(() => { /* server not running in dev */ })
+  }
+
+  function handleChatPost() {
+    const trimmed = chatInput.trim()
+    if (!trimmed || isViewer) return
+    const newComment: SessionComment = {
+      id: `c-${Date.now()}`,
+      sessionId: 'dev-session-001',
+      authorId: CURRENT_USER.id,
+      body: trimmed,
+      anchor: { anchorType: 'timeline', startBar: Math.round(playheadBar) },
+      status: 'open',
+      replies: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    setComments(prev => [...prev, newComment])
+    setChatInput('')
+    fetch('http://localhost:3000/api/v1/sessions/dev-session-001/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: trimmed, anchor: newComment.anchor }),
+    }).catch(() => { /* server not running in dev */ })
+  }
+
   function handleCopyTrackLink(trackId: string) {
     copyDeepLink({ track: trackId })
     setToastMessage('Link copied')
@@ -3756,6 +4219,8 @@ export default function App() {
             highlightTrackId={highlightTrackId}
             highlightClipId={highlightClipId}
             onCopyTrackLink={handleCopyTrackLink}
+            comments={comments}
+            onOpenThread={setOpenThreadId}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
@@ -3810,6 +4275,177 @@ export default function App() {
       </div>
 
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
+
+      {/* ── Thread popover ─────────────────────────────────────────────────── */}
+      {openThreadId !== null && (() => {
+        const thread = comments.find(c => c.id === openThreadId)
+        if (!thread) return null
+        return (
+          <ThreadPopover
+            comment={thread}
+            tracks={tracks}
+            isViewer={isViewer}
+            onClose={() => setOpenThreadId(null)}
+            onResolve={handleResolveComment}
+            onReopen={handleReopenComment}
+            onReply={handleReply}
+          />
+        )
+      })()}
+
+      {/* ── Right-side icon rail + chat panel ────────────────────────────── */}
+      {/* Chat panel */}
+      {chatOpen && (
+        <div style={{
+          position: 'fixed',
+          right: 28,
+          top: TRANSPORT_H,
+          bottom: STATUS_BAR_H,
+          width: 280,
+          background: C.surface,
+          borderLeft: `1px solid ${C.border}`,
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+        }}>
+          {/* Header */}
+          <div style={{
+            height: 40, background: C.elevated, borderBottom: `1px solid ${C.border}`,
+            display: 'flex', alignItems: 'center', padding: '0 12px', flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: C.textPri }}>Chat</span>
+          </div>
+
+          {/* Message list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+            {comments.map(c => {
+              const msgAuthor = COLLABORATORS.find(col => col.id === c.authorId)
+              const label = (() => {
+                if (c.anchor.anchorType === 'timeline') return `Bar ${(c.anchor.startBar ?? 0) + 1}`
+                if (c.anchor.anchorType === 'timeRange') return `Bars ${(c.anchor.startBar ?? 0) + 1}–${(c.anchor.endBar ?? 0) + 1}`
+                if (c.anchor.anchorType === 'track' || c.anchor.anchorType === 'trackMoment') {
+                  const t = tracks.find(tr => tr.id === c.anchor.trackId)
+                  return t ? `${t.name} track` : null
+                }
+                return null
+              })()
+              return (
+                <div key={c.id} style={{ padding: '6px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: msgAuthor?.color ?? C.textSec, flexShrink: 0, marginTop: 4, display: 'inline-block' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: C.textPri }}>{msgAuthor?.name ?? 'Unknown'}</span>
+                        <span style={{ fontSize: 11, color: C.textSec }}>· {relTime(c.createdAt)}</span>
+                      </div>
+                      <p style={{ fontSize: 13, color: C.textPri, margin: 0, lineHeight: 1.5 }}>{c.body}</p>
+                      {label !== null && (
+                        <p style={{ fontSize: 11, color: C.textSec, margin: '2px 0 0 0' }}>📍 {label}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Compose */}
+          <div style={{
+            height: 52, background: C.elevated, borderTop: `1px solid ${C.border}`,
+            display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8, flexShrink: 0,
+          }}>
+            <input
+              type="text"
+              placeholder="Message session…"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleChatPost() }}
+              disabled={isViewer}
+              style={{
+                flex: 1, background: C.well, border: `1px solid ${C.border}`, borderRadius: 4,
+                padding: '0 10px', height: 32, fontSize: 13, color: C.textPri, outline: 'none',
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = C.accent }}
+              onBlur={e => { e.currentTarget.style.borderColor = C.border }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Icon rail — always visible */}
+      {(() => {
+        const unreadCount = comments.filter(c =>
+          c.authorId !== CURRENT_USER.id &&
+          new Date(c.createdAt).getTime() > lastChatOpenedAt.current
+        ).length
+        return (
+          <div style={{
+            position: 'fixed',
+            right: 0,
+            top: TRANSPORT_H,
+            bottom: STATUS_BAR_H,
+            width: 28,
+            background: C.surface,
+            borderLeft: `1px solid ${C.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            paddingTop: 8,
+            gap: 8,
+            zIndex: 50,
+          }}>
+            {/* Chat toggle */}
+            <div style={{ position: 'relative' }}>
+              <button
+                aria-label={unreadCount > 0 ? `Session chat, ${unreadCount} unread` : 'Session chat'}
+                title="Session chat"
+                onClick={() => {
+                  setChatOpen(v => !v)
+                  lastChatOpenedAt.current = Date.now()
+                }}
+                style={{
+                  width: 20,
+                  height: 20,
+                  background: chatOpen ? C.accentMuted : 'transparent',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: chatOpen ? C.accent : C.textSec,
+                  padding: 0,
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M3 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6l-3 2V4a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {!chatOpen && unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  background: C.danger,
+                  color: '#fff',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 2px',
+                  lineHeight: 1,
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Toast notification — bottom-center fixed position, auto-dismisses */}
       {toastMessage !== null && (
