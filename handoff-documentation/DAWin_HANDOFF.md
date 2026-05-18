@@ -1,20 +1,25 @@
 # DAWin — Project Handoff Document
 
+**Status: Current**
+**Last updated:** 2026-05-18
+
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
-> **Last updated:** 2026-05-14  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 2 — Real-Time Collaboration (active, one item remaining: #20)
+> **Sprint:** 6 — File Storage (planning)
+
+> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 is the active sprint (planning phase).  
+> **Do not treat any prior sprint items as open.** Persistence layer (ADR-004/005, Prisma, StorageAdapter) is done. VU stereo, loop region, clip rename, and session hydration are all shipped.
 
 ---
 
 ## 1. Project Overview
 
-DAWin is a browser-based collaborative digital audio workstation (DAW) UI prototype. It is being designed and built by an AI agent team orchestrated by a human PM. The prototype currently runs locally with a Fastify backend scaffold at `server/` (TypeScript, tsc-clean) and is built as a single React/TypeScript frontend application.
+DAWin is a browser-based collaborative digital audio workstation (DAW) UI prototype. It is being designed and built by an AI agent team orchestrated by a human PM. The prototype runs locally with a Fastify backend at `server/` (TypeScript, tsc-clean) and a single-file React/TypeScript frontend.
 
-The project is at a substantial prototype stage: the session room is fully interactive, audio plays through the Web Audio API with a live plugin chain in the signal path, all core mixer controls are wired, a Neve-inspired studio visual theme is applied, and real-time WebSocket transport sync and collaborator presence are implemented server-side. The one remaining Sprint 2 item is server-side track locking and JWT role enforcement (#20).
+The prototype is now at a substantial interactive state: session room with full audio playback, a Neve-inspired studio mixer, live plugin chain in signal path, JWT-based auth with role enforcement, real-time WebSocket transport sync and presence, server-side track locking, full inline comment system with timeline anchor pins and thread popovers, session chat panel, and deep-link URL routing to playhead/track/clip/range positions.
 
 **Repository root:** `/Users/lukesydow/daw-design`  
-**Primary source file:** `src/App.tsx` (~3,500 lines — all components in one file by design during early sprint)  
+**Primary source file:** `src/App.tsx` (~4,476 lines — all components in one file by design during early sprint)  
 **Backend:** `server/` (Fastify + `@fastify/websocket`, TypeScript, tsc-clean)  
 **Dev server:** `npm run dev` → `http://localhost:5173`
 
@@ -24,13 +29,11 @@ The project is at a substantial prototype stage: the session room is fully inter
 
 **"Figma for music production."**
 
-A desktop-first collaborative DAW where musicians share a live session in real time — with track ownership, collaborator presence indicators, role-based access, and a professional studio aesthetic. The core differentiator is the collaborator color model: every user has a unique hex color that tints their tracks, clips, avatar ring, and mixer strip throughout the UI. This color signal makes ownership and activity instantly legible across the session.
+A desktop-first collaborative DAW where musicians share a live session in real time — with track ownership, collaborator presence indicators, role-based access, inline commenting, deep-link sharing, and a professional studio aesthetic. The core differentiator is the collaborator color model: every user has a unique hex color that tints their tracks, clips, avatar ring, and mixer strip throughout the UI. This color signal makes ownership and activity instantly legible across the session.
 
-**Primary user:** A musician or producer with strong DAW muscle memory (Ableton/Logic/Pro Tools) who is collaborating remotely with 1–4 others on a shared session. They expect standard keyboard shortcuts, correct timeline conventions, and clear ownership signals — not a toy.
+**Primary user:** A musician or producer with strong DAW muscle memory (Ableton/Logic/Pro Tools) who is collaborating remotely with 1–4 others on a shared session. They expect standard keyboard shortcuts, correct timeline conventions, clear ownership signals, and collaboration tools that feel like they belong in a professional environment — not a toy.
 
-**Desktop-first:** Minimum viewport 1280px enforced (`min-width: 1280px` on root). Mobile capture is a planned future screen but is explicitly not the current focus.
-
-**What this is not:** A sample player, a social music app, or a simplified tool for beginners. It is a professional-grade collaborative workspace. Information density is intentional — do not over-space or over-simplify.
+**Desktop-first:** Minimum viewport 1280px enforced (`min-width: 1280px` on root). Mobile capture is a planned future screen but explicitly not the current focus.
 
 ---
 
@@ -41,17 +44,20 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 ```
 /Users/lukesydow/daw-design/
 ├── src/
-│   └── App.tsx                   # All components (single file — intentional)
+│   └── App.tsx                   # All components (~4,476 lines — single file by design)
 │   └── App.css                   # Minimal CSS (wood panel class, CSS animations)
-├── server/                       # Fastify backend scaffold (Sprint 2)
-│   ├── index.ts                  # Fastify app with @fastify/websocket
-│   ├── store.ts                  # In-memory Map<sessionId, SessionState>
-│   ├── types.ts                  # ClientMeta, SessionState, WsClientMessage, WsBroadcast<T>
+├── server/                       # Fastify backend (tsc-clean)
+│   ├── index.ts                  # Fastify app, registers all routes + WebSocket
+│   ├── store.ts                  # In-memory Map<sessionId, SessionState> + all store fns
+│   ├── types.ts                  # All shared types: ClientMeta, SessionState, WsClientMessage,
+│   │                             #   WsBroadcast<T>, CommentAnchor, SessionComment, etc.
+│   ├── jwt.ts                    # signToken / verifyToken — jose HS256, 8h user / 72h guest
 │   ├── routes/
 │   │   ├── sessions.ts           # GET /api/v1/sessions/:id
-│   │   └── auth.ts               # GET /api/v1/auth/me
+│   │   ├── auth.ts               # GET /auth/me (JWT verify), POST /auth/login, POST /auth/guest
+│   │   └── comments.ts           # Full comment CRUD + resolve/reopen/reply endpoints
 │   ├── ws/
-│   │   └── handler.ts            # Full WebSocket message routing
+│   │   └── handler.ts            # Full WS routing: transport, presence, track lock, comment fan-out
 │   ├── package.json
 │   └── tsconfig.json
 ├── public/
@@ -59,45 +65,38 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 │       └── 03-vu-meter-animation.html   # Standalone VU meter motion prototype
 ├── docs/
 │   ├── adr/
-│   │   └── 001-dsp-locality.md         # Accepted: DSP runs in browser via Web Audio API
-│   ├── specs/                          # Feature specs (PM/Designer write; agents implement)
-│   │   ├── PRD.md                      # Product Requirements Document v1.1
-│   │   ├── ROADMAP.md                  # Sprint-by-sprint roadmap v1.1
-│   │   ├── session-room.md
-│   │   ├── arranger-view.md
-│   │   ├── track-ownership.md
-│   │   ├── mix-view.md
-│   │   ├── fx-chain-pan-rms-redesign.md
-│   │   ├── crossfade-direct-manipulation.md
-│   │   ├── invite-flow.md
-│   │   ├── status-bar.md
-│   │   ├── transport-bar.md
-│   │   └── multitrack-backend-api.md
-│   ├── handoffs/                       # Agent → Tech Lead review requests
-│   │   └── [one file per feature]
-│   └── defects.md                      # UAT defect register
+│   │   ├── ADR-001-dsp-locality.md      # Accepted: DSP runs in browser via Web Audio API
+│   │   ├── ADR-002-backend-scaffold.md  # Accepted: Fastify + in-memory store for prototype
+│   │   └── ADR-003-comment-anchor-model.md  # Accepted: unified CommentAnchor model (Sprint 3)
+│   ├── specs/
+│   │   ├── PRD.md                       # Product Requirements Document v1.1
+│   │   ├── ROADMAP.md                   # Sprint-by-sprint roadmap v1.1
+│   │   ├── session-communication.md     # FR-06 spec (Sprint 3 — implemented)
+│   │   ├── resizable-workspace-panels.md # FR-01 spec (Sprint 4 — pending)
+│   │   ├── arranger-zoom.md             # FR-02 spec (Sprint 4 — pending; §Interaction Model TBD)
+│   │   └── [other specs...]
+│   ├── handoffs/                        # Agent → Tech Lead review requests
+│   └── defects.md                       # UAT defect register
 ├── screenshots/
-│   └── sprint-1-2026-05-14/            # Visual archive: 3 JPGs + NOTES.md
-├── .claude/
-│   └── agents/                         # Agent persona definitions
-├── .github/
-│   └── workflows/
-│       └── ci.yml                      # tsc --noEmit --noUnusedLocals --noUnusedParameters + Vite build
-├── STATUS.md                           # Live project status board (Tech Lead writes)
+│   └── sprint-1-2026-05-14/
+├── .claude/agents/                      # Agent persona definitions
+├── .github/workflows/ci.yml             # tsc --noEmit --noUnusedLocals + Vite build
+├── STATUS.md                            # Live project status board (Tech Lead writes)
 └── handoff-documentation/
-    ├── DAWin_PROJECT_STATE.md          # Technical state snapshot
-    └── DAWin_HANDOFF.md                # This file
+    ├── DAWin_PROJECT_STATE.md           # Technical state snapshot (component map, sprint history)
+    └── DAWin_HANDOFF.md                 # This file
 ```
 
 ### Frontend architecture
 
 - **Framework:** React 18 + Vite + TypeScript (strict mode)
-- **Styling:** Tailwind CSS v4 via `@tailwindcss/vite` plugin. No `tailwind.config.js`. No `@apply`. No CSS modules. All layout/spacing/typography via utility classes. Dynamic values (collaborator colors, calculated widths) via inline `style` prop only.
-- **State:** `useState` / `useReducer` / `useContext`. No external state library. The PM agent must approve any introduction of Redux, Zustand, or equivalent.
-- **Audio:** Web Audio API. One shared `AudioContext` (`_audioCtx`) at module scope, lazy-initialized on first user gesture via `getAudioCtx()`. All per-track nodes live in this context. Plugin chain nodes are tracked via `_pluginNodeMap`.
-- **Component structure:** All components currently in `src/App.tsx`. Migration to `src/components/<ComponentName>.tsx` begins when a second screen is scaffolded. No barrel exports until 5+ components in a directory.
+- **Styling:** Tailwind CSS v4 via `@tailwindcss/vite` plugin. No `tailwind.config.js`. No `@apply`. No CSS modules. Utility classes for layout/spacing/typography; inline `style` for dynamic values (collaborator colors, calculated widths).
+- **State:** `useState` / `useReducer` / `useContext`. No external state library. PM must approve any introduction of Redux, Zustand, or equivalent.
+- **Audio:** Web Audio API. One shared `AudioContext` (`_audioCtx`) at module scope, lazy-initialized on first user gesture via `getAudioCtx()`. Plugin chain nodes tracked via `_pluginNodeMap`.
+- **Component structure:** All components currently in `src/App.tsx`. Migration to `src/components/<ComponentName>.tsx` begins when a second screen is scaffolded.
+- **WebSocket client:** `getWsClient()` singleton pattern (mirrors `getAudioCtx()`). Exponential backoff reconnect (500ms × 2^attempt, max 5 attempts). `sendWsMessage()` helper. `wsStatus` state drives StatusBar dot indicator.
 
-### Audio graph (current — post Sprint 2)
+### Audio graph (per track)
 
 ```
 Track AudioBuffer (procedurally synthesized)
@@ -114,13 +113,13 @@ Track AudioBuffer (procedurally synthesized)
   GainNode  ←── track.volume (0–100) mapped via faderToDb() log curve
         │
         ▼
-  AnalyserNode  ←── VU meter taps RMS here (POST-FADER, IEC 60268-17)
+  AnalyserNode  ←── VU meter tap (POST-FADER, IEC 60268-17)
         │
         ▼
   StereoPannerNode  ←── track.pan mapped (-1..1)
         │
         ▼
-  _masterGain  ←── masterVol (0–100), wired to real GainNode
+  _masterGain  ←── masterVol (0–100)
         │
         ▼
   _masterPanner  ←── masterPan (0–100) → (masterPan-50)/50
@@ -132,14 +131,14 @@ Track AudioBuffer (procedurally synthesized)
   AudioDestination
 ```
 
-`rewirePluginChain(trackId, plugins, ctx)` reconciler: creates/removes nodes as the chain changes without rebuilding the full graph. Enable/disable (bypass) removes the node from the chain silently. `_pluginNodeMap: Map<string, Map<string, AudioNode>>` at module scope.
+`rewirePluginChain(trackId, plugins, ctx)`: creates/removes nodes as chain changes without rebuilding the full graph. Bypass removes node silently.
 
-### Key layout constants (do not change without updating DSM)
+### Key layout constants (do not change without updating Figma DSM)
 
 ```ts
 BAR_W        = 72    // px per bar in arranger timeline
 BARS         = 32    // total bars in a session
-TRACK_H      = 64    // px per track row (arranger + mixer strip height)
+TRACK_H      = 64    // px per track row
 RULER_H      = 24    // timeline ruler height
 HANDLE_W     = 8     // clip resize handle width
 FADE_HDL_W   = 12    // fade handle width
@@ -147,31 +146,33 @@ TRANSPORT_H  = 52    // transport bar height
 STATUS_BAR_H = 28    // status bar height
 ```
 
+Sprint 4 will add: `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`, `SPLITTER_H=4`, `SPLITTER_W=4`. Zoom will derive `barW = BAR_W * zoomX`.
+
 ### Design tokens (the `C` object — never hardcode hex values)
 
 ```ts
 const C = {
-  bg:          '#0A0A0F',            // outermost canvas background
-  surface:     '#111118',            // panels, sidebars, track rows
-  elevated:    '#1A1A24',            // cards, modals, mixer strips, dropdowns
-  accent:      '#6B5CE7',            // purple — primary CTA, focused elements, master strip
-  danger:      '#E94560',            // record arm, destructive actions, VU red zone
-  success:     '#1D9E75',            // online/active/armed-ready states
-  textPri:     '#F0F0F5',            // primary labels and values
-  textSec:     '#888899',            // secondary labels, placeholders, metadata
-  control:     '#2A2A38',            // button backgrounds, inactive toggle surfaces
-  border:      '#1E1E28',            // subtle dividers and outlines
-  well:        '#0D0D14',            // inset areas, fader groove, track groove
-  warn:        '#F5A623',            // VU amber zone, warnings
+  bg:          '#0A0A0F',
+  surface:     '#111118',
+  elevated:    '#1A1A24',
+  accent:      '#6B5CE7',
+  danger:      '#E94560',
+  success:     '#1D9E75',
+  textPri:     '#F0F0F5',
+  textSec:     '#888899',
+  control:     '#2A2A38',
+  border:      '#1E1E28',
+  well:        '#0D0D14',
+  warn:        '#F5A623',
   accentMuted: 'rgba(107,92,231,0.13)',
-  wood:        '#2E1A0E',            // studio theme — Neve-style wood panels
+  wood:        '#2E1A0E',
   woodLight:   '#4A2C17',
-  vuGreen:     '#1EC94A',            // VU meter — green zone (0–65%)
-  vuAmber:     '#F5A623',            // VU meter — amber zone (65–85%)
-  vuRed:       '#E94560',            // VU meter — red/clip zone (85–100%)
-  metalDark:   '#14141E',            // fader handle / knob gradient dark
-  metalMid:    '#2A2A3C',            // fader handle / knob gradient mid
-  metalLight:  '#3A3A52',            // fader handle / knob gradient light
+  vuGreen:     '#1EC94A',
+  vuAmber:     '#F5A623',
+  vuRed:       '#E94560',
+  metalDark:   '#14141E',
+  metalMid:    '#2A2A3C',
+  metalLight:  '#3A3A52',
 }
 ```
 
@@ -193,9 +194,14 @@ Each collaborator's hex color appears on: track header accent bar + background t
 | Screen | Status | Notes |
 |---|---|---|
 | Session room (arranger + mixer) | ✅ Complete | Full interaction, audio playback, all controls wired |
-| Track ownership (color avatars, record arm, input routing) | ⚠️ Partial | Visuals done; server-side locking + JWT enforcement not built (#20) |
-| Invite flow modal | ✅ Complete | Role picker, email input, "Send invite" wired, Escape closes |
+| Track ownership (color avatars, record arm, locking) | ✅ Complete | Server-side lock enforcement + JWT role done (#20 Sprint 2) |
+| Inline commenting + thread popovers | ✅ Complete | Timeline anchor pins, track pins, ThreadPopover, resolve/reply (Sprint 3) |
+| Session chat panel | ✅ Complete | Flat comment list, compose input, unread badge (Sprint 3) |
+| Deep links | ✅ Complete | `?t=&track=&clip=&range=` URL format, highlight-on-navigate (Sprint 3) |
+| Invite flow modal | ✅ Complete | Role picker, email input |
 | Mix view (shared fader, mute/solo, plugin chain) | ⚠️ Partial | Plugin chain audibly wired; plugin parameter editing not implemented |
+| Resizable panels | ❌ Not started | Sprint 4 FR-01 — spec at `docs/specs/resizable-workspace-panels.md` |
+| Timeline zoom | ❌ Not started | Sprint 4 FR-02 — spec at `docs/specs/arranger-zoom.md` |
 | Mobile capture | ❌ Not started | Intentionally deferred — desktop-first |
 
 ### Session room capabilities (what works today)
@@ -204,76 +210,83 @@ Each collaborator's hex color appears on: track header accent bar + background t
 - 7 tracks, 32 bars, drag-to-scroll
 - Clip drag (bar-snapped, preserves grab offset), resize (left/right handles), cut tool
 - Bezier fade in/out handles with draggable midpoint control points
-- Crossfade: implicit bezier crossfade on clip overlap; `crossfadeLocked: boolean` on ClipData mirrors paired handles; padlock icon in overlap zone
+- Crossfade: implicit bezier crossfade on clip overlap; `crossfadeLocked: boolean` on ClipData; padlock icon in overlap zone
 - Right-click context menu: Delete ✅, Duplicate ✅, Bounce-to-clip ✅, Loop region (stub), Rename (stub)
 - Bounce-to-clip modal with virtual instrument + preset + humanizer style picker
-- Playhead seek (click ruler), keyboard spacebar play/pause, stop holds position, Return-to-Zero resets
+- Playhead seek (click ruler), spacebar play/pause, stop holds position, Return-to-Zero resets
 - Tool keyboard shortcuts: V (select), C (cut)
 - BPM input with 40–300 range validation
+- **Ruler anchor comment pins:** SVG chevrons at `startBar * BAR_W`, author-colored, count badges, `timeRange` bars, click opens ThreadPopover (Sprint 3)
+- **Track header comment pins:** colored dot badge showing comment count per track (Sprint 3)
+- **Deep link highlights:** `highlightBar`, `highlightTrackId`, `highlightClipId` states with 1500ms auto-clear; chain-link icon in TransportBar; right-click on track header → "Copy Link" (Sprint 3)
 
 **Mixer:**
-- 7 track strips + master strip with Neve-inspired studio theme (wood rails, metal faders)
-- Fader: logarithmic curve with unity at ~75% travel, grip ridges, `faderToDb()` / `formatDb()` (floor: −90 dB)
-- `StudioFader`: `role="slider"`, track-scoped `aria-label`, ArrowUp/Down ±1, Shift+ArrowUp/Down ±10
-- Pan knob: horizontal drag wired, double-click to center, ±4 unit dead zone snaps to 0 during drag (center detent), 2px notch indicator at center position
-- Mute, Solo buttons: fully wired on track headers and mixer strips
-- Record arm: wired; role-based (Viewers cannot arm)
-- FX badge: shows real plugin chain count per track; click opens PluginChainPanel for that track
-- VU meters: post-fader RMS from `AnalyserNode`, attack 32/sec, decay 4/sec, peak-hold dot (700ms hold, 0.5/sec drop), transient glow flash (120ms), partial segment shading
-- VU heartbeat startup: bloom + staggered motorized recall animation on mount; `heartbeatSignalRef` overrides live RMS in shared rAF loop during startup sequence
-- Single `requestAnimationFrame` loop drives all strips (no state, direct DOM writes)
-- `prefers-reduced-motion`: disables transient glow and peak-hold drop
-- Master pan: `_masterPanner` StereoPannerNode inserted between `_masterGain` and `_masterAnalyser`; mapping `(masterPan-50)/50`; default 50 (center)
+- 7 track strips + master strip, Neve-inspired studio theme
+- Fader: logarithmic curve, unity at ~75% travel, grip ridges, `faderToDb()` / `formatDb()` (floor: −90 dB)
+- `StudioFader`: `role="slider"`, ArrowUp/Down ±1, Shift+Arrow ±10
+- Pan knob: center detent ±4 unit dead zone, 2px notch at center
+- Mute, Solo buttons wired; Record arm: viewer-gated (JWT role enforced)
+- VU meters: post-fader RMS, 60fps rAF, peak-hold dot, transient glow, `prefers-reduced-motion` respected
+- VU heartbeat startup: bloom + staggered motorized recall on mount
 
-**FX chain:**
-- 720px overlay panel slides in from right (220ms cubic-bezier), backdrop dim
-- Rack aesthetic: wood cabinet rails, brushed-metal faceplates, amber LCD param readout, power LED in owner color, Screw SVGs at corners
-- Plugin cards with enable/disable toggle (bypasses node without graph rebuild), drag-to-reorder
-- PluginBrowser inline popover: text search + category list; plugin added to chain immediately on selection
-- Plugin chain is wired into the audio graph — enabling/disabling plugins audibly affects the track
-- Kick track seeded with a compressor plugin by default
+**Auth / Role (Sprint 2 #20):**
+- `server/jwt.ts`: `signToken` / `verifyToken` via `jose` HS256
+- `POST /auth/login` and `POST /auth/guest` issue real JWTs
+- `GET /auth/me` verifies Bearer token, returns `{ userId, role }`
+- Frontend: `userRole` state fetched on mount from `/auth/me`; `isViewer = userRole === 'viewer'`
+- Viewer cannot arm tracks, mute, or solo — tooltips on disabled controls
+- `IS_VIEWER` constant fully removed; role is dynamic
 
-**Audio playback:**
-- 7 procedurally synthesized instruments (kick, snare, hihat, bass, synthLead, pad, vox)
-- No sample files required — all generated via Web Audio API synthesis
-- Waveform rendered to `<canvas>` per clip (RMS peak downsampling)
-- Cold-load ghost waveform: seeded deterministic bars when buffer unavailable (no flash/flicker)
-- Per-track plugin chain nodes audibly affect output
+**Track locking (Sprint 2 #20):**
+- `track.arm` → server checks viewer role + existing lock → `track.locked` broadcast or `track.arm_rejected`
+- `track.disarm` → releases lock → `track.unlocked` broadcast
+- Disconnect → `releaseAllLocksForUser` cleans all locks for that client
 
-**Backend (server/):**
+**Comments + real-time (Sprint 3):**
+- REST: `POST/GET/DELETE /sessions/:id/comments`, `PATCH .../resolve`, `PATCH .../reopen`, `POST .../replies`
+- WS fan-out: `comment.add`, `comment.reply`, `comment.resolve`, `comment.reopen`
+- Viewer role → 403 on all mutations (server-enforced)
+- `ThreadPopover`: `position: fixed` overlay, click-outside via transparent backdrop, resolve/reply/reopen wired
+- Chat panel: flat comment list, compose input, unread count badge on icon rail, `lastChatOpenedAt` ref for unread tracking
+- Icon rail: 28px fixed right edge — FX panel toggle + chat toggle with unread count
+
+**WebSocket client (Sprint 3):**
+- `getWsClient()` singleton in App.tsx; mirrors `getAudioCtx()` pattern
+- Exponential backoff reconnect: 500ms × 2^attempt, max 5 attempts; `_wsConnFailed` flag prevents further retries
+- `session.join` sent on open with token
+- `sendWsMessage(type, payload)` helper
+- `wsStatus` state: `'connected' | 'reconnecting' | 'failed' | 'idle'` → StatusBar dot indicator
+
+**Backend (as of Sprint 5):**
 - Fastify server with `@fastify/websocket`, tsc-clean
-- In-memory session store: `Map<sessionId, SessionState>` with `addClient`, `removeClient`, `updateTransport`, `getClients`
-- WebSocket routing: `session.join` → `presence.joined` fan-out; `session.leave` → `presence.left` fan-out; `transport.play/pause/stop/seek/bpm_change` → `transport.state_sync` broadcast; `presence.update` → fan-out to other clients; `session.snapshot` sent on connect
-- REST stubs: `GET /api/v1/sessions/:id`, `GET /api/v1/auth/me`
-- `WsMessage.from` stamped server-side (not client-sent)
-
-**Presence (partial):**
-- Collaborator avatars shown in transport bar and track headers (seed data)
-- StatusBar shows online count and CPU/RAM/Latency labels (seed data)
-- Backend fan-out implemented; frontend WebSocket client not yet connected to backend
+- `StorageAdapter` interface (`server/storage/adapter.ts`) — `PrismaStorageAdapter` (PostgreSQL via Prisma) when `DATABASE_URL` is set; `InMemoryStorageAdapter` fallback for dev/test
+- `server/prisma/schema.prisma` — canonical DB schema: `Session`, `Track`, `Clip`, `PluginInstance`, `Comment`, `CommentReply`, `AudioFile`, `SessionMember` tables
+- `server/jwt.ts`: `signToken` / `verifyToken` via `jose` HS256 (8h user / 72h guest)
+- All REST + WS handlers tsc-clean, `--noUnusedLocals --noUnusedParameters` passes
+- Sprint 6 target: switch to `PrismaStorageAdapter` in production + Cloudflare R2 audio file storage
 
 ---
 
 ## 5. Active Agent Team Structure
 
-This project uses a multi-agent system running inside Claude Code (Anthropic). Agents are defined as persona files in `.claude/agents/`. The human PM (Luke) orchestrates which agents are called and when. Each agent has no memory between sessions — every prompt must be self-contained.
+This project uses a multi-agent system running inside Claude Code (Anthropic). Agents are persona files in `.claude/agents/`. The human PM (Luke) orchestrates which agents are called and when. **Each agent has no memory between sessions — every prompt must be fully self-contained.**
 
-| Agent | File | Role |
-|---|---|---|
-| Product Manager | `product-manager.md` | Orchestration, feature planning, work breakdown, prioritization |
-| Tech Lead | `tech-lead.md` | Architecture decisions, code review, cross-cutting concerns |
-| Frontend Engineer | `frontend-engineer.md` | All React/TypeScript code in `src/` |
-| Designer | `designer.md` | Design specs, Figma DSM, interaction patterns, accessibility |
-| Backend Engineer | `backend-engineer.md` | API contracts, data models, real-time architecture |
-| UAT | `uat.md` | Test scenarios, defect identification, acceptance criteria validation |
+| Agent | Role |
+|---|---|
+| Product Manager | Orchestration, feature planning, work breakdown, prioritization |
+| Tech Lead | Architecture decisions, code review, `docs/adr/`, `STATUS.md` |
+| Frontend Engineer | All React/TypeScript code in `src/` |
+| Designer | Design specs in `docs/specs/`, Figma DSM, interaction patterns |
+| Backend Engineer | API contracts, data models, real-time architecture in `server/` |
+| UAT | Test scenarios, defect identification, acceptance criteria validation |
 
-**Coordination flow:**
-1. PM breaks features into typed sub-tasks
-2. Designer writes spec to `docs/specs/<feature>.md` and handoff to `docs/handoffs/<feature>-design.md`
-3. Frontend Engineer implements from the spec
-4. FE drops handoff to `docs/handoffs/` for Tech Lead review
-5. Tech Lead updates `STATUS.md` Done table on approval
-6. UAT runs after each work package; defects logged to `docs/defects.md`
+**Ownership boundaries (hard rules):**
+- Designer may NOT write to or edit any file in `src/` — ever
+- Frontend Engineer may NOT write to `docs/adr/` or `STATUS.md`
+- `STATUS.md` is written by Tech Lead only
+- `docs/adr/` is written by Tech Lead only
+- `docs/specs/` is written by Designer or PM
+- `docs/handoffs/` is written by any agent dropping work for Tech Lead review
 
 ---
 
@@ -282,12 +295,12 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 ### Product Manager
 - Breaks ambiguous feature requests into crisp briefs: problem → user story → acceptance criteria → open questions
 - Routes sub-tasks to the correct specialist agent with self-contained prompts
-- Prioritizes using: (1) anything blocking the collaborative loop, (2) partial screens before new ones, (3) polish after golden path, (4) mobile last
+- Prioritizes: (1) anything blocking the collaborative loop, (2) partial screens before new ones, (3) polish after golden path, (4) mobile last
 - Does NOT write code or design specs directly
 
 ### Tech Lead
 - Owns technical integrity across all layers
-- Makes the call when frontend/backend specs conflict: backend contract wins for data shape; frontend spec wins for interaction timing
+- Makes the call when frontend/backend specs conflict: backend contract wins for data shape; frontend wins for interaction timing
 - Reviews all code: correctness → type safety → token compliance → performance → simplicity
 - Writes Architecture Decision Records to `docs/adr/`
 - Does NOT own roadmap or feature scope
@@ -296,71 +309,48 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - Owns everything in `src/` — components, state, hooks, styling
 - Typed functional components only (`const` arrow functions, no `function` keyword, no `any`)
 - Tailwind utility classes for layout; inline `style` for dynamic values; never hardcode hex
-- Uses `useState`/`useReducer`/`useContext` only — no external state library without PM approval
 - Runs `tsc --noEmit` before every commit
-- Commits after every approved task; commit message format: `feat/fix: <what and why>`
 - Does NOT write to `docs/specs/` or `docs/adr/`
 
 ### Designer
 - Owns how every screen looks and behaves from the user's perspective
 - Writes specs to `docs/specs/<feature>.md` and handoffs to `docs/handoffs/<feature>-design.md`
 - Specifies every interactive state: hover, focus, active, disabled, empty, loading, error
-- **Hard boundary: may not write to or edit any file in `src/`.** All code is implemented by the Frontend Engineer from the spec.
+- **Hard boundary: may not write to or edit any file in `src/`.** Code implemented by Frontend Engineer from spec only.
 - Uses Figma MCP tools to read/write the Design System file
 - Does NOT make product scope decisions
 
 ### Backend Engineer
-- Owns API contracts, WebSocket message schemas, and data models
+- Owns API contracts, WebSocket message schemas, and data models in `server/`
 - REST endpoints versioned at `/api/v1/...` from day one; no GraphQL without PM approval
-- Backend scaffold exists at `server/` (tsc-clean). Remaining work: JWT enforcement + server-side track locking (#20)
 - Does NOT make frontend implementation decisions
 
 ### UAT Agent
 - Tests from the perspective of a musician with DAW muscle memory (Ableton/Logic/Pro Tools)
 - Writes defects to `docs/defects.md` with priority (P0 blocker → P3 low) and file:line references
-- Validates acceptance criteria, not code style
 - Can use browser preview tools to interact with the running app
 - Does NOT implement fixes
 
 ---
 
-## 7. Tool Stack Currently in Use
-
-### Development
-
-| Tool | Version/Detail | Purpose |
-|---|---|---|
-| React | 18 | UI framework |
-| TypeScript | Strict mode | Type safety across frontend |
-| Vite | Latest | Dev server + build tool |
-| Tailwind CSS | v4 (via `@tailwindcss/vite`) | Utility-class styling — no config file |
-| Fastify | Latest | Backend HTTP + WebSocket server |
-| `@fastify/websocket` | Latest | WebSocket plugin for Fastify |
-| Web Audio API | Browser native | Audio synthesis, playback, metering |
-| `requestAnimationFrame` | Browser native | VU meter animation loop (direct DOM writes, no state) |
-| puppeteer | devDependency | Sprint screenshot capture |
-
-### CI
-
-GitHub Actions (`.github/workflows/ci.yml`):
-1. `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` — strict typecheck
-2. `npm run build` — Vite build (blocked on typecheck passing)
-
-### AI Agent Tooling
+## 7. Tool Stack
 
 | Tool | Purpose |
 |---|---|
-| Claude Code (Anthropic) | Primary agent runtime — all agents run here |
-| Claude Preview MCP | Frontend Engineer + UAT — renders live app, screenshots, interactions |
-| Figma MCP (`417ff0e4-f840-44f1-8786-6c55843f7ab4`) | Designer agent — reads/writes Figma Design System file |
-| Figma Desktop MCP (`figma-desktop`) | Secondary Figma read access |
-| Computer Use MCP | UAT agent — OS-level interaction for end-to-end testing |
-| TodoWrite | Task tracking within agent sessions |
+| React 18 | UI framework |
+| TypeScript (strict mode) | Type safety across frontend |
+| Vite | Dev server + build tool |
+| Tailwind CSS v4 (`@tailwindcss/vite`) | Utility-class styling — no config file |
+| Fastify + `@fastify/websocket` | Backend HTTP + WebSocket server |
+| `jose` | JWT sign/verify (HS256, `JWT_SECRET` env var) |
+| Web Audio API | Audio synthesis, playback, metering |
+| `requestAnimationFrame` | VU meter animation (direct DOM writes, no state) |
 
-### No external dependencies currently used for:
-- State management (no Redux/Zustand/Jotai)
-- Animation (no Framer Motion — all animation via CSS transitions and `requestAnimationFrame`)
-- Audio routing (no Tone.js — raw Web Audio API only)
+**CI (`.github/workflows/ci.yml`):**
+1. `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` — strict typecheck
+2. `npm run build` — Vite build
+
+**No external dependencies for:** state management (no Redux/Zustand), animation (no Framer Motion), audio routing (no Tone.js).
 
 ---
 
@@ -376,113 +366,92 @@ GitHub Actions (`.github/workflows/ci.yml`):
 |---|---|
 | 🎨 Cover | Title/cover |
 | 🪙 Tokens | Design tokens (colors, spacing, type) |
-| ⚛ Atoms | Base components — Button, Toggle, InputField, Avatar, TrackAccentBar, TrackControlButton, Fader, LevelMeter, Badge, RoleOption, **Knob**, **PanKnob**, **TransBtn** |
-| 🧩 Molecules | Composed components — TrackHeader, ChannelStrip, **Clip** (5 variants), **Toolbar** (3 variants), **StatusBar** (2 variants), TransportBar |
-| 🦠 Organisms | Full panels — SessionTopbar, TrackSidebar, **MixerPanel** (full wood surround + 7 tracks + master), **FXChainPanel** (empty + populated), ConflictModal, InviteModal |
+| ⚛ Atoms | Button, Toggle, InputField, Avatar, TrackAccentBar, TrackControlButton, Fader, LevelMeter, Badge, RoleOption, Knob, PanKnob, TransBtn |
+| 🧩 Molecules | TrackHeader, ChannelStrip, Clip (5 variants), Toolbar (3 variants), StatusBar (2 variants), TransportBar |
+| 🦠 Organisms | SessionTopbar, TrackSidebar, MixerPanel, FXChainPanel, ConflictModal, InviteModal |
 | 📐 Templates | Not yet populated |
 | 📄 Docs | Not yet populated |
 
-**Items in bold** were added or rebuilt in the 2026-05-11 DSM completeness pass.
-
-### Canonical layout grid (locked — do not deviate)
-
-- Molecules and Organisms pages: content starts at x=380, y=180
-- Label column: x=80, width=260px
-- Section gap: 120px vertical
-- Component gap: 40px vertical
-- All components wrap as `COMPONENT_SET` (via `figma.combineAsVariants`) — plain frames do not persist between plugin executions
-
-### Key component specs (matched to shipped code)
-
-**MixerStrip (ChannelStrip molecule):**
-- Width: 64px
-- Wood cap: 8px height, gradient `#3D2210 → #2E1A0E`
-- Owner color bar: 2px, sits below wood cap
-- FX badge: 8px font-mono, `C.control` background, shows `"FX:{n}"`; click opens PluginChainPanel
-- M/S buttons: 22×14px each, `C.control` background, 2px corner radius
-- Pan knob: 28×28px SVG — metallic radial gradient, accent arc, indicator dot; center detent ±4 unit dead zone; 2px notch at C position
-- VU meter: 2 channels × 20 segments × 3px height × 1px gap = 79px total
-- StudioFader: 22px wide handle with 3 grip ridges; 80px travel; `role="slider"`; arrow key nav
-- dB readout: 9px monospace
-- Avatar ring: 16px diameter, 2px owner-color stroke
-
-**Clip (molecule):**
-- Height: `TRACK_H - 12 = 52px`
-- Width: `clip.len * BAR_W - 4px`
-- Background: owner color at 8% opacity (`${color}14`)
-- Waveform bars: owner color at 18% opacity (`${color}2E`)
-- 5 variants: audio-default, synth-default, audio-hovered, audio-muted, audio-faded
-
-**MixerPanel (organism):**
-- 540×316px (7 tracks × 64px + master × 64px + 2 cheeks × 14px = 540px; 6px rail + 310px body = 316px)
-- Wood top rail: 6px, gradient `#3D2210 → #2E1A0E → #1E0F06`
-- Left/right cheeks: 14px wide, matching wood gradient
-- Master strip is intentionally slightly taller than track strips (hardware convention — by-design)
+**Canonical layout grid:** content at x=380, y=180; label column x=80 width=260px; section gap=120px; component gap=40px; all components as `COMPONENT_SET` nodes.
 
 ---
 
 ## 9. GitHub Repository
 
-**Remote:** https://github.com/lukesydow-lab/DAWin
-
-**CI:** GitHub Actions — typecheck + Vite build on push/PR to `main`. `--noUnusedLocals --noUnusedParameters` enforced.
-
-**Milestones:** Sprint 1 (closed), Sprint 2 (active), Sprint 3 (open)
-
-**Labels:** `type:feature-request`, `status:triage`, `sprint:1`, `sprint:2`, `sprint:3`, `type:open-decision`, `priority:p0`–`priority:p3`, `component:frontend`, `component:backend`, `component:design`, `type:bug`, `type:chore`
-
-**Issue templates:** Feature Request (`.github/ISSUE_TEMPLATE/feature-request.md`)
-
-**Open Sprint 2 issue:**
-- #20 Track locking + JWT role enforcement
+**Remote:** https://github.com/lukesydow-lab/DAWin  
+**CI:** GitHub Actions — typecheck + Vite build on push/PR to `main`  
+**Milestones:** Sprint 1 (closed), Sprint 2 (closed), Sprint 3 (closed), Sprint 4 (open)  
+**Labels:** `type:feature-request`, `status:triage`, `sprint:1–4`, `type:open-decision`, `priority:p0–p3`, `component:frontend/backend/design`, `type:bug/chore`
 
 ---
 
-## 10. Slack / Notification Setup
-
-No Slack workspace configured. All coordination via `STATUS.md`, `docs/handoffs/`, and PM sessions.
-
----
-
-## 11. Current Implementation Status
+## 10. Current Implementation Status
 
 ### What is fully wired and working
 
-- **Session room layout:** transport bar (top), arranger (center), mixer (bottom), status bar (bottom edge), FX chain overlay (right slide-in — viewport positioning bug fixed)
-- **Transport:** play/pause (spacebar), stop (holds position), return-to-zero, record arm toggle, BPM control (40–300 validated)
-- **Arranger clip editing:** drag (grab-offset correct), resize (left/right), bezier fade handles with draggable midpoints, cut tool, right-click menu (Delete/Duplicate/Bounce wired)
-- **Crossfade:** implicit bezier crossfade on clip overlap; symmetry lock toggle (padlock icon); `crossfadeLocked` on ClipData
-- **Mixer:** fader (log curve, unity at ~75%), pan (center detent ±4 dead zone, 2px notch), mute, solo — all wired and updating shared track state
-- **StudioFader ARIA:** `role="slider"`, track-scoped `aria-label`, ArrowUp/Down ±1, Shift+Arrow ±10
-- **VU meters:** live post-fader RMS, attack/decay physics, peak-hold dot, transient glow, `prefers-reduced-motion` respected
-- **VU heartbeat startup:** bloom + staggered motorized recall on mount; `heartbeatSignalRef` overrides live RMS
-- **Master bus:** real `GainNode` + `StereoPannerNode` + `AnalyserNode` — `masterVol` and `masterPan` drive real audio
-- **Plugin chain (audio graph):** DynamicsCompressorNode, ConvolverNode (procedural IR), DelayNode + feedback GainNode, BiquadFilterNode, Limiter GainNode — all wired into per-track signal path; enable/disable bypasses without graph rebuild
-- **Plugin rack UI:** wood cabinet, brushed-metal faceplates, amber LCD, power LED in owner color, Screw SVGs, drag-to-reorder; PluginBrowser inline popover with search
-- **FX badge → panel:** clicking FX badge on any mixer strip opens PluginChainPanel for that track
-- **Backend scaffold:** Fastify + WebSocket routing for all transport and presence events; in-memory session store; tsc-clean
-- **Invite modal:** role picker, email input, "Send invite" CTA wired, Escape closes
-- **Keyboard shortcuts:** spacebar (play/pause), V/C (tools), Escape (modals)
-- **Collaborator color system:** tints track headers, clip fills/waveforms, mixer strip wood caps, avatar rings, plugin power LED throughout
-- **Accessibility:** ARIA labels on all icon-only controls, focus-visible rings, keyboard nav on fader/pan/MiniBtn, VU containers `aria-hidden`, dB readout `aria-live`
-- **CI:** tsc strict + Vite build passing; `--noUnusedLocals --noUnusedParameters` enforced
+**Sprint 1 (closed 2026-05-14):**
+- 7-track arranger: clip drag/resize/fade/cut, bezier fade curves, crossfade symmetry lock
+- Neve mixer: log faders, pan knobs, mute/solo, VU meters (60fps, peak-hold, heartbeat startup)
+- Plugin rack browser: wood cabinet, drag-to-reorder, PluginChainPanel overlay
+- Collaborator color model on all surfaces
+- GitHub infrastructure: milestones, labels, issue templates, PRD, Roadmap
 
-### What is partially implemented
+**Sprint 2 (closed 2026-05-15):**
+- Fastify scaffold: WebSocket transport sync, presence fan-out, session snapshot
+- Plugin chain audio graph: DynamicsCompressor, Reverb, Delay, EQ, Limiter — bypass without rebuild
+- Master panner (StereoPannerNode), PanKnob center detent, StudioFader ARIA
+- CI: `--noUnusedLocals --noUnusedParameters` enforced
+- **#20:** JWT sign/verify (`server/jwt.ts`), real `GET /auth/me`, `POST /auth/login` + `/auth/guest`, track lock state in session store, `track.arm/disarm/locked/unlocked/arm_rejected` WS handlers, lock release on disconnect; Frontend: `userRole` from `/auth/me`, `isViewer` prop-threaded to TrackHeader, viewer tooltips on R/M/S
 
-- **Frontend ↔ backend WebSocket connection:** Backend routing is implemented and tsc-clean; frontend does not yet open a WebSocket connection to the server. Presence and transport state are still seed data in React state client-side.
-- **Track ownership locking:** `track.lockedBy` field exists but enforcement between clients requires #20 (server-side lock check + JWT role)
-- **Role-based access:** `IS_VIEWER` constant disables arm/mute/solo buttons (client-side only); server-side JWT validation not built (#20)
-- **Context menu:** Delete + Duplicate wired; Loop region + Rename are disabled stubs (Sprint 3)
-- **Plugin parameter editing:** plugin cards display key params as read-only text in the amber LCD; no inline editing — PM decision required (§8.8)
+**Sprint 3 (closed 2026-05-15):**
+- ADR-003: Unified `CommentAnchor` model, in-memory comment storage, WS event schema, deep link URL format
+- Backend comments API: `POST/GET/DELETE /sessions/:id/comments`, `PATCH .../resolve`, `PATCH .../reopen`, `POST .../replies`; WS fan-out for `comment.add/reply/resolve/reopen`
+- WS client: `getWsClient()` singleton — exponential backoff reconnect, `session.join` on open, `sendWsMessage()` helper, `wsStatus` → StatusBar dot
+- Deep links: `copyDeepLink()`, `?t=&track=&clip=` URL parsing on mount, playhead seek + highlight states, 1500ms auto-clear, chain-link icon in TransportBar, right-click on track header
+- Comment UI: Ruler anchor pins (SVG chevrons, author-colored, count badges, timeRange bars), track header pins, `ThreadPopover`, chat panel, unread count badge on icon rail, WS-driven state updates
+
+### What is not yet implemented (Sprint 6+ targets)
+
+- **Resizable panels (FR-01):** Arranger/mixer height splitter + FX panel width splitter. Spec at `docs/specs/resizable-workspace-panels.md`. Deferred from Sprint 4; not yet implemented.
+- **Horizontal timeline zoom (FR-02):** `zoomX` state, `barW = BAR_W * zoomX`. `BAR_W` is still hardcoded at ~13 arranger sites. Spec at `docs/specs/arranger-zoom.md`. Deferred from Sprint 4; not yet implemented.
+- **Per-track vertical zoom:** `trackZoomY` record, `getTrackH()` derived value. Not yet implemented.
+- **Plugin parameter editing:** Plugin cards display params as read-only amber LCD text; no inline editing. PM decision on UX pattern required.
+- **First Prisma migration / PrismaStorageAdapter activation:** Sprint 6 target — server still boots with `InMemoryStorageAdapter` until 6-A lands.
+- **Cloudflare R2 audio file storage:** Sprint 6 target — upload endpoint and presigned streaming URL endpoint (6-C, 6-D).
+- **Audio file playback in browser:** Sprint 7 target — drag-and-drop to timeline, clip rendering from real buffers.
 
 ### What is a stub or not started
 
-- **Disabled controls tooltip:** "View only — upgrade to Editor" tooltip not implemented (part of #20)
-- **Real-time presence cursors:** collaborator presence cursors in arranger are seed data; no live WebSocket update from backend
-- **Clip conflict resolution:** no conflict modal implementation
-- **Backend persistence:** session store is in-memory only (Map); no database
-- **Backend auth:** JWT issuance not implemented — `/auth/me` is a stub
-- **Mobile capture screen:** not started
+- **Mobile capture screen:** Not started. Desktop-first mandate.
+- **Undo stack:** Not started. Requires operational transforms.
+- **Audio recording (getUserMedia):** Not started. Sprint 8–9 target.
+- **MIDI tracks:** Out of scope for web app.
+
+---
+
+## 11. Sprint 6 — Active Work (Planning)
+
+**Goal:** File Storage — Cloudflare R2 integration + first real Prisma migration.
+
+**Work order:** `docs/handoffs/sprint6-backend-workorder.md`
+
+**Ticket sequence:**
+- **6-A (Backend):** First Prisma migration + switch to `PrismaStorageAdapter`
+- **6-B (Backend):** Complete `PrismaStorageAdapter` (all StorageAdapter methods)
+- **6-C (Backend):** Cloudflare R2 integration — `POST /api/v1/sessions/:id/audio` upload endpoint
+- **6-D (Backend):** `GET /api/v1/audio/:id/stream-url` presigned streaming URL endpoint
+- **6-E (Backend):** docker-compose + `.env.example` + `docs/guides/local-setup.md`
+
+**Sprint 6 exit criteria:**
+- [ ] `prisma migrate status` shows no pending migrations against a live PostgreSQL instance
+- [ ] Server boots with `PrismaStorageAdapter`; logs "Using PrismaStorageAdapter"
+- [ ] `POST /api/v1/sessions` + `GET /api/v1/sessions/:id` round-trip through Prisma correctly
+- [ ] `POST /api/v1/sessions/:sessionId/audio` uploads a WAV file and returns `AudioFileRow` with correct metadata
+- [ ] `GET /api/v1/audio/:id/stream-url` returns a presigned R2 URL that resolves the file
+- [ ] Viewer JWT receives 403 on upload; non-member JWT receives 403 on stream-url
+- [ ] `tsc --noEmit` passes
+- [ ] `.env.example` documents all required env vars including R2 vars
+- [ ] `docs/guides/local-setup.md` exists with runbook for first-time setup
 
 ---
 
@@ -490,166 +459,113 @@ No Slack workspace configured. All coordination via `STATUS.md`, `docs/handoffs/
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| Server-side track locking not built | Backend + Frontend | #20: Backend enforces `track.lockedBy`; JWT role decoded server-side |
-| Frontend WebSocket client not connected to backend | Frontend | After #20: FE opens WS connection, subscribes to transport.state_sync + presence events |
-| Plugin parameter editing spec not written | Frontend | PM writes the parameter editing UX spec (expanding card? popover?). Gates Sprint 3. |
-| Context menu stubs (Loop region + Rename) | Frontend | PM decides: scope Sprint 3 or remove stubs |
+| Server still boots with `InMemoryStorageAdapter` — no live PostgreSQL | Sprint 6 all features | 6-A: first Prisma migration + adapter switch |
+| R2 env vars not in `.env.example` yet | Sprint 6 6-C/6-D | 6-E: env docs + local setup guide |
+| §Interaction Model empty in `docs/specs/arranger-zoom.md` | Frontend (zoom feature, deferred) | Designer fills keyboard shortcuts + scroll-to-zoom behavior when zoom sprint is scheduled |
+| `BAR_W` hardcoded in ~13 arranger sites | FR-02 zoom work (deferred) | Must be abstracted to `barW = BAR_W * zoomX` — not blocking Sprint 6 |
 
 ---
 
 ## 13. Open Questions
 
-### For PM (product decisions required)
+### For PM
 
-1. **Plugin parameter editing UX** (§8.8) — Expanding card, side panel, or popover? No spec exists. This is the most important open question for Sprint 3.
+1. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
+2. **Resizable panels + zoom sprint scheduling** — FR-01 and FR-02 were deferred from Sprint 4. Which sprint do they land? Must be scheduled before Frontend can pick them up.
+3. **Local setup guide location** — `docs/guides/local-setup.md` is the Sprint 6 target. Does this path need to exist before Sprint 6 starts, or is it created as part of 6-E?
 
-2. **Context menu stubs** (§8.5) — Loop region + Rename are disabled with "(soon)" labels. Scope for Sprint 3, or remove from UI?
+### For Tech Lead
 
-3. **VU meter calibration marker** (§8.2) — Visible tick mark at 0 VU reference (−18 dBFS boundary)?
-
-4. **VU meter color bands** (§8.3) — Current: 0–65% green, 65–85% amber, 85–100% red. Recalibrate to −18 dBFS convention?
-
-5. **Stereo metering** (§8.4) — Both L/R channels currently read same AnalyserNode (mono-summed). True stereo via SplitterNode: acceptable for v1?
-
-6. **Ownership transfer** (§8.7) — Post-MVP or Sprint 3?
-
-### For Tech Lead (architectural sign-off needed)
-
-1. **Frontend WS client integration** — When #20 backend is ready, Tech Lead should specify the connection pattern: singleton WS client at App root? Custom hook? How does transport.state_sync merge with local React state?
+1. **ADR for panels/zoom** — Still needed when FR-01 + FR-02 are scheduled. Panel persistence (localStorage key shape), zoom state scope (global vs. per-view), and BAR_W → barW abstraction. Write ADR before Frontend picks up those tickets.
+2. **Comment pin positions at zoom** — Ruler pins use `startBar * BAR_W` (hardcoded). When FR-02 lands, they need `startBar * barW`. Ensure this is captured in the zoom ticket.
+3. **ADR-002 status** — ADR-002 (in-memory store) is being superseded by Sprint 5/6 persistence work. Mark it Superseded once PrismaStorageAdapter is live.
 
 ---
 
-## 14. Recent Decisions
+## 14. Architecture Decisions (ADR History)
 
-### ADR 001 — DSP Locality (accepted 2026-05-10)
+### ADR-001 — DSP Locality (accepted 2026-05-10)
 **Decision:** All DSP runs in the browser via the Web Audio API for the prototype.  
-**Rationale:** Server-side DSP requires ~32 Mbps sustained for a 7-track session — impractical on general internet. Web Audio API nodes cover all needed plugin types natively. Plugin parameter state is server-persisted and synced via WebSocket `plugin.param_change` events.  
-**Future path:** CLAP/VST3 requires Electron/Tauri sidecar using shared memory + local loopback WebSocket.
+**Rationale:** Server-side DSP requires ~32 Mbps sustained for a 7-track session. Web Audio API nodes cover all plugin types natively.  
+**Future path:** CLAP/VST3 requires Electron/Tauri sidecar with shared memory + local loopback WebSocket.
 
-### Crossfade interaction model (2026-05-14 — PM decision)
-**Decision:** Crossfade toolbar tool removed. Crossfades are implicit on clip overlap: bezier crossfade region created automatically. `crossfadeLocked: boolean` on ClipData. When locked: mirrored handles (fadeInCurve = n ↔ fadeOutCurve = 1-n). When unlocked: independent. Padlock icon in overlap zone. Locked = `C.textSec`, unlocked = `C.accent`.
+### ADR-002 — Backend Scaffold (accepted 2026-05-14)
+**Decision:** Fastify + `@fastify/websocket` + in-memory session store for the prototype.  
+**Rationale:** Minimal surface area; no persistence needed until Sprint 5+ real-session hydration.
 
-### Master fader height (2026-05-14 — PM decision)
-**Decision:** Master strip being slightly taller than track strips is by-design (hardware convention). Issue #12 closed as won't fix.
+### ADR-003 — Comment Anchor Model (accepted 2026-05-15)
+**Decision:** Unified `CommentAnchor` type shared by inline comments (FR-06) and deep links (FR-07). Bar-based anchors (not seconds). Five anchor types: `timeline | timeRange | track | clip | trackMoment`. WS event schema: `comment.add/reply/resolve/reopen`. Deep link URL format: `?t=<bar>&track=<id>&clip=<id>&range=<start>-<end>`.
 
-### Plugin browser UX (2026-05-14 — §8.1 resolved)
-**Decision:** Inline popover anchored to "+ ADD UNIT" button. Text search + category list. Plugin added to chain immediately on selection. Implemented as `PluginBrowser` inside `PluginChainPanel`.
+### ADR-004 — PostgreSQL + Prisma Schema (accepted 2026-05-17)
+**Decision:** PostgreSQL + Prisma replaces the in-memory store. `server/prisma/schema.prisma` is the canonical schema. `StorageAdapter` interface at `server/storage/adapter.ts` is the only contract route handlers depend on — they never call Prisma directly. `PrismaStorageAdapter` for production; `InMemoryStorageAdapter` for dev/test (no `DATABASE_URL`). cuid() for all IDs. JSONB for plugin params and comment anchors.
 
-### masterPan default + _masterPanner (2026-05-14)
-**Decision:** `masterPan` initialized at 50 (center), not 0. `_masterPanner: StereoPannerNode` inserted between `_masterGain` and `_masterAnalyser`. Mapping: `(masterPan-50)/50`. Previous mapping `masterPan/100` produced hard-left output.
+### ADR-005 — Session Hydration Strategy (accepted 2026-05-18)
+**Decision:** On WS join, the server sends `session.snapshot` with `session`, `tracks`, and `clips` fields from the DB. Ephemeral runtime state (transport position, track locks, active presence) is not persisted — it is rebuilt from live WS events. Unknown session IDs receive WS close code 4404. Frontend eliminates hard-coded seed state for track/clip entities; hydrates from snapshot instead.
 
-### PanKnob center detent (2026-05-14)
-**Decision:** ±4 unit dead zone in drag `onMove` handler (`const snapped = Math.abs(raw) <= 4 ? 0 : raw`). Visual 2px center notch indicator extends above/below bar; width 2px when `pan === 0`, 1px otherwise.
+### Other key decisions (no ADR)
 
-### FX chain panel viewport positioning (2026-05-14 — Sprint 2 fix)
-**Decision:** `overflow: clip` scoped to `html, body` only (not `#root`). `#root` had `overflow: clip` which created a BFC containing block for `position: fixed` children, causing the PluginChainPanel to anchor 1px off the right edge of the 1920px viewport. Removed from `#root`.
-
-### CI tightened (2026-05-14)
-**Decision:** `--noUnusedLocals --noUnusedParameters` added to `tsc --noEmit` step. Prevents accumulation of dead code. Three unused variables fixed at same time (rawY, _instrId, showInvite).
-
-### Single rAF loop for all VU strips (2026-05-12)
-**Decision:** One shared `requestAnimationFrame` loop in `MixerPanel` drives all strip meters. Refs (not state) are used for level values; `renderVUChannel()` writes directly to DOM style properties.  
-**Rationale:** `useState` for 60fps values would trigger re-renders of 240+ DOM elements per frame.
-
-### Post-fader metering (2026-05-12)
-**Decision:** VU meters tap the `AnalyserNode` after the `GainNode` (post-fader). IEC 60268-17 standard; matches Pro Tools, Logic, Ableton.
+- **Crossfade interaction model (2026-05-14):** Crossfades implicit on clip overlap; `crossfadeLocked: boolean` on ClipData; padlock icon in overlap zone.
+- **VU meters post-fader (2026-05-12):** Tap is after GainNode per IEC 60268-17. Matches Pro Tools, Logic, Ableton.
+- **Single rAF loop for VU (2026-05-12):** One shared rAF in MixerPanel; refs + direct DOM writes — no state — avoids 240+ re-renders at 60fps.
+- **masterPan default (2026-05-14):** `masterPan` initialized at 50 (center). Mapping `(masterPan-50)/50`. Previous `masterPan/100` mapping produced hard-left output.
+- **CI tightened (2026-05-14):** `--noUnusedLocals --noUnusedParameters` added. Prevents dead code accumulation.
+- **comment.add not echoed to sender (2026-05-15):** REST 201 is the ack for the creator. Only other tabs receive the WS event. Prevents duplicate renders.
 
 ---
 
-## 15. Features in Progress
+## 15. Non-Negotiable Constraints
 
-### #20 — Track locking + JWT role enforcement
-**What remains:**
-- Backend: enforce `track.lockedBy` — reject concurrent arm attempts from other clients
-- Backend: JWT issuance + role decoding server-side; `GET /auth/me` returns real role
-- Frontend: replace `IS_VIEWER` constant with decoded JWT claim
-- Frontend: tooltip on disabled controls: "View only — upgrade to Editor to make changes"
-- Done when: two clients cannot simultaneously arm the same track; Viewer cannot arm/mute/solo even with modified client code
+### Code
+- All components in `src/App.tsx` until a second screen is scaffolded — do not create new files in `src/` without Tech Lead approval
+- TypeScript strict mode — no `any`; use `unknown` + TODO if type is genuinely unknown
+- No external state library without PM approval
+- No CSS modules, no styled-components, no `@apply` — Tailwind v4 utility classes + inline `style` for dynamic values only
+- One shared `AudioContext` (`_audioCtx` via `getAudioCtx()`) — do not create a second one
+- Run `tsc --noEmit` before every commit
+
+### Design
+- Never hardcode hex color values — always use `C.*` tokens from `src/App.tsx`
+- Collaborator colors applied via inline `style` props — never via Tailwind classes
+- Every new surface must honor the collaborator color model
+- Desktop-first — minimum 1280px
+- Dense information density is correct for a pro audio tool — do not add whitespace
+
+### DAW conventions (muscle memory — do not break)
+- Spacebar = play/pause
+- Stop preserves playhead position; Return-to-Zero resets it
+- VU meters are post-fader (IEC 60268-17) — meter tap goes after the GainNode
+- Fader curve is logarithmic with unity gain at ~75% travel
 
 ---
 
-## 16. Feature Backlog / Ideas
+## 16. Feature Backlog
 
 Items below are not formally scoped. None should be started without a PM-written spec.
 
-### Sprint 3 candidates (ordered by impact)
+### Sprint 5 candidates (after Sprint 4 lands)
 
-1. **Plugin parameter editing UI** — Expanding plugin card shows inline knobs/sliders per param. Compressor: threshold, ratio, attack, release. Gates Sprint 3.
-
-2. **Context menu completions (Loop region + Rename)** — Loop region sets `loopStart`/`loopEnd`; playhead loops within range. Rename: inline text edit on track header name field.
-
-3. **VU calibration polish** — 0 VU tick mark, color band recalibration, true stereo via SplitterNode (pending PM decisions §8.2–8.4).
-
-4. **Frontend WebSocket client** — Connect frontend to Fastify backend; subscribe to transport.state_sync + presence events. Replaces seed data with live server state.
+1. **Plugin parameter editing UI** — Expanding plugin card with inline knobs/sliders per param. PM spec required first. Compressor: threshold, ratio, attack, release.
+2. **Context menu completions** — Loop region sets `loopStart`/`loopEnd`; Rename: inline text edit on track header. Or remove stubs.
+3. **Frontend WebSocket client → full presence** — Replace seed data presence cursors with live server events. WS client singleton is ready; UI presence update wire-up needed.
+4. **VU calibration polish** — 0 VU tick mark, color band recalibration, true stereo via SplitterNode (pending PM decisions).
+5. **Wire WS ticket→role on connect** — Deferred P1 from Sprint 2 UAT: decode JWT on WS connection so `role` is accurate from WS messages (not hardcoded `'owner'`).
 
 ### Future / post-MVP
 
 | Feature | Why deferred | Prerequisite |
 |---|---|---|
 | Mobile capture screen | Desktop-first mandate | PM formal scope decision + Designer full mobile spec |
-| CLAP/VST3 native plugin support | Requires Electron/Tauri sidecar (per ADR-001) | Electron integration decision |
+| CLAP/VST3 native plugin support | Requires Electron/Tauri sidecar (ADR-001) | Electron integration decision |
 | Undo stack | Requires operational transforms | Tech Lead design + PM approval |
 | Session history / restore points | Depends on stable server persistence | Backend persistence layer |
-| Ownership transfer UI | Backend auth must enforce it | #20 complete; PM decision on §8.7 |
-| Pre-fader / post-fader meter toggle | Low value; architecturally simple | PM decision |
-| Clip color picker | Override owner color on individual clips | Sprint 3 complete |
 | Real audio recording (getUserMedia) | Requires backend blob storage | Backend recording pipeline |
 | MIDI track type | All tracks are audio synthesis only | New spec + PM scope decision |
-| Session loading state / skeleton | Relevant when real session hydration introduced | Backend hydration |
-| Error states | No error state designed for any screen | PM + Designer scope decision |
+| Ownership transfer UI | Backend must enforce; PM decision | #20 complete + PM §8.7 decision |
+| Clip color picker | Override owner color on individual clips | PM decision |
 
 ---
 
-## 17. What Should Not Be Changed
-
-### Architecture constraints
-
-- **One `AudioContext` per session.** Do not create a second one. All Web Audio nodes must use `_audioCtx` from `getAudioCtx()`.
-- **No external state library** without PM approval. `useState` / `useReducer` / `useContext` only.
-- **No CSS modules, no styled-components, no `@apply`.** Tailwind v4 utility classes + inline `style` only.
-- **No GraphQL.** REST + WebSocket per the backend spec.
-- **`src/App.tsx` is the only file in `src/` right now.** Do not create new files without Tech Lead approval.
-- **TypeScript strict mode.** No `any`. Use `unknown` + TODO if type is genuinely unknown.
-- **Audio graph signal order is load-bearing:** `source → [plugin chain] → GainNode(fader) → AnalyserNode(VU tap) → StereoPannerNode → _masterGain → _masterPanner → _masterAnalyser → destination`. VU correctness depends on tap placement after fader.
-- **CI must pass before merge:** `tsc --noEmit --noUnusedLocals --noUnusedParameters` + `vite build`.
-
-### Design constraints
-
-- **Collaborator color model is sacred.** Every new surface must show the owner's hex color on their tracks/clips/strips. No new screen should omit this.
-- **Never hardcode hex values in `src/`.** Always use `C.*` tokens. Collaborator colors use inline `style` props.
-- **Desktop-first, 1280px minimum.** Do not design for smaller viewports until mobile capture is formally scoped.
-- **Dense information density is correct.** Do not add padding or simplification — this is a pro audio tool.
-- **Standard DAW conventions must be honored.** Spacebar = play/pause. Stop preserves position. Return-to-Zero resets. Fader unity at ~75%. VU meters are post-fader. These are muscle-memory behaviors.
-- **The Designer agent may not write to `src/`.** All code comes from the Frontend Engineer.
-
-### Token constraints
-
-- **Layout constants (`BAR_W`, `TRACK_H`, etc.) may not change** without updating both code and Figma DSM.
-- **VU meter bands:** 0–12 segments = green (`C.vuGreen`), 13–16 = amber (`C.vuAmber`), 17–19 = red (`C.vuRed`). 20-segment layout. Do not change without PM decision + DSM update.
-
----
-
-## 18. Current Assumptions
-
-1. **Single `AudioContext` is sufficient.** Works for the prototype; multi-window or worker-based playback would require architectural changes.
-2. **All 7 tracks are always present.** Track creation and deletion not yet implemented.
-3. **The backend will be server-authoritative for transport state.** Current React state is local; server will be source of truth when WS client is connected.
-4. **Collaborator color is assigned at session join and immutable within a session.** Stored in seed data; backend will assign server-side per `(userId, sessionId)`.
-5. **JWT-based auth with guest/anonymous join support.** Auth doesn't exist yet; `IS_VIEWER` is a UI hint only — will be validated against server token in #20.
-6. **No CLAP/VST3 for the prototype.** All plugin processing uses Web Audio API nodes.
-7. **Mono-summed metering is acceptable for v1.** True stereo requires SplitterNode — deferred pending PM decision §8.4.
-8. **32 bars is sufficient for the prototype.** Eager render at `BAR_W=72` = 2,304px canvas. Virtualization needed before 128+ bars.
-9. **Procedural audio synthesis is sufficient.** Real sample import is not implemented.
-10. **No undo stack.** All clip/track mutations are immediate and irreversible.
-11. **In-memory session store is sufficient for prototype.** No database; sessions lost on server restart.
-
----
-
-## 19. How New Feature Work Orders Should Be Structured
-
-When submitting a new feature request to this project, structure it using the following template.
-
-### Work order template
+## 17. How New Feature Work Orders Should Be Structured
 
 ```markdown
 ## Work Order: [Feature Name]
@@ -670,65 +586,46 @@ So that [specific outcome].
 
 ### Acceptance criteria
 - [ ] [Specific, testable, user-visible criterion]
-- [ ] [Another criterion]
-- [ ] [Each criterion should be verifiable by the UAT agent]
 
 ### Scope — what is IN
-[Bullet list of what this work order explicitly covers]
-
 ### Scope — what is OUT (defer to future)
-[Bullet list of what this work order does NOT cover — prevents scope creep]
 
 ### Design constraints
-- Use design tokens from `C.*` — no hardcoded hex values
+- Use `C.*` tokens — no hardcoded hex values
 - Collaborator colors must appear on [specific elements]
-- Minimum size: [if applicable]
-- States required: [hover / focus / active / disabled / empty / error]
 - ARIA: [specific labels for icon-only controls]
 - DAW conventions to honor: [specific keyboard shortcuts, interaction patterns]
 
 ### Technical notes
-[Any architecture constraints, file locations, or line numbers the implementing agent needs]
+[Architecture constraints, file locations, line numbers]
 [Reference any relevant spec files in docs/specs/]
-[Call out any risk to the arranger timeline (perf-sensitive path)]
 
 ### Open questions (must be answered before implementation)
-1. [Question] → [Who answers it]
-2. [Question] → [Who answers it]
 
 ### Definition of done
-- [ ] tsc --noEmit passes (no type errors, no unused locals/parameters)
-- [ ] Feature matches spec — UAT agent has validated acceptance criteria
-- [ ] Committed to git with Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+- [ ] tsc --noEmit passes
+- [ ] Feature matches spec — UAT validated
+- [ ] Committed with Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - [ ] Handoff dropped to docs/handoffs/ for Tech Lead review
 - [ ] STATUS.md updated
+
+**Sprint close gate (final ticket only):** After UAT sign-off on the last ticket of a sprint, the PM must complete a documentation pass before the sprint is marked CLOSED. See `CLAUDE.md` § Sprint close protocol for the full checklist. No sprint is CLOSED until `DAWin_HANDOFF.md` and `DAWin_PROJECT_STATE.md` reflect the new sprint state.
 ```
 
 ---
 
-## 20. Recommended Next Steps
+## 18. Recommended Next Steps (Sprint 6)
 
-Ordered by impact on the collaborative core value proposition.
+Ordered by dependency chain.
 
-### Immediate (complete Sprint 2)
+1. **Backend Engineer: 6-A — First Prisma migration** — Run `prisma migrate dev --name init` against local PostgreSQL, switch `server/index.ts` to `PrismaStorageAdapter`. Verify round-trip through Prisma. This unblocks all other Sprint 6 work.
 
-1. **Backend + Frontend: #20 Track locking + JWT role enforcement**  
-   - Backend: enforce `track.lockedBy` server-side; implement JWT issuance and role claim; make `GET /auth/me` real
-   - Frontend: replace `IS_VIEWER` constant with decoded JWT claim; add tooltip on disabled controls
-   - Done when: two clients cannot simultaneously arm the same track; Viewer role enforced server-side
+2. **Backend Engineer: 6-B — Complete PrismaStorageAdapter** — Implement all `StorageAdapter` methods. Soft deletes on comments. BigInt → string serialization for `fileSizeBytes`. Plugin `orderBy: { order: 'asc' }`.
 
-### Sprint 2 → Sprint 3 bridge
+3. **Backend Engineer: 6-C — R2 upload endpoint** — `POST /api/v1/sessions/:id/audio`. Multipart upload → R2 PutObject → AudioFile DB row. `music-metadata` for duration/sampleRate extraction. Role check: owner/collaborator only.
 
-2. **PM: Answer open decisions §8.2, §8.3, §8.4, §8.5, §8.8** — These gate all Sprint 3 audio depth work. Plugin parameter editing UX is the most impactful.
+4. **Backend Engineer: 6-D — Presigned streaming URL** — `GET /api/v1/audio/:id/stream-url`. 1-hour TTL. Any session member may stream. Returns `{ url, expiresAt }`.
 
-3. **Tech Lead: Design frontend WebSocket client integration pattern** — Singleton at App root? Custom hook? How does `transport.state_sync` merge with local React state? Document in ADR before FE implements.
+5. **Backend Engineer: 6-E — Local dev setup** — docker-compose wiring, `.env.example` with R2 vars, `docs/guides/local-setup.md` runbook.
 
-### Sprint 3
-
-4. **Plugin parameter editing UI** — Expanding plugin card with inline knobs. Requires PM spec first.
-
-5. **Context menu completions** — Loop region + Rename (or remove stubs if descoped).
-
-6. **VU calibration polish** — Pending PM decisions on tick mark, color bands, stereo metering.
-
-7. **Frontend WebSocket client** — Connect to Fastify backend; replace seed data presence with live events.
+6. **Tech Lead: Documentation sync commit** — After Sprint 6 UAT passes, update all docs and commit per the sprint-close protocol at `docs/process/sprint-close-protocol.md`.

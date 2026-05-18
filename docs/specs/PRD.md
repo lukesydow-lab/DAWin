@@ -1,16 +1,56 @@
 # DAWin — Product Requirements Document
 
-**Version:** 1.1  
-**Date:** 2026-05-14  
+**Status: Current**
+**Last updated:** 2026-05-18
+**Version:** 2.0  
+**Date:** 2026-05-17  
 **Author:** PM (Luke)  
-**Sprint context:** 2 — Real-Time Collaboration (active)  
-**Status:** Living document — update at each sprint review
+**Sprint context:** 6 — File Storage (planning)  
+**Document status:** Living document — update at each sprint review
 
 ---
 
 ## 1. Product Overview
 
-DAWin is a desktop-first, browser-based collaborative digital audio workstation (DAW) prototype. It is designed for musicians and producers who need to co-create inside a shared session in real time — the way designers already work in Figma. The core differentiator is the collaborator color model: every user is assigned a unique hex color that tints their tracks, clips, mixer strip, and avatar ring across the entire UI, making ownership and activity instantly legible without reading a single label. A Fastify backend scaffold now exists at `server/` (TypeScript, tsc-clean) with WebSocket transport sync and session presence fan-out shipped in Sprint 2; track locking and JWT role enforcement remain in progress. DAWin targets musicians with professional DAW muscle memory — it is intentionally dense, not simplified, and must honor standard conventions (spacebar play/pause, stop-preserves-position, logarithmic faders, post-fader metering) at every surface.
+DAWin is a collaborative digital audio workstation platform — a suite of products that let musicians and producers co-create inside a shared session in real time, the way designers already work in Figma. The core differentiator is the collaborator color model: every user is assigned a unique hex color that tints their tracks, clips, mixer strip, and avatar ring across the entire product family, making ownership and activity instantly legible without reading a single label.
+
+DAWin targets musicians with professional DAW muscle memory — it is intentionally dense, not simplified, and must honor standard conventions (spacebar play/pause, stop-preserves-position, logarithmic faders, post-fader metering) at every surface.
+
+---
+
+## 1A. Product Suite Architecture
+
+DAWin ships as three distinct products sharing a single session backend. Understanding which features belong to which product is essential — building the wrong feature into the wrong product wastes sprints.
+
+### Desktop App (full suite)
+The primary DAW environment. All features available.
+- Full arrangement, mixing, and mastering
+- Native VST3 / VSTi plugin hosting (C++ sidecar via Electron or Tauri)
+- Native audio engine: sub-5ms monitoring latency (JUCE or RtAudio)
+- Local recording pipeline with hardware I/O
+- Full MIDI support
+- All collaboration features (presence, comments, track locking, deep links)
+- **Recording into the shared session** ✅
+
+### Web App (what we are building now)
+The browser-based companion. Designed for collaborators who are monitoring, reviewing, editing, and contributing to a session from any machine without installing the desktop app.
+- Full arrangement view and timeline editing
+- Reference-quality mixing and monitoring (Web Audio API)
+- All collaboration features (presence, comments, track locking, deep links)
+- **Recording into the shared session via microphone** ✅ (getUserMedia — planned, not yet implemented)
+- Plugin chain review (no VST hosting — Web Audio API nodes only)
+- No native plugin support — that is a desktop-only feature, by design
+
+### Tablet / Mobile Companion Apps
+Lightweight companion apps for monitoring and capture on the go.
+- Session monitoring (playback, VU meters, transport control)
+- **Recording into the shared session via device microphone** ✅ (planned)
+- Track mute/solo from a mobile surface
+- Comment viewing and basic thread replies
+- No timeline editing, no mixer beyond basic level monitoring
+
+### Shared backend
+All three products connect to the same session server. Session state (transport, tracks, clips, comments, locks, recordings) is the source of truth — not the client. Every recorded audio clip uploaded from any platform is immediately available to all other connected clients.
 
 ---
 
@@ -134,17 +174,22 @@ Intentionally deferred. Desktop-first, minimum viewport 1280px enforced.
 
 ---
 
-## 6. Non-Goals (Prototype Phase)
+## 6. Non-Goals
 
-- **Real audio recording:** No `getUserMedia` capture, no audio upload pipeline, no WAV file writing.
-- **CLAP / VST3 native plugins:** All DSP is Web Audio API only (per ADR-001).
-- **Undo stack:** No undo/redo. All mutations are immediate and irreversible.
-- **Session history / version control:** No audit log, no restore points.
-- **Sample import:** No file upload. All 7 tracks use procedurally synthesized audio.
-- **Mobile viewports:** No responsive design below 1280px.
+### Non-goals for the Web App (by design, not by deferral)
+- **VST3 / CLAP / VSTi native plugin hosting:** This is a desktop-only feature. The web app uses Web Audio API nodes exclusively. This is not a gap — it is correct product scoping.
+- **Sub-5ms monitoring latency:** Web Audio API latency (10–50ms) is acceptable for the web companion. Low-latency monitoring is a desktop feature requiring a native audio engine.
+- **Full MIDI sequencing:** Not in scope for web or mobile. Desktop only.
+- **Hardware I/O routing:** Audio interface configuration is a desktop feature.
+
+### Non-goals for the current prototype (deferred, not permanent)
+- **Real audio recording:** `getUserMedia` capture, upload pipeline, and session distribution are planned for a future sprint — this is in scope for the web app, just not yet implemented.
+- **Real audio file import (drag & drop):** Planned. Currently all 7 tracks use procedurally synthesized audio.
+- **Undo stack:** No undo/redo. All mutations are immediate and irreversible. Requires operational transforms — Tech Lead design sprint needed.
+- **Session history / version control:** No audit log, no restore points. Requires persistent storage layer.
+- **Mobile / tablet companion apps:** Designed but not started. Desktop and web come first.
 - **GraphQL:** REST + WebSocket only. No GraphQL without PM approval.
 - **External state library:** No Redux, Zustand, Jotai, or equivalent without PM approval.
-- **Server-side auth enforcement:** JWT role checking designed but not yet implemented. `IS_VIEWER` client constant is a UI hint only — #20 resolves this.
 - **Multi-window or multi-tab support:** Single AudioContext per page constraint.
 - **Ownership transfer:** Track ownership immutable in prototype.
 

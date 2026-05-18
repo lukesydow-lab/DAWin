@@ -54,12 +54,14 @@ Do not proceed until approval is given. If the PM is not available, default to `
 
 | Question | Where to look |
 |---|---|
+| Where do I start? (outside collaborators / new agents) | `handoff-documentation/DAWin_CURRENT_CONTEXT.md` |
 | What is the current project state? | `handoff-documentation/DAWin_HANDOFF.md` |
 | What components exist and where? | `handoff-documentation/DAWin_PROJECT_STATE.md` |
 | What is actively in progress? | `STATUS.md` |
 | What are the architecture decisions? | `docs/adr/` |
 | What specs must I implement? | `docs/specs/<feature>.md` |
 | What has been handed off for review? | `docs/handoffs/<feature>.md` |
+| What is the sprint close process? | `docs/process/sprint-close-protocol.md` |
 
 When these documents conflict, the most recently dated one wins. If still unclear, stop and ask the PM.
 
@@ -81,6 +83,13 @@ When these documents conflict, the most recently dated one wins. If still unclea
 - Every new surface must honor the collaborator color model (tinting tracks, clips, strips, avatars)
 - Desktop-first — minimum 1280px; do not design for smaller viewports until mobile capture is formally scoped
 - Dense information density is correct for a pro audio tool — do not add whitespace "to make it cleaner"
+
+### Designer review gate (process — no exceptions)
+- No frontend implementation of any user-visible feature may begin without a Designer spec in `docs/specs/<feature>.md`
+- The PM must link the spec in every Frontend Engineer work order
+- The Frontend Engineer must stop and notify PM if assigned a frontend task with no spec on file
+- The Tech Lead must confirm a spec link before approving any FE work order
+- UAT must verify implementation matches the spec; deviations are P2 minimum
 
 ### DAW conventions (muscle memory — do not break)
 - Spacebar = play/pause
@@ -111,10 +120,63 @@ Do not commit `node_modules/`, `.env` files, or files outside `src/` and `docs/`
 
 ## Handoff protocol
 
+0. **Before FE work order:** Designer spec must exist in `docs/specs/` — PM confirms link before issuing to FE
 1. Agent completes work → drops a file in `docs/handoffs/<feature>-<agent>.md`
 2. Tech Lead reviews → updates `STATUS.md` Done table on approval
 3. UAT runs after each work package → defects logged to `docs/defects.md` with priority and file:line
 4. PM closes the GitHub Issue and updates `STATUS.md`
+
+## STATUS.md update rules
+
+`STATUS.md` is the single source of truth for what is happening right now. It must stay current at all times — not just at sprint close. Every agent is responsible for updating it at the moment their status changes.
+
+**When to update STATUS.md:**
+
+| Moment | What to update |
+|---|---|
+| Agent picks up a task | Add a row to Active Work table: Agent, Task, Ticket, Status=In Progress, Blocking? |
+| Agent completes work and drops handoff | Change Status in Active Work to "Handoff submitted" |
+| Tech Lead approves | Remove row from Active Work; add row to the current sprint's Done table |
+| UAT finds a defect | Add to `docs/defects.md`; if P0/P1, add a row to the Blocked table in STATUS.md |
+| Defect fixed | Remove from Blocked table |
+| Sprint closes | Check all sprint exit criteria; move Goals section to history; open next sprint section |
+
+**Rules:**
+- Never leave Active Work stale. If a task is done, move it to Done immediately — do not wait for the next sprint review.
+- The Done table is append-only and must include enough detail for a stakeholder to understand what shipped without reading the code.
+- The Blocked table must be kept current. A blocker that is resolved but still listed is worse than no blocker table.
+- `STATUS.md` is written by the Tech Lead only for sprint-level changes. Individual agents update Active Work rows for their own tasks.
+
+## Sprint close protocol
+
+The full sprint close protocol is at `docs/process/sprint-close-protocol.md`. That document is authoritative. The summary below is for quick reference only — follow the full protocol for actual sprint closes.
+
+**Tech Lead owns documentation accuracy at sprint close.** This means: reading every document in the source-of-truth hierarchy, verifying it against the actual codebase state, adding `Status:` markers, correcting stale content (wrong sprint numbers, stale ticket states, resolved blockers still listed), and creating the documentation sync commit. The PM defines scope and product decisions; the Tech Lead verifies that implementation reality, repo state, and documentation all match.
+
+**Documentation sync commit format:**
+```
+docs: sync project documentation after Sprint N closeout
+
+- Sprint N completed: YYYY-MM-DD
+- Major features shipped: [list]
+- Docs updated: [list]
+- Next sprint: Sprint N+1 ([status])
+- Known blockers: [list or "none"]
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
+
+**Key files to update at sprint close (full checklist in `docs/process/sprint-close-protocol.md`):**
+- [ ] `handoff-documentation/DAWin_CURRENT_CONTEXT.md` — update sprint, recent features, blockers, next steps
+- [ ] `handoff-documentation/DAWin_HANDOFF.md` — update sprint header, implementation status, blockers, open questions, recent decisions, recommended next steps
+- [ ] `handoff-documentation/DAWin_PROJECT_STATE.md` — update sprint header, component map (if changed), sprint history, active sprint ticket sequence, current App state snapshot
+- [ ] `STATUS.md` — mark sprint exit criteria all closed, move items to Done table, open next sprint section
+- [ ] `docs/adr/` — confirm any new ADRs from the sprint are committed
+- [ ] Warning banner at top of `DAWin_PROJECT_STATE.md` updated to reflect new sprint status
+- [ ] All docs have a `Status:` marker in their header
+- [ ] Documentation sync commit created
+
+**No sprint is CLOSED until the Tech Lead has completed this pass and created the sync commit.**
 
 ---
 
