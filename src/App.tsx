@@ -134,6 +134,16 @@ interface CtxMenu {
   clipType: 'Audio' | 'MIDI' | 'Bus'
 }
 
+// Collaborator presence cursor — populated from presence.joined / presence.left WS events.
+// playheadBar and activeTrackId are set by presence.update (ephemeral cursor position).
+interface PresenceEntry {
+  userId: string
+  displayName: string
+  color: string
+  playheadBar: number | null
+  activeTrackId: string | null
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BAR_W       = 72
 const BARS        = 32
@@ -1308,6 +1318,9 @@ interface ClipProps {
   onUpdate: (trackId: string, clipId: string, patch: Partial<ClipData>) => void
   onSelect: (clipId: string) => void
   audioCtxReady: boolean
+  isRenaming: boolean
+  onCommitRename: (clipId: string, trackId: string, newLabel: string) => void
+  onCancelRename: () => void
 }
 
 interface FadeHandleDrag {
@@ -1317,12 +1330,36 @@ interface FadeHandleDrag {
   clipH: number
 }
 
-function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady }: ClipProps) {
+function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady, isRenaming, onCommitRename, onCancelRename }: ClipProps) {
   const [hovered, setHovered] = useState(false)
   const [fadeDrag, setFadeDrag] = useState<FadeHandleDrag | null>(null)
+  const [renameValue, setRenameValue] = useState(clip.label)
+  const [renameFocused, setRenameFocused] = useState(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const clipW = clip.len * BAR_W - 4
   const clipH = TRACK_H - 12 // top-1.5 + bottom-1.5 = 12px total
+
+  // Sync rename input value when rename activates for this clip
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameValue(clip.label)
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus()
+        renameInputRef.current?.select()
+      })
+    }
+  }, [isRenaming, clip.label])
+
+  function commitRename() {
+    const trimmed = renameValue.trim()
+    onCommitRename(clip.id, track.id, trimmed || clip.label)
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+    if (e.key === 'Escape') { e.preventDefault(); onCancelRename() }
+  }
 
   // Waveform rendering: draw once when clip dimensions or assetUrl changes.
   // We attempt to resolve the buffer immediately if AudioCtx already exists,
@@ -1551,12 +1588,44 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
         </svg>
       )}
 
-      {/* Clip label */}
-      <div className="absolute inset-0 flex items-center px-2">
-        <span className="font-bold uppercase truncate pointer-events-none"
-          style={{ fontSize: 10, letterSpacing: '0.08em', color: track.owner.color, textShadow: `0 0 8px ${track.owner.color}66` }}>
-          {clip.label}
-        </span>
+      {/* Clip label / rename input */}
+      <div className="absolute inset-0 flex items-center px-2" style={{ overflow: isRenaming ? 'visible' : 'hidden' }}>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={e => setRenameValue(e.target.value)}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={() => { setRenameFocused(false); commitRename() }}
+            onFocus={() => setRenameFocused(true)}
+            placeholder={clip.label}
+            className="font-bold uppercase focus:outline-none"
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              minWidth: 60,
+              fontSize: 10,
+              letterSpacing: '0.08em',
+              color: C.textPri,
+              // semi-transparent scrim so the collaborator color tinting shows through
+              background: 'rgba(0,0,0,0.45)',
+              border: 'none',
+              borderBottom: `1px solid ${track.owner.color}`,
+              borderRadius: 2,
+              padding: '0 4px',
+              outline: 'none',
+              // owner color for caret and focus ring — not C.accent; ring only when focused
+              caretColor: track.owner.color,
+              boxShadow: renameFocused ? `0 0 0 1px ${track.owner.color}` : 'none',
+              zIndex: 30,
+            }}
+          />
+        ) : (
+          <span className="font-bold uppercase truncate pointer-events-none"
+            style={{ fontSize: 10, letterSpacing: '0.08em', color: track.owner.color, textShadow: `0 0 8px ${track.owner.color}66` }}>
+            {clip.label}
+          </span>
+        )}
       </div>
 
       {/* Left resize handle */}
@@ -1609,11 +1678,13 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
 }
 
 // ─── Context Menu ─────────────────────────────────────────────────────────────
-function ContextMenu({ menu, onBounce, onDelete, onDuplicate, onClose }: {
+function ContextMenu({ menu, onBounce, onDelete, onDuplicate, onRename, onSetLoop, onClose }: {
   menu: CtxMenu
   onBounce: () => void
   onDelete: () => void
   onDuplicate: () => void
+  onRename: () => void
+  onSetLoop: () => void
   onClose: () => void
 }) {
   useEffect(() => {
@@ -1622,12 +1693,12 @@ function ContextMenu({ menu, onBounce, onDelete, onDuplicate, onClose }: {
     return () => window.removeEventListener('mousedown', handler)
   }, [onClose])
 
-  const items: { label: string; action: () => void; accent?: boolean; danger?: boolean; disabled?: boolean }[] = [
+  const items: { label: string; action: () => void; accent?: boolean; danger?: boolean }[] = [
     ...(menu.clipType === 'MIDI' ? [{ label: '⊙  Bounce to Audio…', action: onBounce, accent: true }] : []),
     { label: '⌫  Delete clip',  action: onDelete,    danger: true },
     { label: '⧉  Duplicate',     action: onDuplicate },
-    { label: '◫  Loop region',   action: onClose,     disabled: true },
-    { label: '✎  Rename…',       action: onClose,     disabled: true },
+    { label: '◫  Loop region',   action: onSetLoop },
+    { label: '✎  Rename…',       action: onRename },
   ]
 
   return (
@@ -1636,14 +1707,14 @@ function ContextMenu({ menu, onBounce, onDelete, onDuplicate, onClose }: {
       onMouseDown={e => e.stopPropagation()}>
       {items.map((item, i) => (
         <button key={i}
-          onClick={() => { if (!item.disabled) { item.action(); onClose() } }}
+          onClick={() => { item.action(); onClose() }}
           className="w-full text-left px-3 py-1.5 text-xs transition-all hover:brightness-125"
           style={{
-            color: item.accent ? C.accent : item.danger ? C.danger : item.disabled ? C.textSec : C.textPri,
+            color: item.accent ? C.accent : item.danger ? C.danger : C.textPri,
             background: 'transparent', display: 'block',
-            opacity: item.disabled ? 0.4 : 1, cursor: item.disabled ? 'default' : 'pointer',
+            cursor: 'pointer',
           }}>
-          {item.label}{item.disabled ? ' (soon)' : ''}
+          {item.label}
         </button>
       ))}
     </div>
@@ -2016,12 +2087,18 @@ interface ArrangeViewProps {
   onCopyTrackLink: (trackId: string) => void
   comments: SessionComment[]
   onOpenThread: (commentId: string) => void
+  loopStart: number | null
+  loopEnd: number | null
+  setLoopStart: (v: number | null) => void
+  setLoopEnd: (v: number | null) => void
+  presence: PresenceEntry[]
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
+  const [renamingClipId, setRenamingClipId] = useState<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
 
   // ── Drag engine (window-level so fast moves don't break it) ────────────────
@@ -2331,6 +2408,26 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
         <div ref={gridRef} className="flex-1 overflow-auto" style={{ background: C.bg, cursor: gridCursor }}
           onMouseDown={() => setCtxMenu(null)}>
           <div style={{ minWidth: BARS * BAR_W, position: 'relative' }}>
+            {/* Loop region overlay — spans full scroll height (ruler + all tracks).
+                zIndex: 1 keeps it below comment anchor pins (zIndex: 10) and playhead (zIndex: 30) */}
+            {loopStart !== null && loopEnd !== null && (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: loopStart * BAR_W,
+                  width: (loopEnd - loopStart) * BAR_W,
+                  height: '100%',
+                  background: `${C.accent}2E`,
+                  borderTop: `1px solid ${C.accent}`,
+                  borderLeft: `1px solid ${C.accent}80`,
+                  borderRight: `1px solid ${C.accent}80`,
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              />
+            )}
             {/* Ruler — click to seek */}
             <div className="flex sticky top-0 z-10 border-b select-none" style={{ height: RULER_H, background: C.surface, borderColor: C.border, cursor: 'pointer' }}
               onMouseDown={e => {
@@ -2419,7 +2516,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                       tabIndex={0}
                       aria-label={`Comment at Bar ${bar + 1} by ${repAuthor?.name ?? 'Unknown'}, ${isAllResolved ? 'resolved' : 'open'}, ${count} ${count === 1 ? 'thread' : 'threads'}`}
                       title={representative.body.slice(0, 60)}
-                      onClick={() => onOpenThread(representative.id)}
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); onOpenThread(representative.id) }}
                       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenThread(representative.id) } }}
                       style={{
                         position: 'absolute',
@@ -2472,7 +2570,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
               const dragIsHere   = drag?.mode === 'move' && drag.targetTrackId === track.id && drag.sourceTrackId !== track.id && drag.valid
               const dragClipData = dragIsHere && drag ? tracks.find(t => t.id === drag.sourceTrackId)?.clips.find(c => c.id === drag.clipId) : null
               // Find any presence entry whose activeTrackId matches this row
-              const presenceOnRow = DEMO_PRESENCE.find(p => p.activeTrackId === track.id)
+              const presenceOnRow = presence.find(p => p.activeTrackId === track.id)
 
               return (
                 <div key={track.id} className="flex relative border-b"
@@ -2515,7 +2613,15 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                             onCut={cutClip}
                             onUpdate={updateClip}
                             onSelect={onSelectClip}
-                            audioCtxReady={audioCtxReady} />
+                            audioCtxReady={audioCtxReady}
+                            isRenaming={renamingClipId === clip.id}
+                            onCommitRename={(clipId, trackId, newLabel) => {
+                              setTracks(prev => prev.map(t =>
+                                t.id !== trackId ? t : { ...t, clips: t.clips.map(c => c.id !== clipId ? c : { ...c, label: newLabel }) }
+                              ))
+                              setRenamingClipId(null)
+                            }}
+                            onCancelRename={() => setRenamingClipId(null)} />
                         )
                       })
                     : (
@@ -2604,28 +2710,29 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
             </div>
 
             {/* ── Collaborator presence cursors ────────────────────────────── */}
-            {DEMO_PRESENCE.map(presence => {
-              const collab = COLLABORATORS.find(c => c.id === presence.userId)
-              if (!collab) return null
+            {presence.map(entry => {
+              // Only render a cursor if the collaborator has a known playhead position
+              if (entry.playheadBar === null) return null
+              const initial = entry.displayName[0]?.toUpperCase() ?? '?'
               return (
-                <div key={presence.userId} className="absolute top-0 bottom-0 pointer-events-none"
-                  style={{ left: presence.playheadBar * BAR_W, zIndex: 25, width: 0 }}>
+                <div key={entry.userId} className="absolute top-0 bottom-0 pointer-events-none"
+                  style={{ left: entry.playheadBar * BAR_W, zIndex: 25, width: 0 }}>
                   {/* Avatar chip at top */}
                   <div className="sticky top-0" style={{ height: RULER_H, width: 0 }}>
                     <div
                       className="absolute flex items-center justify-center rounded-full font-bold"
                       style={{
                         width: 18, height: 18, top: 3, left: -9,
-                        background: presence.color, color: '#fff', fontSize: 9,
-                        boxShadow: `0 0 4px ${presence.color}88`,
+                        background: entry.color, color: '#fff', fontSize: 9,
+                        boxShadow: `0 0 4px ${entry.color}88`,
                       }}>
-                      {collab.initial}
+                      {initial}
                     </div>
                   </div>
                   {/* Vertical line */}
                   <div style={{
                     position: 'absolute', top: RULER_H, bottom: 0, left: 0, width: 1,
-                    background: presence.color, opacity: 0.6,
+                    background: entry.color, opacity: 0.6,
                   }} />
                 </div>
               )
@@ -2656,6 +2763,15 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
               const copy: ClipData = { ...src, id: `${src.id}-dup-${Date.now()}`, bar: src.bar + src.len }
               return { ...t, clips: [...t.clips, copy] }
             }))
+          }}
+          onRename={() => {
+            setRenamingClipId(ctxMenu.clipId)
+            setCtxMenu(null)
+          }}
+          onSetLoop={() => {
+            const clip = tracks.find(t => t.id === ctxMenu.trackId)?.clips.find(c => c.id === ctxMenu.clipId)
+            if (clip) { setLoopStart(clip.bar); setLoopEnd(clip.bar + clip.len) }
+            setCtxMenu(null)
           }}
           onClose={() => setCtxMenu(null)} />
       )}
@@ -2879,7 +2995,37 @@ const MixerStrip = ({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
         {/* VU meters + Fader side by side */}
         <div className="flex items-end gap-1.5">
           {/* VU pair — role=presentation, aria-hidden: meter is decorative; dB readout is the a11y rep */}
-          <div className="flex gap-px" role="presentation" aria-hidden="true" style={{ height: VU_HEIGHT }}>
+          <div role="presentation" aria-hidden="true">
+            {/* L/R micro-labels above the meter bars */}
+            <div style={{ display: 'flex', gap: 1, marginBottom: 2 }}>
+              <span style={{ width: 4, textAlign: 'center', fontSize: 5, fontFamily: 'monospace', color: C.textSec, opacity: 0.5, userSelect: 'none', lineHeight: '8px' }}>L</span>
+              <span style={{ width: 4, textAlign: 'center', fontSize: 5, fontFamily: 'monospace', color: C.textSec, opacity: 0.5, userSelect: 'none', lineHeight: '8px' }}>R</span>
+            </div>
+          <div className="flex gap-px" style={{ height: VU_HEIGHT, position: 'relative' }}>
+            {/* 0 VU label — sits to the left of the meter pair */}
+            <span style={{
+              position: 'absolute',
+              right: 'calc(100% + 2px)',
+              bottom: 48,
+              fontSize: 7,
+              fontFamily: 'monospace',
+              color: C.textSec,
+              opacity: 0.7,
+              lineHeight: 1,
+              pointerEvents: 'none',
+            }} aria-hidden="true">0</span>
+            {/* 0 VU tick line — spans both bars at the amber zone boundary */}
+            <div style={{
+              position: 'absolute',
+              bottom: 52,
+              left: 0,
+              right: 0,
+              height: 1,
+              background: C.textSec,
+              opacity: 0.6,
+              pointerEvents: 'none',
+              zIndex: 2,
+            }} />
             {([segRefsL, segRefsR] as const).map((refsObj, ch) => (
               <div key={ch} className="flex flex-col-reverse" style={{ gap: VU_SEG_GAP, width: 4, position: 'relative' }}>
                 {Array.from({ length: VU_SEGS }, (_, i) => (
@@ -2899,6 +3045,7 @@ const MixerStrip = ({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
                 />
               </div>
             ))}
+          </div>
           </div>
 
           {/* Fader */}
@@ -3170,7 +3317,37 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
               <div style={{ height: 14 }} aria-hidden="true" />
               <div style={{ width: 16, height: 16 }} aria-hidden="true" />
               <div className="flex items-end gap-1.5">
-                <div className="flex gap-px" role="presentation" aria-hidden="true" style={{ height: VU_HEIGHT }}>
+                <div role="presentation" aria-hidden="true">
+                  {/* L/R micro-labels above the master meter bars */}
+                  <div style={{ display: 'flex', gap: 1, marginBottom: 2 }}>
+                    <span style={{ width: 4, textAlign: 'center', fontSize: 5, fontFamily: 'monospace', color: C.textSec, opacity: 0.5, userSelect: 'none', lineHeight: '8px' }}>L</span>
+                    <span style={{ width: 4, textAlign: 'center', fontSize: 5, fontFamily: 'monospace', color: C.textSec, opacity: 0.5, userSelect: 'none', lineHeight: '8px' }}>R</span>
+                  </div>
+                <div className="flex gap-px" style={{ height: VU_HEIGHT, position: 'relative' }}>
+                  {/* 0 VU label — left of master meter pair */}
+                  <span style={{
+                    position: 'absolute',
+                    right: 'calc(100% + 2px)',
+                    bottom: 48,
+                    fontSize: 7,
+                    fontFamily: 'monospace',
+                    color: C.textSec,
+                    opacity: 0.7,
+                    lineHeight: 1,
+                    pointerEvents: 'none',
+                  }} aria-hidden="true">0</span>
+                  {/* 0 VU tick line */}
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 52,
+                    left: 0,
+                    right: 0,
+                    height: 1,
+                    background: C.textSec,
+                    opacity: 0.6,
+                    pointerEvents: 'none',
+                    zIndex: 2,
+                  }} />
                   {([masterSegRefsL, masterSegRefsR] as const).map((refsObj, ch) => (
                     <div key={ch} className="flex flex-col-reverse" style={{ gap: VU_SEG_GAP, width: 4, position: 'relative' }}>
                       {Array.from({ length: VU_SEGS }, (_, i) => (
@@ -3189,6 +3366,7 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
                       />
                     </div>
                   ))}
+                </div>
                 </div>
                 <StudioFader value={masterVol} onChange={setMasterVol} height={VU_HEIGHT} ariaLabel="Master volume" />
               </div>
@@ -3223,8 +3401,10 @@ interface TransportBarProps {
   playheadBar: number;  setPlayheadBar: (v: number) => void
   showInvite: boolean;  setShowInvite: (v: boolean) => void
   linkIconActive: boolean; onLinkIconClick: () => void
+  loopStart: number | null; loopEnd: number | null
+  onClearLoop: () => void
 }
-function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite, linkIconActive, onLinkIconClick }: TransportBarProps) {
+function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite, linkIconActive, onLinkIconClick, loopStart, loopEnd, onClearLoop }: TransportBarProps) {
 
   const bar   = Math.floor(playheadBar) + 1
   const beat  = Math.floor((playheadBar % 1) * 4) + 1
@@ -3252,6 +3432,36 @@ function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, s
           ⏺
         </button>
       </div>
+      <div style={{ width: 1, height: 28, background: C.border }} />
+      {/* LOOP button — always rendered; active when loop region is set */}
+      <button
+        aria-label="Loop region"
+        aria-pressed={loopStart !== null}
+        onClick={loopStart !== null ? onClearLoop : undefined}
+        className="flex items-center justify-center rounded font-mono font-bold transition-all hover:brightness-125 focus-visible:outline-none"
+        style={{
+          width: 44,
+          height: 28,
+          fontSize: 9,
+          letterSpacing: '0.1em',
+          background: loopStart !== null ? C.accentMuted : C.control,
+          color: loopStart !== null ? C.accent : C.textSec,
+          border: loopStart !== null ? `1px solid ${C.accent}44` : '1px solid transparent',
+          boxShadow: loopStart !== null && playing ? `0 0 8px ${C.accent}33` : 'none',
+          opacity: loopStart !== null ? 1 : 0.5,
+          cursor: loopStart !== null ? 'pointer' : 'default',
+          flexDirection: 'column',
+          gap: 0,
+          padding: 0,
+        }}
+      >
+        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', lineHeight: 1 }}>LOOP</span>
+        {loopStart !== null && loopEnd !== null && (
+          <span style={{ fontSize: 7, fontFamily: 'monospace', color: C.accent, opacity: 0.7, lineHeight: 1 }}>
+            {loopStart + 1}–{loopEnd + 1}
+          </span>
+        )}
+      </button>
       <div className="flex items-center gap-1.5 rounded px-2.5 py-1"
         style={{ background: C.well, border: `1px solid ${C.border}`, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.6)' }}>
         <span className="text-xs" style={{ color: C.textSec, letterSpacing: '0.05em' }}>BPM</span>
@@ -3574,7 +3784,7 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPl
         style={{ height: 32, borderBottom: `2px solid ${ownerColor}44` }}>
         <div className="flex items-center gap-2">
           <Screw />
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.textSec }}>GDAW</span>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.textSec }}>DAWin</span>
           <span style={{ fontSize: 9, color: ownerColor, fontWeight: 700, letterSpacing: '0.08em' }}>
             {displayName}
           </span>
@@ -3780,7 +3990,9 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPl
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [tracks, setTracks]               = useState<Track[]>(INITIAL_TRACKS)
+  // Boot with empty state — session.snapshot handler hydrates from the server.
+  // INITIAL_TRACKS / INITIAL_PLUGIN_CHAINS remain as dev-only fallbacks (no backend).
+  const [tracks, setTracks]               = useState<Track[]>([])
   const [pluginChains, setPluginChains]   = useState<Record<string, PluginSlot[]>>(INITIAL_PLUGIN_CHAINS)
   const [isRecording, setIsRecording]     = useState(false)
   const [playing, setPlaying]             = useState(false)
@@ -3801,11 +4013,18 @@ export default function App() {
   // Whether playhead link icon is in its post-click accent flash
   const [linkIconActive, setLinkIconActive] = useState(false)
   const isViewer = userRole === 'viewer'
+  // Presence state — populated by presence.joined / presence.left WS events.
+  // Empty by default; no phantom collaborators without a live WS session.
+  const [presence, setPresence]         = useState<PresenceEntry[]>([])
   // Comment state
-  const [comments, setComments]         = useState<SessionComment[]>(SEED_COMMENTS)
+  // Boot with empty comments — session.snapshot handler hydrates from the server.
+  // SEED_COMMENTS remains as a dev-only fallback (no backend).
+  const [comments, setComments]         = useState<SessionComment[]>([])
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [chatOpen, setChatOpen]         = useState(false)
   const [chatInput, setChatInput]       = useState('')
+  const [loopStart, setLoopStart]       = useState<number | null>(null)
+  const [loopEnd, setLoopEnd]           = useState<number | null>(null)
   const lastChatOpenedAt                = useRef<number>(Date.now())
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
@@ -3816,6 +4035,8 @@ export default function App() {
   // Ref so Effect A can read pluginChains without taking a dep that restarts sources
   const pluginChainsRef = useRef<Record<string, PluginSlot[]>>(pluginChains)
   pluginChainsRef.current = pluginChains
+  // Pending deep link params — resolved in session.snapshot handler once tracks are loaded
+  const pendingDeepLinkRef = useRef<{ trackParam: string | null; clipParam: string | null } | null>(null)
 
   useEffect(() => {
     fetch('http://localhost:3000/api/v1/auth/me')
@@ -3839,10 +4060,112 @@ export default function App() {
           if (typeof p.isRecording === 'boolean') setIsRecording(p.isRecording)
           break
         }
-        case 'presence.joined':
-        case 'presence.left':
-          console.log('ws:', frame.type, frame)
+        case 'presence.joined': {
+          const p = frame.payload as { collaborator: { userId: string; displayName: string; color: string } }
+          setPresence(prev => {
+            // Deduplicate: replace if already present (reconnect scenario)
+            const without = prev.filter(e => e.userId !== p.collaborator.userId)
+            return [...without, { userId: p.collaborator.userId, displayName: p.collaborator.displayName, color: p.collaborator.color, playheadBar: null, activeTrackId: null }]
+          })
           break
+        }
+        case 'presence.left': {
+          const p = frame.payload as { userId: string }
+          setPresence(prev => prev.filter(e => e.userId !== p.userId))
+          break
+        }
+        case 'session.snapshot': {
+          // Hydrate all session state from the server snapshot received on join.
+          // TrackRow and ClipRow from the storage adapter are flat — map them into
+          // the frontend Track shape. Fields not present in the server model
+          // (type, owner, audioInput) fall back to safe defaults.
+          type TrackRow = { id: string; sessionId: string; name: string; ownerId: string; color: string; volume: number; pan: number; muted: boolean; soloed: boolean; armed: boolean }
+          type ClipRow  = { id: string; trackId: string; sessionId: string; startBar: number; durationBars: number; assetId: string | null; color: string }
+          type SnapPayload = {
+            session: { id: string; name: string; bpm: number; timeSignature: { numerator: number; denominator: number }; totalBars: number }
+            tracks: TrackRow[]
+            clips: ClipRow[]
+            comments: SessionComment[]
+            transport: { playing: boolean; recording: boolean; playheadBar: number; bpm: number; timeSignature: { numerator: number; denominator: number }; syncedAt: number }
+            collaborators: { userId: string; displayName: string; color: string; role: string; isGuest: boolean }[]
+          }
+          const snap = frame.payload as SnapPayload
+
+          // Build clip lookup by trackId for the mapping below
+          const clipsByTrack = new Map<string, ClipRow[]>()
+          for (const clip of snap.clips) {
+            const bucket = clipsByTrack.get(clip.trackId) ?? []
+            bucket.push(clip)
+            clipsByTrack.set(clip.trackId, bucket)
+          }
+
+          const hydratedTracks: Track[] = snap.tracks.map(tr => ({
+            id: tr.id,
+            name: tr.name,
+            // Server does not persist track type — default Audio; update when schema adds it
+            type: 'Audio' as const,
+            owner: { id: tr.ownerId, name: tr.ownerId, initial: tr.ownerId[0]?.toUpperCase() ?? '?', color: tr.color, role: 'Editor' as const },
+            armed: tr.armed,
+            muted: tr.muted,
+            soloed: tr.soloed,
+            volume: tr.volume,
+            // Server stores pan as -1..+1 linear; frontend uses -100..+100
+            pan: Math.round(tr.pan * 100),
+            lockedBy: null,
+            audioInput: null,
+            clips: (clipsByTrack.get(tr.id) ?? []).map(cl => ({
+              id: cl.id,
+              bar: cl.startBar,
+              len: cl.durationBars,
+              label: cl.assetId ?? 'Clip',
+              fadeIn: 0,
+              fadeOut: 0,
+              fadeInCurve: 0.7,
+              fadeOutCurve: 0.7,
+              crossfadeLocked: true,
+              assetUrl: cl.assetId,
+            })),
+          }))
+
+          setTracks(hydratedTracks)
+          setComments(snap.comments)
+          if (typeof snap.transport.bpm === 'number') setBpm(snap.transport.bpm)
+
+          // Resolve any pending deep link params now that track data is available
+          const pending = pendingDeepLinkRef.current
+          if (pending) {
+            pendingDeepLinkRef.current = null
+            let resolvedHighlight = false
+            if (pending.trackParam !== null) {
+              const exists = hydratedTracks.some(t => t.id === pending.trackParam)
+              if (exists) {
+                setHighlightTrackId(pending.trackParam)
+                resolvedHighlight = true
+              } else {
+                setToastMessage('Linked track not found in this session.')
+                setTimeout(() => setToastMessage(null), 5000)
+              }
+            }
+            if (pending.clipParam !== null) {
+              const exists = hydratedTracks.some(t => t.clips.some(c => c.id === pending.clipParam))
+              if (exists) {
+                setSelectedClipId(pending.clipParam)
+                setHighlightClipId(pending.clipParam)
+                resolvedHighlight = true
+              } else {
+                setToastMessage('Linked clip not found in this session.')
+                setTimeout(() => setToastMessage(null), 5000)
+              }
+            }
+            if (resolvedHighlight) {
+              setTimeout(() => {
+                setHighlightTrackId(null)
+                setHighlightClipId(null)
+              }, 1500)
+            }
+          }
+          break
+        }
         case 'track.locked': {
           const p = frame.payload as { trackId: string; lockedBy: string }
           setTracks(prev => prev.map(t => t.id !== p.trackId ? t : { ...t, lockedBy: p.lockedBy }))
@@ -3882,14 +4205,20 @@ export default function App() {
       }
     }
 
-    try {
-      getWsClient('dev-session-001', handleWsMessage, setWsStatus)
-    } catch {
-      // WebSocket constructor throws if URL is invalid — should not happen in practice
+    // sessionId comes from the URL — no fallback to a hardcoded value.
+    // Without a sessionId the WS is not opened; the arranger renders empty state.
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session')
+
+    if (sessionId) {
+      try {
+        getWsClient(sessionId, handleWsMessage, setWsStatus)
+      } catch {
+        // WebSocket constructor throws if URL is invalid — should not happen in practice
+      }
     }
 
     // Deep link URL param parsing
-    const params = new URLSearchParams(window.location.search)
     const tParam      = params.get('t')
     const trackParam  = params.get('track')
     const clipParam   = params.get('clip')
@@ -3907,36 +4236,16 @@ export default function App() {
       }
     }
 
-    if (trackParam !== null) {
-      const trackExists = INITIAL_TRACKS.some(t => t.id === trackParam)
-      if (trackExists) {
-        setSelectedTrackId(trackParam)
-        setHighlightTrackId(trackParam)
-        didApplyHighlights = true
-      } else {
-        setToastMessage('Linked track not found in this session.')
-        setTimeout(() => setToastMessage(null), 5000)
-      }
-    }
-
-    if (clipParam !== null) {
-      const clipExists = INITIAL_TRACKS.some(t => t.clips.some(c => c.id === clipParam))
-      if (clipExists) {
-        setSelectedClipId(clipParam)
-        setHighlightClipId(clipParam)
-        didApplyHighlights = true
-      } else {
-        setToastMessage('Linked clip not found in this session.')
-        setTimeout(() => setToastMessage(null), 5000)
-      }
+    // Track and clip deep links depend on live session state from the snapshot.
+    // Store the params; the session.snapshot handler resolves them after hydration.
+    if (trackParam !== null || clipParam !== null) {
+      pendingDeepLinkRef.current = { trackParam, clipParam }
     }
 
     let clearHighlightTimer: ReturnType<typeof setTimeout> | null = null
     if (didApplyHighlights) {
       clearHighlightTimer = setTimeout(() => {
         setHighlightBar(null)
-        setHighlightTrackId(null)
-        setHighlightClipId(null)
       }, 1500)
     }
 
@@ -4204,6 +4513,8 @@ export default function App() {
         playheadBar={playheadBar} setPlayheadBar={setPlayheadBar}
         showInvite={showInvite} setShowInvite={setShowInvite}
         linkIconActive={linkIconActive} onLinkIconClick={handleLinkIconClick}
+        loopStart={loopStart} loopEnd={loopEnd}
+        onClearLoop={() => { setLoopStart(null); setLoopEnd(null) }}
       />
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -4221,6 +4532,9 @@ export default function App() {
             onCopyTrackLink={handleCopyTrackLink}
             comments={comments}
             onOpenThread={setOpenThreadId}
+            loopStart={loopStart} loopEnd={loopEnd}
+            setLoopStart={setLoopStart} setLoopEnd={setLoopEnd}
+            presence={presence}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
@@ -4330,7 +4644,7 @@ export default function App() {
                 return null
               })()
               return (
-                <div key={c.id} style={{ padding: '6px 12px' }}>
+                <div key={c.id} style={{ padding: '6px 12px', cursor: 'pointer' }} onClick={() => setOpenThreadId(c.id)}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: msgAuthor?.color ?? C.textSec, flexShrink: 0, marginTop: 4, display: 'inline-block' }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
