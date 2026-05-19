@@ -84,6 +84,11 @@ interface ClipData {
   fadeOutCurve: number // bezier tension 0..1, 0.5 = linear
   crossfadeLocked: boolean // true = symmetry lock: dragging one curve mirrors partner (equal-power mode)
   assetUrl: string | null  // synthetic key referencing a procedural audio generator
+  importStatus?: 'uploading' | 'decoding' | 'failed-upload' | 'failed-decode' | 'complete'
+  importPeaks?: Float32Array   // locally generated peak data (200 values)
+  importFile?: File            // retained for retry on failed-upload
+  uploadProgress?: number      // 0–100 during uploading; undefined if not available
+  audioFileId?: string | null  // server AudioFile.id once upload succeeds
 }
 
 interface Track {
@@ -578,6 +583,39 @@ function buildWaveformPeaks(buf: AudioBuffer, targetSamples: number): Float32Arr
   return peaks
 }
 
+// ─── PeakGenerator abstraction ───────────────────────────────────────────────
+// Decouples peak generation from the Web Audio path so future runtimes (native
+// desktop, server-side worker, mobile fallback) can swap implementations.
+interface PeakGenerator {
+  generate(file: File): Promise<Float32Array>
+}
+
+class WebAudioPeakGenerator implements PeakGenerator {
+  async generate(file: File): Promise<Float32Array> {
+    const audioCtx = getAudioCtx()
+    const arrayBuffer = await file.arrayBuffer()
+    // decodeAudioData mutates the ArrayBuffer — we must not reuse it after this call
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
+    return buildWaveformPeaks(audioBuffer, 200)
+  }
+}
+
+// Capability check: returns a PeakGenerator if the runtime supports Web Audio
+// decoding; returns null if it doesn't (mobile fallback, old browser, SSR).
+function getPeakGenerator(): PeakGenerator | null {
+  if (typeof AudioContext === 'undefined' && typeof (window as Window & { webkitAudioContext?: unknown }).webkitAudioContext === 'undefined') {
+    return null
+  }
+  // Confirm decodeAudioData is available on the shared context prototype
+  try {
+    const ctx = getAudioCtx()
+    if (typeof ctx.decodeAudioData !== 'function') return null
+  } catch {
+    return null
+  }
+  return new WebAudioPeakGenerator()
+}
+
 // Active playback nodes — stored outside React state to avoid re-render coupling
 interface ActiveSource {
   source: AudioBufferSourceNode
@@ -753,6 +791,36 @@ function readRMS(analyser: AnalyserNode): number {
   let sum = 0
   for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
   return Math.sqrt(sum / buf.length)
+}
+
+// ─── Audio import helpers ─────────────────────────────────────────────────────
+const SUPPORTED_AUDIO_EXTENSIONS = new Set(['.wav', '.mp3', '.ogg', '.flac', '.aiff', '.aif', '.m4a'])
+const SUPPORTED_AUDIO_MIME_PREFIX = 'audio/'
+// .m4a can arrive as video/mp4 in some browsers
+const SUPPORTED_AUDIO_MIME_EXCEPTIONS = new Set(['video/mp4'])
+
+function isAudioMimeType(mimeType: string): boolean {
+  return mimeType.startsWith(SUPPORTED_AUDIO_MIME_PREFIX) || SUPPORTED_AUDIO_MIME_EXCEPTIONS.has(mimeType)
+}
+
+function isAudioFile(file: File): boolean {
+  if (isAudioMimeType(file.type)) return true
+  const dot = file.name.lastIndexOf('.')
+  if (dot === -1) return false
+  const ext = file.name.slice(dot).toLowerCase()
+  return SUPPORTED_AUDIO_EXTENSIONS.has(ext)
+}
+
+function stripExtension(filename: string): string {
+  const dot = filename.lastIndexOf('.')
+  return dot === -1 ? filename : filename.slice(0, dot)
+}
+
+// Snaps a client-x pixel offset to the nearest whole bar within the arranger grid.
+// `scrollLeft` corrects for any horizontal scroll position.
+function snapToWholeBars(clientX: number, gridLeft: number, scrollLeft: number): number {
+  const raw = (clientX - gridLeft + scrollLeft) / BAR_W
+  return Math.min(Math.max(0, Math.round(raw)), BARS - 1)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1186,7 +1254,12 @@ function PanKnob({ pan, onChange }: { pan: number; onChange?: (v: number) => voi
 }
 
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
-function Toolbar({ tool, setTool }: { tool: Tool; setTool: (t: Tool) => void }) {
+function Toolbar({ tool, setTool, onImport, importDisabled = false }: {
+  tool: Tool
+  setTool: (t: Tool) => void
+  onImport?: () => void
+  importDisabled?: boolean
+}) {
   const tools: { id: Tool; icon: string; label: string }[] = [
     { id: 'select', icon: '↖', label: 'Select (V)' },
     { id: 'cut',    icon: '✂', label: 'Cut / Razor (C)' },
@@ -1202,6 +1275,33 @@ function Toolbar({ tool, setTool }: { tool: Tool; setTool: (t: Tool) => void }) 
           {t.icon}
         </button>
       ))}
+      {/* Divider before ImportButton */}
+      <div style={{ width: 1, height: 14, background: C.border, marginLeft: 8, marginRight: 8, flexShrink: 0 }} />
+      {/* ImportButton — file picker trigger */}
+      <button
+        title="Import audio file (I)"
+        aria-label="Import audio file"
+        aria-disabled={importDisabled}
+        disabled={importDisabled}
+        onClick={onImport}
+        className="flex items-center justify-center rounded transition-all hover:brightness-125"
+        style={{
+          width: 22, height: 18,
+          background: C.control,
+          color: C.textSec,
+          fontSize: 11,
+          opacity: importDisabled ? 0.35 : 1,
+          cursor: importDisabled ? 'not-allowed' : 'pointer',
+          flexShrink: 0,
+        }}
+      >
+        {/* ↑▬ icon */}
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M6 1L6 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M3 4L6 1L9 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="2" y1="10.5" x2="10" y2="10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
       <span className="text-xs ml-2" style={{ color: C.textSec }}>
         {tool === 'select' ? 'Drag to move · handles to resize · fade triangles to adjust · drag midpoint handle to bend curve' :
                              'Click clip to split at cursor'}
@@ -1303,6 +1403,124 @@ function TrackHeader({ track, selected = false, isViewer, highlighted = false, o
   )
 }
 
+// ─── ImportToast ─────────────────────────────────────────────────────────────
+// Non-modal notification strip at top of arranger grid. Always in DOM (aria-live).
+// `message` drives visibility — empty string = hidden.
+function ImportToast({ message, variant = 'error' }: { message: string; variant?: 'error' | 'warn' | 'info' }) {
+  const borderColor = variant === 'error' ? `${C.danger}88` : variant === 'warn' ? `${C.warn}88` : `${C.accent}88`
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 4,
+        zIndex: 45,
+        height: 28,
+        padding: '0 12px',
+        borderRadius: 4,
+        background: C.elevated,
+        border: `1px solid ${borderColor}`,
+        display: 'flex',
+        alignItems: 'center',
+        fontSize: 12,
+        color: C.textPri,
+        whiteSpace: 'nowrap',
+        transition: 'opacity 150ms ease-in, transform 150ms ease-out',
+        opacity: message ? 1 : 0,
+        transform: message ? 'translateY(0)' : 'translateY(-100%)',
+        pointerEvents: message ? 'auto' : 'none',
+      }}
+    >
+      {message}
+    </div>
+  )
+}
+
+// ─── WaveformPlaceholder ──────────────────────────────────────────────────────
+// Static SVG hill silhouette — shown when peak data is not yet available.
+function WaveformPlaceholder({ ownerColor }: { ownerColor: string }) {
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      <svg width="100%" height="100%" viewBox="0 0 200 40" preserveAspectRatio="none">
+        <path
+          d="M 0,20 C 20,20 40,8 60,10 C 80,12 100,6 120,8 C 140,10 160,14 180,16 C 190,17 196,18 200,20"
+          fill="none"
+          stroke={`${ownerColor}33`}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  )
+}
+
+// ─── ClipProgressOverlay ──────────────────────────────────────────────────────
+// Layered overlay inside a clip showing uploading or decoding progress.
+function ClipProgressOverlay({ status, progress, ownerColor }: {
+  status: 'uploading' | 'decoding'
+  progress: number | undefined  // 0–100 for uploading; undefined = indeterminate
+  ownerColor: string
+}) {
+  const hasProgress = status === 'uploading' && typeof progress === 'number'
+  const isIndeterminate = status === 'uploading' && typeof progress !== 'number'
+  const isDecoding = status === 'decoding'
+
+  return (
+    <div
+      className="absolute inset-0"
+      style={{ zIndex: 10, background: `${C.bg}AA`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+    >
+      {isDecoding ? (
+        /* Waveform skeleton: 24 staggered animated bars */
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 20 }}>
+          {Array.from({ length: 24 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                width: 2,
+                borderRadius: 1,
+                background: `${ownerColor}66`,
+                animationName: 'waveformSkeleton',
+                animationDuration: '0.9s',
+                animationTimingFunction: 'ease-in-out',
+                animationIterationCount: 'infinite',
+                animationDirection: 'alternate',
+                animationDelay: `${i * 60}ms`,
+                height: 8,
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        /* Upload progress bar */
+        <div style={{ width: 'calc(100% - 16px)', height: 3, background: C.control, borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+          {hasProgress ? (
+            <div style={{ height: '100%', width: `${progress}%`, background: C.accent, borderRadius: 2, transition: 'width 0.2s ease' }} />
+          ) : isIndeterminate ? (
+            <div style={{
+              height: '100%',
+              width: '40%',
+              background: `linear-gradient(90deg, transparent, ${C.accent}AA, transparent)`,
+              backgroundSize: '200% 100%',
+              borderRadius: 2,
+              animationName: 'shimmer',
+              animationDuration: '1.5s',
+              animationTimingFunction: 'linear',
+              animationIterationCount: 'infinite',
+            }} />
+          ) : null}
+        </div>
+      )}
+      <span style={{ fontSize: 10, color: C.textSec, lineHeight: 1 }}>
+        {isDecoding ? 'Generating waveform…' : hasProgress ? `Uploading… ${progress}%` : 'Uploading…'}
+      </span>
+    </div>
+  )
+}
+
 // ─── Clip ─────────────────────────────────────────────────────────────────────
 interface ClipProps {
   clip: ClipData
@@ -1361,49 +1579,58 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     if (e.key === 'Escape') { e.preventDefault(); onCancelRename() }
   }
 
-  // Waveform rendering: draw once when clip dimensions or assetUrl changes.
+  // Waveform rendering: draw once when clip dimensions or assetUrl/importPeaks changes.
+  // Imported clips with importPeaks skip the synthesize path and draw directly from peaks.
   // We attempt to resolve the buffer immediately if AudioCtx already exists,
   // otherwise we skip — the canvas stays invisible and won't re-attempt unless
   // the clip re-mounts (e.g. after first gesture triggers ctx initialization).
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !clip.assetUrl) return
+    // For imported clips with complete peaks, draw from importPeaks regardless of assetUrl
+    if (!canvas) return
+    if (!clip.assetUrl && !clip.importPeaks) return
     const w = clipW
     const h = clipH
     canvas.width  = w
     canvas.height = h
 
-    const cacheKey = `${clip.assetUrl}:${w}`
-    let peaks = _waveformCache.get(cacheKey)
+    // Use importPeaks if available (imported audio file with completed peak generation)
+    let peaks: Float32Array | undefined = clip.importPeaks
 
     if (!peaks) {
-      const buf = resolveBuffer(clip.assetUrl)
-      if (!buf) {
-        // AudioContext not yet initialized — draw a seeded ghost waveform so the
-        // clip isn't a blank grey box on cold load. Bars are deterministic per clip
-        // id so they don't flicker between renders.
-        const ctx2d = canvas.getContext('2d')
-        if (!ctx2d) return
-        ctx2d.clearRect(0, 0, w, h)
-        ctx2d.fillStyle = `${track.owner.color}14`  // 8% opacity background tint
-        ctx2d.fillRect(0, 0, w, h)
-        const BAR_COUNT = 24
-        const barW = Math.max(1, Math.floor(w / BAR_COUNT) - 1)
-        const midY = h / 2
-        ctx2d.fillStyle = `${track.owner.color}2E`  // 18% opacity bars
-        // Deterministic seed from clip id: sum char codes then mix with a prime
-        const seed = clip.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
-        for (let i = 0; i < BAR_COUNT; i++) {
-          // Cheap LCG-style hash so each bar has a stable, varied height
-          const hash = Math.abs(Math.sin((seed + i * 127) * 0.31731))
-          const barH = (0.15 + hash * 0.7) * midY
-          const x = Math.round((i / BAR_COUNT) * w)
-          ctx2d.fillRect(x, midY - barH, barW, barH * 2)
+      if (!clip.assetUrl) return
+      const cacheKey = `${clip.assetUrl}:${w}`
+      peaks = _waveformCache.get(cacheKey)
+
+      if (!peaks) {
+        const buf = resolveBuffer(clip.assetUrl)
+        if (!buf) {
+          // AudioContext not yet initialized — draw a seeded ghost waveform so the
+          // clip isn't a blank grey box on cold load. Bars are deterministic per clip
+          // id so they don't flicker between renders.
+          const ctx2d = canvas.getContext('2d')
+          if (!ctx2d) return
+          ctx2d.clearRect(0, 0, w, h)
+          ctx2d.fillStyle = `${track.owner.color}14`  // 8% opacity background tint
+          ctx2d.fillRect(0, 0, w, h)
+          const BAR_COUNT = 24
+          const barW = Math.max(1, Math.floor(w / BAR_COUNT) - 1)
+          const midY = h / 2
+          ctx2d.fillStyle = `${track.owner.color}2E`  // 18% opacity bars
+          // Deterministic seed from clip id: sum char codes then mix with a prime
+          const seed = clip.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+          for (let i = 0; i < BAR_COUNT; i++) {
+            // Cheap LCG-style hash so each bar has a stable, varied height
+            const hash = Math.abs(Math.sin((seed + i * 127) * 0.31731))
+            const barH = (0.15 + hash * 0.7) * midY
+            const x = Math.round((i / BAR_COUNT) * w)
+            ctx2d.fillRect(x, midY - barH, barW, barH * 2)
+          }
+          return
         }
-        return
+        peaks = buildWaveformPeaks(buf, w)
+        _waveformCache.set(cacheKey, peaks)
       }
-      peaks = buildWaveformPeaks(buf, w)
-      _waveformCache.set(cacheKey, peaks)
     }
 
     const ctx2d = canvas.getContext('2d')
@@ -1437,7 +1664,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
       else         ctx2d.lineTo(x, midY - peakH)
     }
     ctx2d.stroke()
-  }, [clip.assetUrl, clipW, clipH, track.owner.color, audioCtxReady])
+  }, [clip.assetUrl, clip.importPeaks, clip.importStatus, clipW, clipH, track.owner.color, audioCtxReady])
 
   const texture = track.type === 'Audio'
     ? `repeating-linear-gradient(180deg, ${track.owner.color}22 0px, ${track.owner.color}22 1px, ${track.owner.color}0A 1px, ${track.owner.color}0A 4px)`
@@ -1508,6 +1735,17 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     onCut(clip.id, track.id, cutBar)
   }
 
+  const isFailed = clip.importStatus === 'failed-upload'
+  const isInProgress = clip.importStatus === 'uploading' || clip.importStatus === 'decoding'
+  // Failed-upload clips get danger tinting on border and ring
+  const borderColor = isFailed ? C.danger : track.owner.color
+  const ringColor   = isFailed ? `${C.danger}88` : `${track.owner.color}44`
+
+  // For imported clips, show canvas only when peaks are complete
+  const showCanvas = clip.importStatus === 'complete'
+    ? true
+    : clip.importStatus === undefined && clip.assetUrl !== null
+
   return (
     <div
       className="absolute top-1.5 bottom-1.5 rounded overflow-hidden select-none"
@@ -1515,10 +1753,10 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
         left: clip.bar * BAR_W + 2,
         width: clipW,
         background: texture,
-        borderLeft: `2px solid ${track.owner.color}`,
+        borderLeft: `2px solid ${borderColor}`,
         boxShadow: highlighted
-          ? `inset 0 0 0 1px ${track.owner.color}44, 0 0 0 2px ${C.accent}`
-          : `inset 0 0 0 1px ${track.owner.color}44`,
+          ? `inset 0 0 0 1px ${ringColor}, 0 0 0 2px ${C.accent}`
+          : `inset 0 0 0 1px ${ringColor}`,
         outline: (hovered || selected) && !isDragging ? `1px solid ${track.owner.color}88` : 'none',
         opacity: isGhost ? 0.35 : isDragging ? 0.85 : track.muted ? 0.5 : 1,
         filter: hovered ? 'brightness(1.12)' : 'brightness(1)',
@@ -1532,8 +1770,36 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
       onClick={handleClipClick}
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, clip.id, track.id) }}
     >
-      {/* Waveform canvas — only for clips with a resolved audio asset */}
-      {clip.assetUrl !== null && (
+      {/* Waveform placeholder — shown when peaks aren't available yet */}
+      {!showCanvas && <WaveformPlaceholder ownerColor={track.owner.color} />}
+
+      {/* Upload / decode progress overlay */}
+      {isInProgress && (
+        <ClipProgressOverlay
+          status={clip.importStatus as 'uploading' | 'decoding'}
+          progress={clip.uploadProgress}
+          ownerColor={track.owner.color}
+        />
+      )}
+
+      {/* Failed-upload error badge — top-right corner */}
+      {isFailed && (
+        <div
+          title="Upload failed — click to retry"
+          className="absolute flex items-center justify-center"
+          style={{
+            top: 4, right: 4, width: 14, height: 14,
+            borderRadius: '50%', background: C.danger,
+            fontSize: 9, color: '#fff', fontWeight: 700,
+            zIndex: 20, cursor: 'pointer',
+          }}
+        >
+          !
+        </div>
+      )}
+
+      {/* Waveform canvas — for synth clips or imported clips with completed peaks */}
+      {showCanvas && (
         <canvas
           ref={canvasRef}
           className="absolute inset-0 pointer-events-none"
@@ -2092,14 +2358,47 @@ interface ArrangeViewProps {
   setLoopStart: (v: number | null) => void
   setLoopEnd: (v: number | null) => void
   presence: PresenceEntry[]
+  sessionId: string | null
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence }: ArrangeViewProps) {
+// State for arranger drag-over from OS file system
+type DropOverlayVariant = 'accent' | 'success' | 'danger'
+interface FileDragState {
+  variant: DropOverlayVariant
+  ghostTrackId: string | null
+  ghostBar: number
+}
+
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
   const [renamingClipId, setRenamingClipId] = useState<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+
+  // File drag-over state — tracks OS-level file drags into the arranger
+  const [fileDrag, setFileDrag]     = useState<FileDragState | null>(null)
+  // Toast for import messages
+  const [importToast, setImportToast] = useState<{ message: string; variant: 'error' | 'warn' | 'info' } | null>(null)
+  const importToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Whether any clip is currently being imported (disables ImportButton)
+  const anyImporting = tracks.some(t => t.clips.some(c => c.importStatus === 'uploading' || c.importStatus === 'decoding'))
+  // Hidden file input ref for ImportButton
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Drag-enter counter — tracks nested dragenter/dragleave to avoid flicker
+  const dragEnterCountRef = useRef(0)
+
+  function showImportToast(message: string, variant: 'error' | 'warn' | 'info' = 'error') {
+    if (importToastTimerRef.current) clearTimeout(importToastTimerRef.current)
+    setImportToast({ message, variant })
+    importToastTimerRef.current = setTimeout(() => setImportToast(null), 3000)
+  }
+
+  // Announce to screen reader aria-live region
+  const ariaLiveRef = useRef<HTMLDivElement>(null)
+  function announceToScreenReader(msg: string) {
+    if (ariaLiveRef.current) ariaLiveRef.current.textContent = msg
+  }
 
   // ── Drag engine (window-level so fast moves don't break it) ────────────────
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -2328,6 +2627,269 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     }))
   }
 
+  // ── Audio import flow ────────────────────────────────────────────────────────
+
+  // Core import handler — called by both file picker and drop path.
+  // `targetTrackId` is the track to place the clip on; `dropBar` is snapped whole bar.
+  function startAudioImport(file: File, targetTrackId: string, dropBar: number) {
+    const track = tracks.find(t => t.id === targetTrackId)
+    if (!track) return
+
+    const clipId = `clip-import-${Date.now()}`
+    const label  = stripExtension(file.name)
+    const newClip: ClipData = {
+      id: clipId,
+      bar: dropBar,
+      len: 1,
+      label,
+      fadeIn: 0, fadeOut: 0, fadeInCurve: 0.7, fadeOutCurve: 0.7,
+      crossfadeLocked: true,
+      assetUrl: null,
+      importStatus: 'uploading',
+      importFile: file,
+      uploadProgress: undefined,
+      audioFileId: null,
+    }
+
+    // Create clip immediately — user sees it at drop position with no delay
+    setTracks(prev => prev.map(t =>
+      t.id !== targetTrackId ? t : { ...t, clips: [...t.clips, newClip] }
+    ))
+
+    announceToScreenReader(`Importing ${file.name} onto track ${track.name}.`)
+
+    // Kick off upload + peak gen pipeline
+    runImportPipeline(file, clipId, targetTrackId, track)
+  }
+
+  function updateImportClip(targetTrackId: string, clipId: string, patch: Partial<ClipData>) {
+    setTracks(prev => prev.map(t =>
+      t.id !== targetTrackId ? t : { ...t, clips: t.clips.map(c => c.id !== clipId ? c : { ...c, ...patch }) }
+    ))
+  }
+
+  function runImportPipeline(file: File, clipId: string, targetTrackId: string, track: Track) {
+    if (!sessionId) {
+      // No session ID — still create clip but mark failed
+      updateImportClip(targetTrackId, clipId, { importStatus: 'failed-upload' })
+      showImportToast('Upload failed. Check your connection and try again.')
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `http://localhost:3000/api/v1/sessions/${sessionId}/audio`)
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100)
+        updateImportClip(targetTrackId, clipId, { uploadProgress: pct })
+      }
+    })
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        type AudioFileResponse = { id: string; durationSec: number }
+        let serverData: AudioFileResponse | null = null
+        try {
+          serverData = JSON.parse(xhr.responseText) as AudioFileResponse
+        } catch {
+          // Non-JSON — treat as success with no metadata
+        }
+
+        const durationSec = serverData?.durationSec ?? 0
+        const bpm = 128 // TODO: read from session state when session BPM is in scope here
+        const durationBars = durationSec > 0
+          ? Math.max(1, Math.ceil(durationSec / (60 / bpm / 4)))
+          : 1
+
+        updateImportClip(targetTrackId, clipId, {
+          importStatus: 'decoding',
+          audioFileId: serverData?.id ?? null,
+          len: durationBars,
+          uploadProgress: undefined,
+        })
+
+        announceToScreenReader(`Waveform generating for ${file.name}.`)
+
+        // Start local peak generation
+        const gen = getPeakGenerator()
+        if (!gen) {
+          // Device cannot generate peaks — mark complete with empty peaks, show placeholder
+          updateImportClip(targetTrackId, clipId, { importStatus: 'complete', importPeaks: undefined })
+          announceToScreenReader(`Import complete. ${file.name} added to track ${track.name} at bar ${Math.round(0)}.`)
+          return
+        }
+
+        gen.generate(file).then((peaks) => {
+          updateImportClip(targetTrackId, clipId, { importStatus: 'complete', importPeaks: peaks })
+          announceToScreenReader(`Import complete. ${file.name} added to track ${track.name}.`)
+        }).catch(() => {
+          // Decode failed — clip is functional, waveform unavailable
+          updateImportClip(targetTrackId, clipId, { importStatus: 'failed-decode' })
+          showImportToast(`Waveform preview unavailable for ${file.name}.`, 'warn')
+          announceToScreenReader(`Waveform preview unavailable for ${file.name}. The clip has been added to track ${track.name}.`)
+        })
+      } else {
+        updateImportClip(targetTrackId, clipId, { importStatus: 'failed-upload', uploadProgress: undefined })
+        showImportToast('Upload failed. Check your connection and try again.')
+        announceToScreenReader(`Upload failed for ${file.name}. Check your connection and try again.`)
+      }
+    })
+
+    xhr.addEventListener('error', () => {
+      updateImportClip(targetTrackId, clipId, { importStatus: 'failed-upload', uploadProgress: undefined })
+      showImportToast('Upload failed. Check your connection and try again.')
+      announceToScreenReader(`Upload failed for ${file.name}. Check your connection and try again.`)
+    })
+
+    xhr.send(formData)
+  }
+
+  // Determines which track row a clientY falls on within the arranger grid.
+  // Returns null if outside all track rows (e.g., ruler area, below last track).
+  function trackAtClientY(clientY: number): Track | null {
+    if (!gridRef.current) return null
+    const rect = gridRef.current.getBoundingClientRect()
+    const relY = clientY - rect.top - RULER_H + gridRef.current.scrollTop
+    if (relY < 0) return null  // in the ruler
+    const idx = Math.floor(relY / TRACK_H)
+    return tracks[idx] ?? null
+  }
+
+  // ── File drag-over handlers ───────────────────────────────────────────────────
+
+  function handleGridDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    dragEnterCountRef.current += 1
+    if (dragEnterCountRef.current !== 1) return  // already showing overlay
+
+    const items = e.dataTransfer.items
+    if (items.length === 0) return
+
+    let variant: DropOverlayVariant = 'accent'
+    if (items.length > 1) {
+      variant = 'danger'
+    } else if (items[0]?.kind === 'file') {
+      const mimeType = items[0].type
+      variant = isAudioMimeType(mimeType) || mimeType === '' ? 'accent' : 'danger'
+    } else {
+      variant = 'danger'
+    }
+
+    setFileDrag({ variant, ghostTrackId: null, ghostBar: 0 })
+  }
+
+  function handleGridDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const items = e.dataTransfer.items
+    if (!items || items.length === 0) {
+      e.dataTransfer.dropEffect = 'none'
+      return
+    }
+
+    let variant: DropOverlayVariant = 'accent'
+    if (items.length > 1) {
+      variant = 'danger'
+      e.dataTransfer.dropEffect = 'none'
+    } else if (items[0]?.kind === 'file') {
+      const mime = items[0].type
+      const isAudio = isAudioMimeType(mime) || mime === ''
+      variant = isAudio ? 'success' : 'danger'
+      e.dataTransfer.dropEffect = isAudio ? 'copy' : 'none'
+    } else {
+      variant = 'danger'
+      e.dataTransfer.dropEffect = 'none'
+    }
+
+    // Update ghost clip position and per-track highlight
+    const targetTrack = trackAtClientY(e.clientY)
+    const gridRect    = gridRef.current?.getBoundingClientRect()
+    const scrollLeft  = gridRef.current?.scrollLeft ?? 0
+    const ghostBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft) : 0
+
+    setFileDrag({ variant, ghostTrackId: targetTrack?.id ?? null, ghostBar })
+  }
+
+  function handleGridDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    dragEnterCountRef.current -= 1
+    if (dragEnterCountRef.current > 0) return
+
+    // Verify the cursor actually left the grid container, not just a child element
+    const relTarget = e.relatedTarget as Node | null
+    if (relTarget && gridRef.current?.contains(relTarget)) return
+
+    dragEnterCountRef.current = 0
+    setFileDrag(null)
+  }
+
+  function handleGridDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    dragEnterCountRef.current = 0
+    setFileDrag(null)
+
+    const files = Array.from(e.dataTransfer.files)
+
+    if (files.length === 0) return
+
+    if (files.length > 1) {
+      showImportToast('Import one audio file at a time for now.')
+      announceToScreenReader('Import one audio file at a time for now.')
+      return
+    }
+
+    const file = files[0]
+
+    // Re-validate on drop (spec §3: re-validate extension + MIME on drop)
+    if (!isAudioFile(file)) {
+      showImportToast('Unsupported file type. Drop a WAV, MP3, OGG, FLAC, or AIFF file.')
+      announceToScreenReader('Unsupported file type. Drop a WAV, MP3, OGG, FLAC, or AIFF file.')
+      return
+    }
+
+    const targetTrack = trackAtClientY(e.clientY)
+    if (!targetTrack) {
+      showImportToast('Drop onto a track to import.')
+      return
+    }
+
+    const gridRect   = gridRef.current?.getBoundingClientRect()
+    const scrollLeft = gridRef.current?.scrollLeft ?? 0
+    const dropBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft) : 0
+
+    startAudioImport(file, targetTrack.id, dropBar)
+  }
+
+  function handleImportButtonClick() {
+    fileInputRef.current?.click()
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Reset input so the same file can be picked again
+    e.target.value = ''
+
+    if (!isAudioFile(file)) {
+      showImportToast('Unsupported file type. Drop a WAV, MP3, OGG, FLAC, or AIFF file.')
+      return
+    }
+
+    // Target: selected track, or first Audio track, or first non-Bus track
+    const targetTrack = tracks.find(t => t.id === selectedTrackId)
+      ?? tracks.find(t => t.type === 'Audio')
+      ?? tracks.find(t => t.type !== 'Bus')
+      ?? tracks[0]
+
+    if (!targetTrack) return
+
+    const dropBar = Math.round(playheadBar)
+    startAudioImport(file, targetTrack.id, dropBar)
+  }
+
   // ── Context menu ─────────────────────────────────────────────────────────────
   function openCtxMenu(e: React.MouseEvent, clipId: string, trackId: string) {
     const track = tracks.find(t => t.id === trackId)!
@@ -2355,14 +2917,63 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
   }
 
   // ── Cursor for cut tool on grid rows ─────────────────────────────────────────
-  const gridCursor = tool === 'cut' ? 'crosshair' : 'default'
+  // ── I key shortcut — open file picker ───────────────────────────────────────
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'i' || e.key === 'I') {
+        // Only fire when no input/textarea has focus to avoid blocking text entry
+        const active = document.activeElement
+        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return
+        if (!isViewer && !anyImporting) {
+          fileInputRef.current?.click()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isViewer, anyImporting])
+
+  const gridCursor = fileDrag
+    ? (fileDrag.variant === 'danger' ? 'no-drop' : 'copy')
+    : tool === 'cut' ? 'crosshair' : 'default'
   const anySoloed  = tracks.some(t => t.soloed)
+
+  // DropOverlay colors derived from fileDrag.variant
+  const dropOverlayBg = fileDrag?.variant === 'danger'
+    ? `${C.danger}0D`
+    : C.accentMuted
+  const dropOverlayRing = fileDrag?.variant === 'success'
+    ? `${C.success}55`
+    : fileDrag?.variant === 'danger'
+    ? `${C.danger}55`
+    : `${C.accent}55`
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Hidden file input for ImportButton */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".wav,.mp3,.ogg,.flac,.aiff,.aif,.m4a"
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
+      {/* Screen reader aria-live region — visually hidden, always in DOM */}
+      <div
+        ref={ariaLiveRef}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)', pointerEvents: 'none' }}
+      />
       {/* Toolbar row */}
       <div className="flex flex-shrink-0">
-        <Toolbar tool={tool} setTool={setTool} />
+        <Toolbar
+          tool={tool}
+          setTool={setTool}
+          onImport={handleImportButtonClick}
+          importDisabled={isViewer || anyImporting}
+        />
         <div className="flex-1 border-b" style={{ borderColor: C.border }} />
       </div>
 
@@ -2404,8 +3015,37 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
           </div>
         </div>
 
-        {/* Grid */}
-        <div ref={gridRef} className="flex-1 overflow-auto" style={{ background: C.bg, cursor: gridCursor }}
+        {/* Grid — file drag events are on the outer wrapper (relative container) */}
+        <div
+          className="flex-1 overflow-hidden relative"
+          onDragEnter={handleGridDragEnter}
+          onDragOver={handleGridDragOver}
+          onDragLeave={handleGridDragLeave}
+          onDrop={handleGridDrop}
+          role="region"
+          aria-label="Arranger timeline"
+          aria-dropeffect={fileDrag ? 'copy' : undefined}
+        >
+          {/* DropOverlay — shown during any OS file drag over arranger */}
+          {fileDrag && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                zIndex: 40,
+                background: dropOverlayBg,
+                boxShadow: `inset 0 0 0 2px ${dropOverlayRing}`,
+                transition: 'opacity 120ms ease-out',
+                opacity: 1,
+              }}
+            />
+          )}
+          {/* ImportToast — appears at top of arranger for import messages */}
+          <ImportToast
+            message={importToast?.message ?? ''}
+            variant={importToast?.variant ?? 'error'}
+          />
+        <div ref={gridRef} className="flex-1 overflow-auto" style={{ background: C.bg, cursor: gridCursor, height: '100%' }}
           onMouseDown={() => setCtxMenu(null)}>
           <div style={{ minWidth: BARS * BAR_W, position: 'relative' }}>
             {/* Loop region overlay — spans full scroll height (ruler + all tracks).
@@ -2691,6 +3331,35 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                         border: `2px dashed ${track.type === tracks.find(t => t.id === drag.sourceTrackId)?.type ? C.success : C.danger}`,
                         background: drag.valid ? `${C.success}12` : `${C.danger}12`, zIndex: 15 }} />
                   )}
+
+                  {/* TrackDropTarget — per-track file drag highlight */}
+                  {fileDrag && fileDrag.variant !== 'danger' && fileDrag.ghostTrackId === track.id && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        borderLeft: `2px solid ${track.owner.color}`,
+                        background: `linear-gradient(90deg, ${track.owner.color}22 0%, transparent 220px)`,
+                        zIndex: 35,
+                      }}
+                    />
+                  )}
+
+                  {/* ImportGhostClip — snap-position preview clip shown on valid drag-over */}
+                  {fileDrag && fileDrag.variant !== 'danger' && fileDrag.ghostTrackId === track.id && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute rounded pointer-events-none"
+                      style={{
+                        top: 6, bottom: 6,
+                        left: fileDrag.ghostBar * BAR_W + 2,
+                        width: BAR_W - 4,
+                        background: `${track.owner.color}18`,
+                        border: `1.5px dashed ${track.owner.color}88`,
+                        zIndex: 36,
+                      }}
+                    />
+                  )}
                 </div>
               )
             })}
@@ -2739,6 +3408,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
             })}
           </div>
         </div>
+        </div>{/* end outer drop-target wrapper */}
       </div>
 
       {/* Context menu */}
@@ -4004,6 +4674,8 @@ export default function App() {
   const [tool, setTool]                   = useState<Tool>('select')
   const [audioCtxReady, setAudioCtxReady] = useState(false)
   const [userRole, setUserRole]           = useState<'owner' | 'collaborator' | 'viewer'>('owner')
+  // Session ID extracted from URL — needed for audio upload endpoint
+  const [sessionId, setSessionId]         = useState<string | null>(null)
   // WS + deep link state
   const [wsStatus, setWsStatus]           = useState<'connected' | 'reconnecting' | 'failed' | 'idle'>('idle')
   const [highlightBar, setHighlightBar]   = useState<number | null>(null)
@@ -4208,11 +4880,12 @@ export default function App() {
     // sessionId comes from the URL — no fallback to a hardcoded value.
     // Without a sessionId the WS is not opened; the arranger renders empty state.
     const params = new URLSearchParams(window.location.search)
-    const sessionId = params.get('session')
+    const urlSessionId = params.get('session')
 
-    if (sessionId) {
+    if (urlSessionId) {
+      setSessionId(urlSessionId)
       try {
-        getWsClient(sessionId, handleWsMessage, setWsStatus)
+        getWsClient(urlSessionId, handleWsMessage, setWsStatus)
       } catch {
         // WebSocket constructor throws if URL is invalid — should not happen in practice
       }
@@ -4535,6 +5208,7 @@ export default function App() {
             loopStart={loopStart} loopEnd={loopEnd}
             setLoopStart={setLoopStart} setLoopEnd={setLoopEnd}
             presence={presence}
+            sessionId={sessionId}
           />
           <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
         </div>
