@@ -21,7 +21,22 @@ import Fastify from "fastify";
 import websocketPlugin from "@fastify/websocket";
 import { authRoutes } from "./routes/auth.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { commentRoutes } from "./routes/comments.js";
+import { audioRoutes } from "./routes/audio.js";
 import { wsHandler } from "./ws/handler.js";
+import type { StorageAdapter } from "./storage/adapter.js";
+import { InMemoryStorageAdapter } from "./storage/memory-adapter.js";
+import { PrismaStorageAdapter } from "./storage/prisma-adapter.js";
+
+// ---------------------------------------------------------------------------
+// Fastify type augmentation — expose fastify.storage on every request context
+// ---------------------------------------------------------------------------
+
+declare module "fastify" {
+  interface FastifyInstance {
+    storage: StorageAdapter;
+  }
+}
 
 const PORT = parseInt(process.env["PORT"] ?? "3001", 10);
 const HOST = process.env["HOST"] ?? "0.0.0.0";
@@ -39,6 +54,16 @@ async function buildServer() {
     // This applies to all routes; the audio upload route relies on this limit.
     connectionTimeout: 30_000,
   });
+
+  // ---------------------------------------------------------------------------
+  // Storage adapter — Prisma when DATABASE_URL is set, in-memory otherwise
+  // ---------------------------------------------------------------------------
+
+  const adapter: StorageAdapter = process.env["DATABASE_URL"]
+    ? new PrismaStorageAdapter()
+    : new InMemoryStorageAdapter();
+
+  fastify.decorate("storage", adapter);
 
   // ---------------------------------------------------------------------------
   // Plugins
@@ -75,18 +100,56 @@ async function buildServer() {
 
   await fastify.register(authRoutes);
   await fastify.register(sessionRoutes);
+  await fastify.register(commentRoutes);
+  await fastify.register(audioRoutes);
   await fastify.register(wsHandler);
 
   return fastify;
 }
 
 async function main(): Promise<void> {
-  const server = await buildServer();
+  const fastify = await buildServer();
+
+  // ---------------------------------------------------------------------------
+  // Storage startup logging + health check (Task 5-H)
+  // ---------------------------------------------------------------------------
+
+  const adapter = fastify.storage;
+
+  if (process.env['DATABASE_URL']) {
+    fastify.log.info('Storage: PrismaStorageAdapter (PostgreSQL)');
+    // Health check — fail fast if DB is unreachable
+    try {
+      await (adapter as PrismaStorageAdapter).healthCheck();
+    } catch (err) {
+      fastify.log.error({ err }, 'PostgreSQL connection failed — check DATABASE_URL');
+      process.exit(1);
+    }
+  } else {
+    fastify.log.info('Storage: InMemoryStorageAdapter (DATABASE_URL not set)');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Graceful shutdown (Task 5-G)
+  // ---------------------------------------------------------------------------
+
+  const shutdown = async (signal: string) => {
+    fastify.log.info({ signal }, 'Shutting down');
+    await fastify.close();
+    await adapter.close?.();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('SIGINT', () => { void shutdown('SIGINT'); });
+
+  // ---------------------------------------------------------------------------
+  // Start listening
+  // ---------------------------------------------------------------------------
 
   try {
-    await server.listen({ port: PORT, host: HOST });
+    await fastify.listen({ port: PORT, host: HOST });
   } catch (err) {
-    server.log.error(err);
+    fastify.log.error(err);
     process.exit(1);
   }
 }

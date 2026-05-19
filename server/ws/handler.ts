@@ -22,22 +22,36 @@
  */
 
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { SocketStream } from "@fastify/websocket";
+import type { WebSocket } from "@fastify/websocket";
+
+// @fastify/websocket v11 removed SocketStream. Provide a local shim that matches
+// the shape used in this file: { socket: WebSocket } where socket is the raw WS.
+interface SocketStream {
+  socket: WebSocket;
+}
 import type {
   WsClientMessage,
   WsBroadcast,
   TransportState,
-  CollaboratorPresence,
   Collaborator,
   ClientMeta,
+  TrackArmPayload,
+  TrackArmRejectedPayload,
+  SessionId,
+  UserId,
 } from "../types.js";
+import type { SessionRow, TrackRow, ClipRow } from "../storage/adapter.js";
 import {
   getOrCreateSession,
   addClient,
   removeClient,
   updateTransport,
   getClients,
+  acquireTrackLock,
+  releaseTrackLock,
+  releaseAllLocksForUser,
 } from "../store.js";
+import { verifyToken } from "../jwt.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,7 +126,7 @@ function asNumber(v: unknown, fallback: number): number {
 
 function handleTransportPlay(
   sessionId: string,
-  clientId: string,
+  _clientId: string,
   userId: string,
   payload: unknown
 ): void {
@@ -182,16 +196,118 @@ function handlePresenceUpdate(
 }
 
 // ---------------------------------------------------------------------------
+// Track locking
+// ---------------------------------------------------------------------------
+
+/**
+ * track.arm — client requests to arm (record-enable) a track.
+ *
+ * Guards:
+ *   1. Viewers cannot arm any track → track.arm_rejected { reason: 'forbidden' }
+ *   2. Track already locked by a different user → track.arm_rejected { reason: 'locked' }
+ *   3. Otherwise: acquire lock and broadcast track.locked to all clients.
+ */
+function handleTrackArm(
+  socket: SocketStream,
+  sessionId: string,
+  userId: string,
+  role: string,
+  payload: unknown
+): void {
+  const p = isRecord(payload) ? payload : {};
+  const trackId = typeof p["trackId"] === "string" ? p["trackId"] : null;
+  if (!trackId) return;
+
+  // Guard: viewers cannot record.
+  if (role === "viewer") {
+    const rejectedPayload: TrackArmRejectedPayload = {
+      trackId,
+      reason: "forbidden",
+    };
+    sendOne(socket.socket, broadcast<TrackArmRejectedPayload>(
+      "track.arm_rejected",
+      sessionId,
+      "server",
+      rejectedPayload
+    ));
+    return;
+  }
+
+  // Attempt to acquire the lock.
+  const acquired = acquireTrackLock(sessionId, trackId, userId);
+  if (!acquired) {
+    const rejectedPayload: TrackArmRejectedPayload = {
+      trackId,
+      reason: "locked",
+    };
+    sendOne(socket.socket, broadcast<TrackArmRejectedPayload>(
+      "track.arm_rejected",
+      sessionId,
+      "server",
+      rejectedPayload
+    ));
+    return;
+  }
+
+  // Lock acquired — broadcast to all clients (including sender).
+  const lockedFrame = broadcast<TrackArmPayload>(
+    "track.locked",
+    sessionId,
+    userId,
+    { trackId }
+  );
+  broadcastToSession(sessionId, lockedFrame);
+}
+
+/**
+ * track.disarm — client releases the arm lock on a track.
+ * Broadcasts track.unlocked to all clients if the lock was held by this user.
+ */
+function handleTrackDisarm(
+  sessionId: string,
+  userId: string,
+  payload: unknown
+): void {
+  const p = isRecord(payload) ? payload : {};
+  const trackId = typeof p["trackId"] === "string" ? p["trackId"] : null;
+  if (!trackId) return;
+
+  releaseTrackLock(sessionId, trackId, userId);
+
+  // Broadcast unconditionally — idempotent for clients that missed the lock event.
+  const unlockedFrame = broadcast<{ trackId: string }>(
+    "track.unlocked",
+    sessionId,
+    userId,
+    { trackId }
+  );
+  broadcastToSession(sessionId, unlockedFrame);
+}
+
+// ---------------------------------------------------------------------------
 // Join / leave
 // ---------------------------------------------------------------------------
 
-function handleJoin(
+async function handleJoin(
   socket: SocketStream,
   sessionId: string,
   clientId: string,
   meta: ClientMeta,
   fastify: FastifyInstance
-): void {
+): Promise<void> {
+  // Hydrate persistent session data from the storage adapter (ADR-005).
+  // If the session does not exist in the DB, refuse connection rather than
+  // silently creating a blank in-memory session (ADR-005, Decision 5).
+  const sessionData: SessionRow | null = await fastify.storage.getSession(sessionId);
+  if (!sessionData) {
+    socket.socket.close(4404, 'Session not found');
+    fastify.log.warn({ sessionId }, 'ws: session not found in storage — closing');
+    return;
+  }
+
+  const tracks: TrackRow[] = await fastify.storage.getTracks(sessionId);
+  const clips: ClipRow[] = await fastify.storage.getClips(sessionId);
+
   const session = getOrCreateSession(sessionId);
 
   // Send current transport state immediately so the new client syncs on connect.
@@ -202,6 +318,9 @@ function handleJoin(
     {
       transport: session.transport,
       collaborators: buildCollaboratorList(sessionId),
+      session: sessionData,
+      tracks,
+      clips,
     }
   );
   sendOne(socket.socket, snapshotFrame);
@@ -248,6 +367,30 @@ function handleLeave(
 }
 
 // ---------------------------------------------------------------------------
+// Comment broadcast helper (called by REST comment routes after mutations)
+// ---------------------------------------------------------------------------
+
+/**
+ * Broadcast a comment lifecycle event to all WS clients in the session.
+ *
+ * The REST route is the source of truth for comment mutations. This function
+ * is the fan-out only — it does NOT echo back to the originating HTTP client
+ * (the REST response is the ack for the creator). All connected WS clients in
+ * the session receive the frame regardless of which HTTP client triggered it.
+ *
+ * Event types: 'comment.add' | 'comment.reply' | 'comment.resolve' | 'comment.reopen'
+ */
+export function broadcastCommentEvent(
+  type: string,
+  sessionId: SessionId,
+  fromUserId: UserId,
+  payload: unknown
+): void {
+  const frame = broadcast<unknown>(type, sessionId, fromUserId, payload);
+  broadcastToSession(sessionId, frame);
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -258,120 +401,157 @@ export async function wsHandler(fastify: FastifyInstance): Promise<void> {
     (socket: SocketStream, request: FastifyRequest) => {
       const query = request.query as Record<string, string | undefined>;
       const sessionId = query["sessionId"] ?? "unknown";
-      const ticket = query["ticket"] ?? null;
+      const ticket = query["ticket"] as string | undefined;
 
-      // TODO(production): validate ticket against one-time ticket store; reject
-      // with WS close code 4401 if invalid or expired.
-      // For stub/dev: accept all connections and derive a hardcoded dev user.
-      const userId = "dev-user-001";
-      const displayName = "Dev User";
-      const color = "#7C3AED";
-      const role = "owner" as const;
-      const isGuest = false;
+      // Task 5-C: validate JWT ticket on connect. All identity is derived from
+      // the JWT — no DB lookup on WS connect.
+      if (!ticket) {
+        socket.socket.close(4401, 'Missing ticket');
+        return;
+      }
 
-      void ticket; // suppress unused-var warning until ticket validation lands
-
-      // Register client in the session store.
-      const meta: ClientMeta = {
-        userId,
-        displayName,
-        color,
-        role,
-        isGuest,
-        ws: socket.socket,
-      };
-      const clientId = addClient(sessionId, meta);
-
-      // Immediately send session snapshot and announce join to peers.
-      handleJoin(socket, sessionId, clientId, meta, fastify);
-
-      // -----------------------------------------------------------------------
-      // Message routing
-      // -----------------------------------------------------------------------
-
-      socket.socket.on("message", (rawData: Buffer | string) => {
-        const data = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
-
-        // Binary audio frame — acknowledge receipt, drop chunk until audio sprint.
-        if (isAudioFrame(data)) {
-          fastify.log.info(
-            { sessionId, userId, bytes: data.length },
-            "ws: audio chunk received (stub: dropped)"
-          );
-          return;
-        }
-
-        // JSON control frame
-        let inbound: WsClientMessage;
+      // Async validation — we kick off an async IIFE so the synchronous Fastify
+      // WS callback can return while we await the token and storage hydration.
+      void (async () => {
+        let claims: Awaited<ReturnType<typeof verifyToken>>;
         try {
-          inbound = JSON.parse(data.toString("utf8")) as WsClientMessage;
+          claims = await verifyToken(ticket);
         } catch {
-          fastify.log.warn({ userId, sessionId }, "ws: invalid JSON frame — discarding");
+          socket.socket.close(4401, 'Invalid ticket');
           return;
         }
 
-        const { type, payload } = inbound;
+        const { sub: userId, role, color, isGuest } = claims;
+        const displayName = claims.displayName ?? 'Unknown';
 
-        fastify.log.info({ type, sessionId, userId }, "ws: received message");
+        // Register client in the session store.
+        const meta: ClientMeta = {
+          userId,
+          displayName,
+          color,
+          role,
+          isGuest,
+          ws: socket.socket,
+        };
+        const clientId = addClient(sessionId, meta);
 
-        switch (type) {
-          case "session.join":
-            // Re-join is a no-op — the client was already added at connect time.
-            // This event exists so the frontend can explicitly re-announce after a
-            // reconnect without tearing down the WS connection.
-            handleJoin(socket, sessionId, clientId, meta, fastify);
-            break;
+        // Immediately send session snapshot and announce join to peers (async — ADR-005).
+        await handleJoin(socket, sessionId, clientId, meta, fastify);
 
-          case "session.leave":
-            handleLeave(sessionId, clientId, userId, fastify);
-            break;
+        // -----------------------------------------------------------------------
+        // Message routing
+        // -----------------------------------------------------------------------
 
-          case "transport.play":
-            handleTransportPlay(sessionId, clientId, userId, payload);
-            break;
+        socket.socket.on("message", (rawData: Buffer | string) => {
+          const data = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
 
-          case "transport.pause":
-          case "transport.stop":
-            // stop = pause-in-place per DAW convention (preserves playhead)
-            handleTransportPause(sessionId, userId);
-            break;
+          // Binary audio frame — acknowledge receipt, drop chunk until audio sprint.
+          if (isAudioFrame(data)) {
+            fastify.log.info(
+              { sessionId, userId, bytes: data.length },
+              "ws: audio chunk received (stub: dropped)"
+            );
+            return;
+          }
 
-          case "transport.seek":
-            handleTransportSeek(sessionId, userId, payload);
-            break;
+          // JSON control frame
+          let inbound: WsClientMessage;
+          try {
+            inbound = JSON.parse(data.toString("utf8")) as WsClientMessage;
+          } catch {
+            fastify.log.warn({ userId, sessionId }, "ws: invalid JSON frame — discarding");
+            return;
+          }
 
-          case "transport.bpm_change":
-            handleTransportBpmChange(sessionId, userId, payload);
-            break;
+          const { type, payload } = inbound;
 
-          case "presence.update":
-            handlePresenceUpdate(sessionId, clientId, userId, payload);
-            break;
+          fastify.log.info({ type, sessionId, userId }, "ws: received message");
 
-          default:
-            fastify.log.warn({ type, sessionId, userId }, "ws: unknown message type — ignoring");
-        }
-      });
+          switch (type) {
+            case "session.join":
+              // Re-join is a no-op — the client was already added at connect time.
+              // This event exists so the frontend can explicitly re-announce after a
+              // reconnect without tearing down the WS connection.
+              void handleJoin(socket, sessionId, clientId, meta, fastify);
+              break;
 
-      // -----------------------------------------------------------------------
-      // Disconnect
-      // -----------------------------------------------------------------------
+            case "session.leave":
+              handleLeave(sessionId, clientId, userId, fastify);
+              break;
 
-      socket.socket.on("close", (code: number, reason: Buffer) => {
-        fastify.log.info(
-          { sessionId, userId, clientId, code, reason: reason.toString() },
-          "ws: client disconnected"
-        );
+            case "transport.play":
+              handleTransportPlay(sessionId, clientId, userId, payload);
+              break;
 
-        // Remove client and broadcast departure to remaining peers.
-        // This also releases any track locks held by userId (TODO: implement
-        // lock release here when track locking lands in the next sprint).
-        handleLeave(sessionId, clientId, userId, fastify);
-      });
+            case "transport.pause":
+            case "transport.stop":
+              // stop = pause-in-place per DAW convention (preserves playhead)
+              handleTransportPause(sessionId, userId);
+              break;
 
-      socket.socket.on("error", (err: Error) => {
-        fastify.log.error({ sessionId, userId, clientId, err }, "ws: socket error");
-      });
+            case "transport.seek":
+              handleTransportSeek(sessionId, userId, payload);
+              break;
+
+            case "transport.bpm_change":
+              handleTransportBpmChange(sessionId, userId, payload);
+              break;
+
+            case "presence.update":
+              handlePresenceUpdate(sessionId, clientId, userId, payload);
+              break;
+
+            case "track.arm":
+              handleTrackArm(socket, sessionId, userId, role, payload);
+              break;
+
+            case "track.disarm":
+              handleTrackDisarm(sessionId, userId, payload);
+              break;
+
+            default:
+              fastify.log.warn({ type, sessionId, userId }, "ws: unknown message type — ignoring");
+          }
+        });
+
+        // -----------------------------------------------------------------------
+        // Disconnect
+        // -----------------------------------------------------------------------
+
+        socket.socket.on("close", (code: number, reason: Buffer) => {
+          fastify.log.info(
+            { sessionId, userId, clientId, code, reason: reason.toString() },
+            "ws: client disconnected"
+          );
+
+          // Release all track locks held by this user before announcing departure,
+          // so remaining clients receive track.unlocked before presence.left.
+          const releasedTracks = releaseAllLocksForUser(sessionId, userId);
+          for (const trackId of releasedTracks) {
+            const unlockedFrame = broadcast<{ trackId: string }>(
+              "track.unlocked",
+              sessionId,
+              userId,
+              { trackId }
+            );
+            // broadcastToSession after handleLeave would exclude departed client,
+            // but we call it here (before removeClient) — skip the disconnecting
+            // client's socket which is already closed.
+            broadcastToSession(sessionId, unlockedFrame, clientId);
+            fastify.log.info(
+              { sessionId, userId, trackId },
+              "ws: track lock released on disconnect"
+            );
+          }
+
+          // Remove client and broadcast departure to remaining peers.
+          handleLeave(sessionId, clientId, userId, fastify);
+        });
+
+        socket.socket.on("error", (err: Error) => {
+          fastify.log.error({ sessionId, userId, clientId, err }, "ws: socket error");
+        });
+      })();
     }
   );
 }
