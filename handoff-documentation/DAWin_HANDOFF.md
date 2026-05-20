@@ -1,14 +1,14 @@
 # DAWin — Project Handoff Document
 
 **Status: Current**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 6 — File Storage (planning)
+> **Sprint:** 8 — Planning
 
-> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 is the active sprint (planning phase).  
-> **Do not treat any prior sprint items as open.** Persistence layer (ADR-004/005, Prisma, StorageAdapter) is done. VU stereo, loop region, clip rename, and session hydration are all shipped.
+> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 is PLANNING — scope not yet defined by PM.
+> **Do not treat any prior sprint items as open.** Sprint 7 shipped: audio file drag-and-drop import, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, `ClipData.importStatus`, live BPM for duration calc, ADR-006.
 
 ---
 
@@ -410,15 +410,14 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - Deep links: `copyDeepLink()`, `?t=&track=&clip=` URL parsing on mount, playhead seek + highlight states, 1500ms auto-clear, chain-link icon in TransportBar, right-click on track header
 - Comment UI: Ruler anchor pins (SVG chevrons, author-colored, count badges, timeRange bars), track header pins, `ThreadPopover`, chat panel, unread count badge on icon rail, WS-driven state updates
 
-### What is not yet implemented (Sprint 6+ targets)
+### What is not yet implemented (Sprint 8+ targets)
 
+- **Audio playback from real `AudioBuffer`:** Clips render waveforms from server peaks (Sprint 7 complete), but audio playback still uses procedural synthesis. Wiring `AudioBuffer` from R2 presigned URL into the Web Audio graph per clip is the next audio milestone.
 - **Resizable panels (FR-01):** Arranger/mixer height splitter + FX panel width splitter. Spec at `docs/specs/resizable-workspace-panels.md`. Deferred from Sprint 4; not yet implemented.
 - **Horizontal timeline zoom (FR-02):** `zoomX` state, `barW = BAR_W * zoomX`. `BAR_W` is still hardcoded at ~13 arranger sites. Spec at `docs/specs/arranger-zoom.md`. Deferred from Sprint 4; not yet implemented.
 - **Per-track vertical zoom:** `trackZoomY` record, `getTrackH()` derived value. Not yet implemented.
 - **Plugin parameter editing:** Plugin cards display params as read-only amber LCD text; no inline editing. PM decision on UX pattern required.
-- **First Prisma migration / PrismaStorageAdapter activation:** Sprint 6 target — server still boots with `InMemoryStorageAdapter` until 6-A lands.
-- **Cloudflare R2 audio file storage:** Sprint 6 target — upload endpoint and presigned streaming URL endpoint (6-C, 6-D).
-- **Audio file playback in browser:** Sprint 7 target — drag-and-drop to timeline, clip rendering from real buffers.
+- **Session snapshot peak hydration (P2):** SPRINT-7-002 — hydrated clips from `session.snapshot` do not populate `audioFileId`/`importPeaks`; waveforms absent on session reopen. Fixed before close per Sprint 7 UAT. Verify fix is complete via commit `30bbae4`.
 
 ### What is a stub or not started
 
@@ -429,29 +428,54 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ---
 
-## 11. Sprint 6 — Active Work (Planning)
+## 11. Sprint 6 — CLOSED ✅ (2026-05-19)
 
 **Goal:** File Storage — Cloudflare R2 integration + first real Prisma migration.
 
-**Work order:** `docs/handoffs/sprint6-backend-workorder.md`
+**What shipped:**
+- PostgreSQL live; `prisma migrate status` shows no pending migrations
+- Server boots with `PrismaStorageAdapter`; logs "Using PrismaStorageAdapter"
+- `POST /api/v1/sessions/:sessionId/audio` — multipart WAV upload → R2 → `AudioFile` DB row
+- `GET /api/v1/audio/:id/stream-url` — presigned R2 URL (1-hour TTL)
+- Role enforcement: viewer 403 on upload; non-member 403 on stream-url
+- `docker-compose.yml`, `.env.example` with R2 vars, `docs/guides/local-setup.md` runbook
+- `tsc --noEmit` passes
 
-**Ticket sequence:**
-- **6-A (Backend):** First Prisma migration + switch to `PrismaStorageAdapter`
-- **6-B (Backend):** Complete `PrismaStorageAdapter` (all StorageAdapter methods)
-- **6-C (Backend):** Cloudflare R2 integration — `POST /api/v1/sessions/:id/audio` upload endpoint
-- **6-D (Backend):** `GET /api/v1/audio/:id/stream-url` presigned streaming URL endpoint
-- **6-E (Backend):** docker-compose + `.env.example` + `docs/guides/local-setup.md`
+## 11b. Sprint 7 — CLOSED ✅ (2026-05-19)
 
-**Sprint 6 exit criteria:**
-- [ ] `prisma migrate status` shows no pending migrations against a live PostgreSQL instance
-- [ ] Server boots with `PrismaStorageAdapter`; logs "Using PrismaStorageAdapter"
-- [ ] `POST /api/v1/sessions` + `GET /api/v1/sessions/:id` round-trip through Prisma correctly
-- [ ] `POST /api/v1/sessions/:sessionId/audio` uploads a WAV file and returns `AudioFileRow` with correct metadata
-- [ ] `GET /api/v1/audio/:id/stream-url` returns a presigned R2 URL that resolves the file
-- [ ] Viewer JWT receives 403 on upload; non-member JWT receives 403 on stream-url
-- [ ] `tsc --noEmit` passes
-- [ ] `.env.example` documents all required env vars including R2 vars
-- [ ] `docs/guides/local-setup.md` exists with runbook for first-time setup
+**Goal:** Audio File Import — drag-and-drop import to timeline, `POST /api/v1/sessions/:sessionId/clips` endpoint, server-side peak generation, waveform rendering from real buffers.
+
+**UAT:** CONDITIONAL PASS — zero P0/P1 defects; 4 P2/P3 defects found and fixed before close.
+
+**What shipped:**
+- Audio file drag-and-drop + file picker (`I` key) onto arranger timeline
+- `POST /api/v1/sessions/:sessionId/clips` — creates Clip row linked to AudioFile (Backend commit `50479b8`)
+- Server-side peak generation (200 RMS values) in upload handler; `AudioFile.peaks` JSONB persisted
+- Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
+- Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
+- All clip import states: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
+- `WaveformPlaceholder` for null/empty peaks
+- `PeakGenerator` abstraction (client-side preview-only path)
+- `ClipData.importStatus` field added and typed
+- Live BPM used for clip duration calculation (was hardcoded 128)
+- ADR-006: server-side peak generation — `docs/adr/ADR-006-server-side-peak-generation.md`
+
+**Ticket sequence (all complete):**
+- **7-A (Backend):** ✅ `POST /api/v1/sessions/:sessionId/clips` + `AudioFile.peaks` schema + 200-peak upload handler + WS fan-out (commit `50479b8`)
+- **7-B (Designer):** ✅ `docs/specs/audio-file-import.md` — all 17 sections
+- **7-C (Frontend):** ✅ Drag-and-drop import, `PeakGenerator` abstraction, all clip import states (commit `29aa36c`)
+- **7-D (Frontend):** ✅ Server peaks wired; `audio.uploaded` WS handler; snapshot peak hydration; live BPM; failed-decode warn tint (commit `e25f506`)
+- **7-K (UAT):** ✅ Sprint 7 UAT — CONDITIONAL PASS, zero P0/P1, 4 P2/P3 fixed (commit `30bbae4` backend, `30bbae4` frontend)
+
+## 11c. Sprint 8 — PLANNING
+
+**Goal:** TBD — PM to define scope.
+
+Sprint 8 scope has not been set. No work orders have been issued. Candidates (not committed):
+- Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API)
+- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
+- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
+- Plugin parameter editing — PM UX decision required first
 
 ---
 
@@ -459,10 +483,10 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| Server still boots with `InMemoryStorageAdapter` — no live PostgreSQL | Sprint 6 all features | 6-A: first Prisma migration + adapter switch |
-| R2 env vars not in `.env.example` yet | Sprint 6 6-C/6-D | 6-E: env docs + local setup guide |
+| Sprint 8 scope not defined | All Sprint 8 agents | PM defines sprint goal and issues work orders |
 | §Interaction Model empty in `docs/specs/arranger-zoom.md` | Frontend (zoom feature, deferred) | Designer fills keyboard shortcuts + scroll-to-zoom behavior when zoom sprint is scheduled |
-| `BAR_W` hardcoded in ~13 arranger sites | FR-02 zoom work (deferred) | Must be abstracted to `barW = BAR_W * zoomX` — not blocking Sprint 6 |
+| `BAR_W` hardcoded in ~13 arranger sites | FR-02 zoom work (deferred) | Must be abstracted to `barW = BAR_W * zoomX` — not blocking until FR-02 is scheduled |
+| Audio playback from real `AudioBuffer` not yet wired | Musicians who upload files cannot hear them back | Sprint 8 target if PM schedules it; requires R2 presigned URL → `fetch` → `decodeAudioData` → `AudioBufferSourceNode` per clip |
 
 ---
 
@@ -470,15 +494,15 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ### For PM
 
-1. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
-2. **Resizable panels + zoom sprint scheduling** — FR-01 and FR-02 were deferred from Sprint 4. Which sprint do they land? Must be scheduled before Frontend can pick them up.
-3. **Local setup guide location** — `docs/guides/local-setup.md` is the Sprint 6 target. Does this path need to exist before Sprint 6 starts, or is it created as part of 6-E?
+1. **Sprint 8 scope** — What is the next sprint goal? Candidates: audio playback, resizable panels, timeline zoom, plugin param editing. PM must define before any Sprint 8 work order is issued.
+2. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
+3. **Resizable panels + zoom sprint scheduling** — FR-01 and FR-02 were deferred from Sprint 4. Which sprint do they land? Must be scheduled before Frontend can pick them up.
 
 ### For Tech Lead
 
 1. **ADR for panels/zoom** — Still needed when FR-01 + FR-02 are scheduled. Panel persistence (localStorage key shape), zoom state scope (global vs. per-view), and BAR_W → barW abstraction. Write ADR before Frontend picks up those tickets.
 2. **Comment pin positions at zoom** — Ruler pins use `startBar * BAR_W` (hardcoded). When FR-02 lands, they need `startBar * barW`. Ensure this is captured in the zoom ticket.
-3. **ADR-002 status** — ADR-002 (in-memory store) is being superseded by Sprint 5/6 persistence work. Mark it Superseded once PrismaStorageAdapter is live.
+3. **ADR-002 status** — ADR-002 (in-memory store) is superseded by the Sprint 5/6 persistence work. `PrismaStorageAdapter` is live. Mark ADR-002 Superseded in `docs/adr/`.
 
 ---
 
@@ -501,6 +525,12 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ### ADR-005 — Session Hydration Strategy (accepted 2026-05-18)
 **Decision:** On WS join, the server sends `session.snapshot` with `session`, `tracks`, and `clips` fields from the DB. Ephemeral runtime state (transport position, track locks, active presence) is not persisted — it is rebuilt from live WS events. Unknown session IDs receive WS close code 4404. Frontend eliminates hard-coded seed state for track/clip entities; hydrates from snapshot instead.
+
+### ADR-006 — Server-Side Waveform Peak Generation (accepted 2026-05-19)
+**Decision:** The server generates waveform peak data (200 × Float32) during audio file upload. `AudioFile.peaks` (JSONB) is the persistent source of truth. Peaks are returned in the upload response and fanned out via WS `audio.uploaded`. The client-side `PeakGenerator` is retained as a local-preview-only path (renders while upload is in flight; replaced by server peaks on upload complete). Session snapshot includes peaks per clip so waveforms hydrate on session reopen without recalculation.
+**Rationale:** For a 200-sample overview, compressed vs. lossless peaks are visually identical. File is already in R2; server generation adds no round trips. Storage cost: ~800 bytes per clip (negligible). All collaborators receive peaks via WS fan-out without decoding audio locally.
+**Full ADR:** `docs/adr/ADR-006-server-side-peak-generation.md`
+**Sprint shipped:** Sprint 7
 
 ### Other key decisions (no ADR)
 
@@ -614,18 +644,16 @@ So that [specific outcome].
 
 ---
 
-## 18. Recommended Next Steps (Sprint 6)
+## 18. Recommended Next Steps (Sprint 8 — Planning)
 
-Ordered by dependency chain.
+Sprint 7 is closed. Sprint 8 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
 
-1. **Backend Engineer: 6-A — First Prisma migration** — Run `prisma migrate dev --name init` against local PostgreSQL, switch `server/index.ts` to `PrismaStorageAdapter`. Verify round-trip through Prisma. This unblocks all other Sprint 6 work.
+1. **PM: Define Sprint 8 scope** — Required before any work order can be issued. Candidates: audio playback from real `AudioBuffer`, resizable panels (FR-01), timeline zoom (FR-02), plugin parameter editing UX.
 
-2. **Backend Engineer: 6-B — Complete PrismaStorageAdapter** — Implement all `StorageAdapter` methods. Soft deletes on comments. BigInt → string serialization for `fileSizeBytes`. Plugin `orderBy: { order: 'asc' }`.
+2. **Frontend Engineer: Audio playback from real `AudioBuffer`** — R2 presigned URL → `fetch` → `decodeAudioData` → `AudioBufferSourceNode` per clip. Replaces procedural synthesis for imported clips. Requires PM to schedule and a Designer spec on playback UI states (loading, playing, error).
 
-3. **Backend Engineer: 6-C — R2 upload endpoint** — `POST /api/v1/sessions/:id/audio`. Multipart upload → R2 PutObject → AudioFile DB row. `music-metadata` for duration/sampleRate extraction. Role check: owner/collaborator only.
+3. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded now that `PrismaStorageAdapter` is live. Low effort; clean up before Sprint 8 begins.
 
-4. **Backend Engineer: 6-D — Presigned streaming URL** — `GET /api/v1/audio/:id/stream-url`. 1-hour TTL. Any session member may stream. Returns `{ url, expiresAt }`.
+4. **Tech Lead: ADR for panels/zoom** — Write ADR covering panel persistence (localStorage key shape), zoom state scope, and `BAR_W → barW = BAR_W * zoomX` abstraction before Frontend picks up FR-01 or FR-02. Required before those tickets can be issued.
 
-5. **Backend Engineer: 6-E — Local dev setup** — docker-compose wiring, `.env.example` with R2 vars, `docs/guides/local-setup.md` runbook.
-
-6. **Tech Lead: Documentation sync commit** — After Sprint 6 UAT passes, update all docs and commit per the sprint-close protocol at `docs/process/sprint-close-protocol.md`.
+5. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.

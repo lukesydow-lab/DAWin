@@ -1,13 +1,13 @@
 # DAWin — Project State Snapshot
 
 **Status: Current**
-**Last updated:** 2026-05-18
-**Sprint:** 6 — File Storage (planning)
+**Last updated:** 2026-05-19
+**Sprint:** 8 — Planning
 **Repo:** https://github.com/lukesydow-lab/DAWin
 **Raw handoff:** https://raw.githubusercontent.com/lukesydow-lab/DAWin/main/handoff-documentation/DAWin_PROJECT_STATE.md
 
-> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 is the active sprint (planning).
-> Do not treat any prior sprint items as open. Persistence layer (ADR-004/005, Prisma, StorageAdapter), VU stereo, loop region, clip rename, and session hydration all shipped in Sprint 5.
+> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 is PLANNING (scope not yet defined).
+> Do not treat any prior sprint items as open. Sprint 7 shipped: audio file drag-and-drop import, server-side peak generation (200 RMS values), WS `audio.uploaded` fan-out, all clip import states, snapshot peak hydration, `ClipData.importStatus`, live BPM duration calc, ADR-006.
 
 ---
 
@@ -15,10 +15,11 @@
 
 - **Frontend:** React + Vite + TypeScript + Tailwind CSS v4
 - **Backend:** Fastify at `server/` (TypeScript, tsc-clean). Routes: `GET /api/v1/sessions/:id`, `GET /api/v1/auth/me` (JWT-verified), `POST /api/v1/auth/login`, `POST /api/v1/auth/guest`, `POST/GET/DELETE /api/v1/sessions/:id/comments`, `PATCH .../resolve`, `PATCH .../reopen`, `POST .../replies`. WebSocket: transport sync, presence fan-out, track locking, comment fan-out.
-- **Real-time:** WebSocket active server-side + frontend singleton client (`getWsClient()` in App.tsx). In-memory session store.
+- **Real-time:** WebSocket active server-side + frontend singleton client (`getWsClient()` in App.tsx). In-memory session store + DB-backed via PrismaStorageAdapter.
 - **Auth:** JWT sign/verify via `jose` (HS256). `server/jwt.ts`. `GET /auth/me` verifies Bearer token. `POST /auth/login` + `/auth/guest` issue real JWTs.
-- **Audio:** Web Audio API — single `_audioCtx` singleton, 7 procedural synthesis tracks, full plugin chain per track.
-- **All frontend code:** `src/App.tsx` (single file, ~4,476 lines). No split until Tech Lead approves.
+- **Audio:** Web Audio API — single `_audioCtx` singleton, 7 procedural synthesis tracks (Sprint 8 target: real `AudioBuffer` playback from R2 per clip), full plugin chain per track.
+- **File storage:** Cloudflare R2 bucket `dawin-audio-dev`. Audio files uploaded via `POST /api/v1/sessions/:sessionId/audio`. Server-generated peaks (200 RMS Float32) persisted in `AudioFile.peaks` JSONB.
+- **All frontend code:** `src/App.tsx` (single file). No split until Tech Lead approves.
 
 ---
 
@@ -40,6 +41,8 @@
 | `StatusBar` | Collaborator count, latency, WS status dot (connected/reconnecting/failed/idle) | ✅ |
 | Chat panel | Fixed right-side 280px panel — flat comment list, compose input, unread badge | ✅ |
 | Icon rail | Fixed 28px right edge — FX toggle + chat toggle with unread count | ✅ |
+| `WaveformPlaceholder` | Renders shimmer/empty state when clip has no peaks yet | ✅ Sprint 7 |
+| `PeakGenerator` | Client-side `OfflineAudioContext` peak extraction — preview-only while upload is in flight | ✅ Sprint 7 |
 
 ---
 
@@ -97,22 +100,44 @@ Note: FR-01 and FR-02 were planned for Sprint 4 but deferred due to the persiste
 
 What shipped: ADR-004 (DB schema), ADR-005 (hydration strategy), Prisma schema, StorageAdapter interface, InMemoryStorageAdapter, PrismaStorageAdapter, docker-compose.yml, session hydration on WS join, JWT role from ticket on WS connect, REST sessions wired to storage, live presence cursors from JWT, VU stereo SplitterNode, loop region + clip rename context menu, Sprint 5 UAT (PASS).
 
-## Sprint 6 — ACTIVE (planning phase)
+## Sprint 6 — CLOSED ✅ (2026-05-19)
 
 **Goal:** File Storage — Cloudflare R2 + first real Prisma migration.
 
-Work order: `docs/handoffs/sprint6-backend-workorder.md`
+What shipped: PostgreSQL live, PrismaStorageAdapter active, `POST /api/v1/sessions/:id/audio` R2 upload endpoint, `GET /api/v1/audio/:id/stream-url` presigned streaming URL (1-hour TTL), role enforcement (viewer 403 on upload), docker-compose.yml, `.env.example` with R2 vars, `docs/guides/local-setup.md` runbook.
 
-Ticket sequence:
-- **6-A (Backend):** First Prisma migration + switch to `PrismaStorageAdapter`
-- **6-B (Backend):** Complete `PrismaStorageAdapter` (all StorageAdapter methods)
-- **6-C (Backend):** Cloudflare R2 — `POST /api/v1/sessions/:id/audio` upload endpoint
-- **6-D (Backend):** `GET /api/v1/audio/:id/stream-url` presigned streaming URL
-- **6-E (Backend):** docker-compose + `.env.example` + `docs/guides/local-setup.md`
+## Sprint 7 — CLOSED ✅ (2026-05-19)
+
+**Goal:** Audio File Import — drag-and-drop to timeline, `POST /api/v1/sessions/:sessionId/clips` endpoint, server-side peak generation, waveform rendering from server peaks.
+
+**UAT:** CONDITIONAL PASS — zero P0/P1 defects; 4 P2/P3 defects found and fixed before close.
+
+What shipped:
+- Audio file drag-and-drop + file picker (`I` key) onto arranger timeline
+- `POST /api/v1/sessions/:sessionId/clips` — creates Clip row linked to AudioFile
+- Server-side peak generation (200 RMS values) during upload; `AudioFile.peaks` JSONB persisted
+- Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
+- Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
+- All clip import states: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
+- `WaveformPlaceholder` for null/empty peaks; `PeakGenerator` client-side preview path
+- `ClipData.importStatus` field; live BPM for clip duration calculation
+- ADR-006: server-side peak generation
+
+**Mid-sprint architecture decision:** Server generates peaks during upload (not client-only). See ADR-006.
+
+## Sprint 8 — PLANNING
+
+**Goal:** TBD — PM to define scope.
+
+Sprint 8 scope has not been set. Candidates:
+- Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API)
+- Resizable panels (FR-01)
+- Timeline zoom (FR-02)
+- Plugin parameter editing
 
 ---
 
-## Key state in App component (as of Sprint 5 close)
+## Key state in App component (as of Sprint 7 close)
 
 ```typescript
 // Tracks

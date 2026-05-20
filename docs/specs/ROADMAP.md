@@ -1,13 +1,13 @@
 # DAWin — Product Roadmap
 
 **Status: Partial**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 **Version:** 2.0  
 **Date:** 2026-05-17  
 **Author:** PM (Luke)  
 **Horizon:** Three-product suite — Desktop (full DAW), Web (collaboration companion), Mobile/Tablet (capture companion)
 
-> **⚠️ Staleness note:** The sprint-by-sprint section below covers Sprints 1–3 in detail. Sprint 4 and Sprint 5 sprint sections have not been added to this file — see `STATUS.md` Done tables for authoritative sprint history. The Product Suite Roadmap section (web/desktop/mobile) is current. Sprint 2 is incorrectly shown as "Active" in the sprint-by-sprint section — it is CLOSED. Sprints 1–5 are all CLOSED. Sprint 6 is active.
+> **⚠️ Staleness note:** The sprint-by-sprint section below covers Sprints 1–3 in detail. Sprints 4–7 sprint sections have not been fully added to this file — see `STATUS.md` Done tables for authoritative sprint history. The Product Suite Roadmap section (web/desktop/mobile) is current. Sprint 2 is incorrectly shown with partial exit criteria in this file — it is CLOSED. Sprints 1–7 are all CLOSED. Sprint 8 is PLANNING.
 
 ---
 

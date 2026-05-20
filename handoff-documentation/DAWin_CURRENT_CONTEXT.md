@@ -1,7 +1,7 @@
 # DAWin — Current Project Context
 
 **Status: Current**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 **Maintained by:** Tech Lead
 **Read this file first.** It is the single entry point for outside collaborators and new agents.
 
@@ -9,34 +9,57 @@
 
 ## Current Sprint
 
-**Sprint 6 — File Storage**
-**Status:** Planning (not yet started)
-**Work order:** `docs/handoffs/sprint6-backend-workorder.md`
-**Owner:** Backend Engineer
+**Sprint 8 — TBD**
+**Status:** Planning
+**Sprint plan:** Not yet written — PM to define scope
 
-Sprint 6 goal: connect the persistence layer built in Sprint 5 to real infrastructure. Run the first Prisma migration against PostgreSQL, activate `PrismaStorageAdapter`, and integrate Cloudflare R2 for audio file upload and streaming.
+Sprint 7 is CLOSED. Sprint 8 scope has not been defined. The PM will assign the next sprint goal.
 
 ---
 
 ## Recently Completed Sprint
 
-**Sprint 5 — Persistence Layer Live**
-**Closed:** 2026-05-18
-**UAT:** PASS — zero P0/P1 defects
+**Sprint 7 — Audio to Timeline**
+**Closed:** 2026-05-19
+**UAT:** CONDITIONAL PASS — zero P0/P1 defects; 4 P2/P3 defects found and fixed before close
 
-What shipped in Sprint 5:
-- ADR-004: PostgreSQL + Prisma schema (`server/prisma/schema.prisma`)
-- ADR-005: Session hydration strategy on WS join
-- `StorageAdapter` interface (`server/storage/adapter.ts`) — the only contract route handlers depend on
-- `InMemoryStorageAdapter` (dev/test fallback when `DATABASE_URL` is not set)
-- `PrismaStorageAdapter` (full Prisma implementation — activated in Sprint 6)
-- `docker-compose.yml` with postgres:15-alpine
-- Session hydration on WS join (`session.snapshot` includes `session`, `tracks`, `clips` from DB)
-- JWT role decoded on WS connect — hardcoded `dev-user-001` / `role: 'owner'` removed
-- REST sessions wired to `StorageAdapter` (POST/GET round-trip through Prisma)
-- Live presence cursors driven by JWT-verified WS events
-- VU stereo SplitterNode calibration + 0 VU tick mark
-- Loop region overlay + inline clip Rename context menu items
+What shipped in Sprint 7:
+- Audio file drag-and-drop + file picker (`I` key) onto arranger timeline
+- `POST /api/v1/sessions/:sessionId/clips` — creates Clip row linked to AudioFile
+- Server-side peak generation (200 RMS values) in upload handler; `AudioFile.peaks` JSONB persisted
+- Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
+- Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
+- All clip import states render correctly: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
+- `WaveformPlaceholder` for null/empty peaks
+- `PeakGenerator` abstraction (client-side preview-only path — runs while upload is in flight)
+- `ClipData.importStatus` field added and typed
+- Live BPM used for clip duration calculation (was hardcoded 128)
+- ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md` — server-authoritative peak generation
+
+### Mid-Sprint Architectural Decision — Peak Generation (2026-05-19)
+
+A mid-sprint decision shifted peak generation from client-only to server-authoritative. The PM raised: *"Is it quicker to render peaks from the compressed version? And if we delivered those streaming-quality peaks to all devices while the full-quality peaks render on the host's computer, would it feel more seamless? Should we cache those streaming quality peak files on the server?"*
+
+Tech analysis confirmed: for a 200-sample overview, compressed and lossless peaks are visually identical; the server already has the file in R2; storing 800 bytes of JSONB per clip is negligible. Decision: server generates peaks during upload, returns them in the response, fans them out via WS to all collaborators, and persists them in `AudioFile.peaks`. The client-side `PeakGenerator` is retained as a local preview path only (renders while upload is in flight; replaced by server peaks on upload complete).
+
+ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md` (Tech Lead)
+
+---
+
+## Previously Completed Sprint
+
+**Sprint 6 — File Storage + Audio Upload**
+**Closed:** 2026-05-19
+**UAT:** Not formally run — all exit criteria verified manually
+
+What shipped in Sprint 6:
+- First Prisma migration run — all database tables created from `server/prisma/schema.prisma`
+- Server now boots with `PrismaStorageAdapter (PostgreSQL)` — data persists across restarts
+- `POST /api/v1/sessions/:sessionId/audio` — multipart audio upload to Cloudflare R2; metadata extracted via `music-metadata`; `AudioFile` DB row created
+- `GET /api/v1/audio/:audioFileId/stream-url` — presigned R2 URL (1hr TTL); session membership enforced
+- `docs/guides/local-setup.md` — first-time dev setup runbook
+- Infrastructure live: Docker PostgreSQL + Cloudflare R2 bucket `dawin-audio-dev` connected
+- `tsx` replaces `ts-node`; `.env` added to `.gitignore`
 
 ---
 
@@ -70,25 +93,25 @@ The following is fully interactive in the running prototype (`npm run dev`):
 - Deep links: `?t=&track=&clip=&range=` URL format; playhead seek + highlight on navigate (1500ms auto-clear)
 
 **What is NOT yet implemented:**
-- Resizable panels (FR-01) — deferred from Sprint 4
-- Timeline zoom (FR-02) — deferred from Sprint 4
-- Plugin parameter editing — no spec finalized
-- Audio file upload/playback — Sprint 6–7 targets
-- Mobile capture screen — not started
+- Resizable panels (FR-01) — deferred from Sprint 4; spec at `docs/specs/resizable-workspace-panels.md`
+- Timeline zoom (FR-02) — deferred from Sprint 4; spec at `docs/specs/arranger-zoom.md`
+- Plugin parameter editing — no spec finalized; PM decision required on UX pattern
+- Audio playback from uploaded files — clips play via procedural synthesis; real `AudioBuffer` playback from R2 not yet wired
+- Mobile capture screen — not started; desktop-first mandate
 
 ---
 
 ## Current Technical State
 
-**Frontend:** React 18 + Vite + TypeScript strict mode + Tailwind CSS v4. Single file: `src/App.tsx` (~4,476 lines). All components in one file by design until a second screen is scaffolded.
+**Frontend:** React 18 + Vite + TypeScript strict mode + Tailwind CSS v4. Single file: `src/App.tsx`. All components in one file by design until a second screen is scaffolded.
 
 **Backend:** Fastify + `@fastify/websocket` at `server/`. TypeScript, tsc-clean. `tsc --noEmit --noUnusedLocals --noUnusedParameters` passes.
 
-**Persistence:** `StorageAdapter` interface wired. Server boots with `InMemoryStorageAdapter` when `DATABASE_URL` is unset (dev default). `PrismaStorageAdapter` built but not yet activated — that is Sprint 6-A.
+**Persistence:** `PrismaStorageAdapter` active when `DATABASE_URL` is set (Sprint 6+). `InMemoryStorageAdapter` fallback for dev/test. Prisma migration `20260520011302_add_audio_file_peaks` adds `peaks` column to `AudioFile`.
 
 **Auth:** JWT via `jose` (HS256). `server/jwt.ts`. 8h user / 72h guest tokens.
 
-**Database schema:** `server/prisma/schema.prisma` — canonical. Tables: `Session`, `Track`, `Clip`, `PluginInstance`, `Comment`, `CommentReply`, `AudioFile`, `SessionMember`.
+**Database schema:** `server/prisma/schema.prisma` — canonical. Tables: `Session`, `Track`, `Clip`, `PluginInstance`, `Comment`, `CommentReply`, `AudioFile` (with `peaks DOUBLE PRECISION[]`), `SessionMember`.
 
 **CI:** GitHub Actions — `tsc --noEmit --noUnusedLocals --noUnusedParameters` + Vite build.
 
@@ -103,17 +126,14 @@ The following is fully interactive in the running prototype (`npm run dev`):
 | Sprint 3 | 2026-05-15 | Comments API + WS fan-out, WS client singleton, deep links, ruler pins, ThreadPopover, chat panel |
 | Sprint 4 | 2026-05-18 | Closed — FR-01/FR-02 deferred; sprint used for Sprint 5 pre-work (ADR-004, Prisma schema, StorageAdapter) |
 | Sprint 5 | 2026-05-18 | Full persistence layer, session hydration, JWT WS role, VU stereo, loop region, clip rename, Sprint 5 UAT pass |
+| Sprint 6 | 2026-05-19 | Docker PostgreSQL live, Cloudflare R2 connected, audio upload + presigned streaming endpoints, local setup guide |
+| Sprint 7 | 2026-05-19 | Audio file drag-and-drop + file picker, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, ADR-006 |
 
 ---
 
 ## Active Blockers
 
-| Blocker | Who is blocked | What resolves it |
-|---|---|---|
-| Server still boots with `InMemoryStorageAdapter` | Sprint 6 all features | 6-A: first Prisma migration + adapter switch |
-| R2 env vars not documented | Sprint 6 6-C/6-D | 6-E: `.env.example` + local setup guide |
-
-No P0/P1 defects are currently open.
+No blockers. No P0/P1 defects are currently open. Sprint 8 scope not yet defined.
 
 ---
 
@@ -121,22 +141,25 @@ No P0/P1 defects are currently open.
 
 | Decision | Blocks |
 |---|---|
+| Sprint 8 scope — what is the next sprint goal? | All Sprint 8 work |
 | Plugin parameter editing UX (expanding card vs. side panel vs. popover) | Feature spec + sprint scheduling |
 | Resizable panels + timeline zoom sprint scheduling (FR-01, FR-02 deferred from Sprint 4) | Frontend can't start until PM schedules |
 | Desktop framework choice (Electron vs. Tauri vs. native) | Desktop app Sprint 1 |
 | Mobile framework choice | Mobile Sprint 1 |
+| Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API) | First time clips are heard, not just seen |
 
 ---
 
-## Next Sprint Priorities (Sprint 6)
+## Next Sprint Priorities (Sprint 8 — Planning)
 
-All Sprint 6 work is Backend Engineer work:
+Sprint 8 scope is not yet defined. PM will define the next sprint goal. Candidates (not committed):
 
-1. **6-A** — First Prisma migration (`prisma migrate dev --name init`) + switch `server/index.ts` to `PrismaStorageAdapter`
-2. **6-B** — Complete all `StorageAdapter` method implementations in `PrismaStorageAdapter`
-3. **6-C** — Cloudflare R2: `POST /api/v1/sessions/:id/audio` multipart upload endpoint
-4. **6-D** — `GET /api/v1/audio/:id/stream-url` presigned streaming URL
-5. **6-E** — docker-compose wiring, `.env.example` R2 vars, `docs/guides/local-setup.md`
+1. **Audio playback from uploaded files** — wire `AudioBuffer` from R2 presigned URL into the Web Audio graph per clip (replaces procedural synthesis for imported clips)
+2. **Resizable panels (FR-01)** — deferred from Sprint 4; spec exists at `docs/specs/resizable-workspace-panels.md`
+3. **Timeline zoom (FR-02)** — deferred from Sprint 4; spec exists at `docs/specs/arranger-zoom.md`
+4. **Plugin parameter editing** — PM decision on UX pattern required before spec can be written
+
+PM must define scope before any Sprint 8 work order is issued.
 
 ---
 
@@ -150,13 +173,16 @@ Read in this order:
 | 2 | `STATUS.md` | What is actively in progress? What is blocked? |
 | 3 | `handoff-documentation/DAWin_HANDOFF.md` | Full product + technical context for the whole system |
 | 4 | `handoff-documentation/DAWin_PROJECT_STATE.md` | Component map, audio graph, App state, sprint history |
-| 5 | `docs/specs/ROADMAP.md` | Sprint-by-sprint roadmap (note: Sprints 4–5 not yet reflected — see STATUS.md Done tables) |
-| 6 | `docs/specs/PRD.md` | Full product requirements |
-| 7 | `docs/adr/` | Architecture decisions (ADR-001 through ADR-005) |
-| 8 | `docs/specs/<feature>.md` | Feature implementation specs |
-| 9 | `docs/handoffs/<feature>.md` | Agent work handoffs and work orders |
-| 10 | `docs/defects.md` | UAT defect history |
+| 5 | `docs/sprints/README.md` | Index of all sprint plans — then read the specific sprint file you need |
+| 6 | `docs/specs/ROADMAP.md` | Phase-level roadmap across all three products (web, desktop, mobile) |
+| 7 | `docs/specs/PRD.md` | Full product requirements |
+| 8 | `docs/adr/README.md` | Index of all architecture decisions |
+| 9 | `docs/specs/README.md` | Index of all feature specs |
+| 10 | `docs/handoffs/active/` | Active work orders for the current sprint |
+| 11 | `docs/defects.md` | UAT defect history |
 
+**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-07.md`
+**Active work orders:** `docs/handoffs/active/` — work orders for sprints currently in progress
 **Sprint close protocol:** `docs/process/sprint-close-protocol.md`
 
 ---
@@ -165,10 +191,13 @@ Read in this order:
 
 These documents contain accurate historical information but should NOT be treated as current state:
 
-- `docs/specs/ROADMAP.md` — Sprint 2 is incorrectly labeled "Active"; Sprint 3 original plan was superseded by the actual Sprint 3 scope. Use STATUS.md Done tables for authoritative sprint history.
-- Sprint goal sections at the bottom of `STATUS.md` for Sprints 3, 4, and 5 — marked HISTORICAL ARCHIVE; do not treat as active scope.
-- `docs/handoffs/` files from Sprints 1–5 — historical work records; not current instructions.
-- `handoff-documentation/DAWin_HANDOFF.md` Section 10 "Sprint 4 targets" — some items listed were deferred, not abandoned; consult Sprint 6 active work for what is next.
+- `docs/handoffs/archive/` — completed handoff records from Sprints 1–5; historical work records only, not current instructions
+- `docs/handoffs/active/sprint-06-backend-workorder.md` — Sprint 6 work order; sprint is closed, this is a historical reference
+- `docs/handoffs/` Sprint 7 handoff files — Sprint 7 is now closed; these are historical work records
+- `docs/specs/sprint6-plan.md` — superseded by `docs/sprints/sprint-06.md`; also contains a stale provider recommendation (Minio/S3 — the chosen provider is Cloudflare R2)
+- `docs/features/SPRINT-PLAN.md` — superseded by `docs/sprints/`; covered Sprint 3 only and was never updated
+- Sprint goal sections in `STATUS.md` marked HISTORICAL ARCHIVE — do not treat as active scope
+- `handoff-documentation/DAWin_HANDOFF.md` Section 10 "Sprint 4 targets" — some items listed were deferred, not abandoned; consult Sprint 7 active work for what is next
 
 ---
 
@@ -204,9 +233,13 @@ You are assisting with DAWin — a collaborative browser-based digital audio wor
 **Source of truth rules:**
 
 - Repo docs are authoritative. If you have uploaded project files that are older, the repo is correct.
-- Every document has a `Status:` marker in its header. Only documents marked `Status: Current` should be treated as ground truth.
-- When two documents conflict, the most recently dated document wins.
-- If still unclear after checking dates, ask the PM (Luke) — do not guess or act on stale information.
+- Every document has a `Status:` marker in its header. Only documents marked `Status: Current` should be treated as ground truth. A document with a newer modified date but `Status: Superseded` or `Status: Historical Archive` is NOT authoritative — recency alone does not grant authority.
+- **When two documents conflict, resolve in this order:**
+  1. The document higher in the source-of-truth hierarchy wins:
+     `DAWin_CURRENT_CONTEXT.md` → `STATUS.md` → `DAWin_HANDOFF.md` → `DAWin_PROJECT_STATE.md` → `ROADMAP.md` → `PRD.md` → ADRs → feature specs.
+  2. If both documents are at the same hierarchy tier, the document marked `Status: Current` with the newest in-document `Last updated` date wins.
+  3. If the conflict is still unclear after applying steps 1 and 2, stop and report the conflict to Luke. Do not guess, merge, or synthesize a resolution.
+- **Important:** Recency alone does not grant authority. A file with a newer Git modified date but `Status: Superseded`, `Status: Deprecated`, or `Status: Historical Archive` loses to a higher-tier current document.
 
 **Documents to treat as historical background only (not current instructions):**
 
@@ -238,4 +271,4 @@ If you find a document that claims an older sprint is active, claims a feature i
 - `server/prisma/schema.prisma` — canonical database schema
 - `server/types.ts` — all shared domain types
 - `server/index.ts` — how the server is wired together
-- `docs/adr/` — ADR-001 through ADR-005
+- `docs/adr/` — ADR-001 through ADR-006

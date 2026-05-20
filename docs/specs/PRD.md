@@ -1,11 +1,11 @@
 # DAWin — Product Requirements Document
 
 **Status: Current**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 **Version:** 2.0  
 **Date:** 2026-05-17  
 **Author:** PM (Luke)  
-**Sprint context:** 6 — File Storage (planning)  
+**Sprint context:** 8 — Planning (Sprint 7 CLOSED 2026-05-19)
 **Document status:** Living document — update at each sprint review
 
 ---

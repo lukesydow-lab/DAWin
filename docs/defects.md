@@ -1,9 +1,9 @@
 # UAT Defect Register
 
 **Status: Current**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 
-> Covers Sprints 1–5. All P0/P1 defects resolved or explicitly deferred. Open items from Sprint 3 UAT (P2/P3) and Sprint 2 UAT (P1 WS role enforcement) are listed below — the WS role gap was addressed in Sprint 5 (5-C). Sprint 5 UAT: PASS, zero P0/P1 defects (6 P2/P3 found and fixed during UAT run).
+> Covers Sprints 1–7. All P0/P1 defects resolved or explicitly deferred. Sprint 7 UAT: CONDITIONAL PASS, zero P0/P1 defects; 4 P2/P3 defects (SPRINT-7-001 through SPRINT-7-004) found during UAT and fixed before close (backend commit `24792ce`, frontend commit `30bbae4`).
 
 ---
 
@@ -245,3 +245,47 @@ Given that the ThreadPopover renders and functions correctly when reachable (P1-
 **Expected:** Opacity 0.6; label at `right: calc(100% + 2px)`.
 **Actual:** Opacity 0.5; label at hardcoded `left: -10`. Cosmetic deviation.
 **Sprint:** 5
+
+---
+
+# UAT Defect Register — Sprint 7
+
+> **Source:** UAT Agent sign-off run, 2026-05-19
+> **Features tested:** Audio file drag-and-drop import, file picker (ImportButton + I key), Cloudflare R2 upload, server-side peak generation (200 RMS values), WS audio.uploaded fan-out, all clip import states, WaveformPlaceholder, multi-file drop toast, PeakGenerator abstraction
+> **Status key:** `open` · `in progress` · `fixed` · `deferred`
+
+## [SPRINT-7-001] Migration adds peaks column with no DEFAULT — pre-Sprint-7 AudioFile rows return NULL peaks
+**Priority:** P2 | **Status:** fixed (commit `24792ce`)
+**File:line:** `server/prisma/migrations/20260520011302_add_audio_file_peaks/migration.sql:2`
+**Steps to reproduce:** Add the migration to a DB with existing AudioFile rows. Call `GET /api/v1/audio/:id/stream-url` or any path that calls `getAudioFile()`. `mapAudioFileRow` returns `peaks: null` (not `[]`) because the column was added with no `DEFAULT '{}'`.
+**Expected:** `ALTER TABLE "AudioFile" ADD COLUMN "peaks" DOUBLE PRECISION[] NOT NULL DEFAULT '{}';` so existing rows safely return an empty array.
+**Actual:** `ALTER TABLE "AudioFile" ADD COLUMN "peaks" DOUBLE PRECISION[];` — no default. Existing rows yield NULL. The `prisma-adapter.ts:136` mapping does `peaks: row.peaks` with no null-coalescing guard, so callers receive `null` typed as `number[]`. Any runtime use of `.length` on such a value (e.g. `broadcastAudioUploaded` at `server/ws/handler.ts:416`) will throw for pre-Sprint-7 rows.
+**Sprint:** 7
+**Resolution:** Backend fix in commit `24792ce` — migration updated with `DEFAULT '{}'`; `prisma-adapter.ts` null-coalescing guard added (`peaks: row.peaks ?? []`).
+
+## [SPRINT-7-002] Session snapshot hydration does not populate audioFileId or importPeaks on clips — waveforms absent on session open
+**Priority:** P2 | **Status:** fixed (commit `30bbae4`)
+**File:line:** `src/App.tsx:4817–4828`
+**Steps to reproduce:** Upload an audio file in session A. Close and reopen the session (triggering a fresh WS session.snapshot). Observe clips loaded from the snapshot.
+**Expected:** Exit criterion #5 — "future session opens render waveform from snapshot without re-decode." Clips loaded from the snapshot should show the waveform using peaks stored in the DB on the associated AudioFile row.
+**Actual:** The snapshot hydration mapping (lines 4817–4828) does not set `audioFileId` or `importPeaks` on hydrated clips. `ClipRow` in the snapshot payload does not carry peaks, and the handler does not fetch them from the associated AudioFile. All hydrated clips render `WaveformPlaceholder` instead of the persisted waveform. Additionally, if an `audio.uploaded` WS event arrives for a collaborator upload after a snapshot load, the `c.audioFileId !== p.audioFileId` check at line 4913 always fails for snapshot-loaded clips (audioFileId is undefined), so server peaks can never be applied via WS to those clips.
+**Sprint:** 7
+**Resolution:** Frontend fix in commit `30bbae4` — snapshot hydration handler updated to map `audioFileId` and `peaks` from `ClipRow` onto hydrated clips; `importStatus` set to `'complete'` for clips with peaks, `'uploading'` otherwise.
+
+## [SPRINT-7-003] BPM hardcoded to 128 in import pipeline — clip duration wrong for non-128 sessions
+**Priority:** P2 | **Status:** fixed (commit `30bbae4`)
+**File:line:** `src/App.tsx:2710`
+**Steps to reproduce:** Create a session at 90 BPM. Import a 10-second audio file. Observe clip length in bars.
+**Expected:** Clip length = `ceil(10 / (60 / 90 / 4))` ≈ 6 bars (at 90 BPM).
+**Actual:** `const bpm = 128` hardcoded. Clip length = `ceil(10 / (60 / 128 / 4))` ≈ 8.5 → 9 bars. The TODO comment at line 2710 acknowledges the gap but leaves it unresolved.
+**Sprint:** 7
+**Resolution:** Frontend fix in commit `30bbae4` — import handler reads live `bpm` state from App component; TODO comment removed.
+
+## [SPRINT-7-004] failed-decode clips have no visual differentiation from WaveformPlaceholder on non-imported clips
+**Priority:** P3 | **Status:** fixed (commit `30bbae4`)
+**File:line:** `src/App.tsx:1742–1746`
+**Steps to reproduce:** Trigger a decode failure (mock or environment without Web Audio API). Observe the clip compared to a pre-upload clip.
+**Expected:** Exit criterion states "failed-decode (placeholder + toast)." The spec implies a distinct visual signal for decode failure on the clip body — the toast fires correctly (line 2758), but the clip renders identically to any other WaveformPlaceholder state (no danger tint, no badge).
+**Actual:** `isFailed` only covers `importStatus === 'failed-upload'`. `failed-decode` clips show the same untinted WaveformPlaceholder as clips with no peaks. No badge is rendered. The toast fires, but the clip itself gives no persistent failure signal. A collaborator who missed the toast has no way to know the waveform is unavailable vs. simply still loading.
+**Sprint:** 7
+**Resolution:** Frontend fix in commit `30bbae4` — `isFailed` logic extended to include `importStatus === 'failed-decode'`; failed-decode clips receive `C.warn` tint (distinct from `C.danger` for failed-upload) so persistent visual state is available after the toast clears.

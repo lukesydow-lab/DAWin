@@ -1,10 +1,10 @@
 # Project DAWin — Status Board
 
 **Status: Current**
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 
-> **Last updated:** 2026-05-18 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · **Sprint 6 PLANNING**
-> **Sprint:** 6 — Planning  
+> **Last updated:** 2026-05-19 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · **Sprint 8 PLANNING**
+> **Sprint:** 7 CLOSED · Sprint 8 PLANNING
 > **Owner:** Luke (PM)
 
 > **⚠️ Agent instruction — keep this file current:**  
@@ -16,15 +16,59 @@
 
 ---
 
-## Sprint 6 Active Work
+## Sprint 8 Active Work
 
 | ID | Agent | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| 6-A | Backend Engineer | First Prisma migration + switch to PrismaStorageAdapter | P0 | Not started |
-| 6-B | Backend Engineer | Complete PrismaStorageAdapter (all StorageAdapter methods) | P0 | Not started |
-| 6-C | Backend Engineer | Cloudflare R2 integration — audio upload endpoint | P0 | Not started |
-| 6-D | Backend Engineer | Presigned streaming URL endpoint | P0 | Not started |
-| 6-E | Backend Engineer | docker-compose + .env.example + local setup guide | P1 | Not started |
+| — | — | Sprint 8 not yet planned — PM to define scope | — | Not started |
+
+## Sprint 8 Exit Criteria
+
+> Sprint 8 scope not yet defined. PM will fill in exit criteria when sprint is planned.
+
+- [ ] Sprint 8 scope TBD by PM
+
+---
+
+## Sprint 7 Exit Criteria — ALL CLOSED ✅
+
+> Sprint 7 CLOSED 2026-05-19. Zero P0/P1 defects at UAT sign-off. 4 P2/P3 defects found and fixed before close.
+
+- [x] Audio file drag-and-drop onto arranger timeline creates a Clip in uploading state
+- [x] `I` key opens file picker as fallback import path
+- [x] `POST /api/v1/sessions/:sessionId/clips` endpoint creates Clip row linked to AudioFile
+- [x] Server generates 200 RMS peak values during upload; `AudioFile.peaks` persisted as JSONB
+- [x] Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
+- [x] Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
+- [x] All clip import states render correctly: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
+- [x] `WaveformPlaceholder` renders for null/empty peaks
+- [x] `ClipData.importStatus` field present and typed
+- [x] Live BPM used for clip duration calculation (was hardcoded 128)
+- [x] ADR-006 committed: `docs/adr/ADR-006-server-side-peak-generation.md`
+- [x] `tsc --noEmit --noUnusedLocals --noUnusedParameters` passes after all tickets
+- [x] Sprint 7 UAT signed off — CONDITIONAL PASS, zero P0/P1 defects (2026-05-19)
+
+## Done ✓ — Sprint 7 (closed 2026-05-19)
+
+| Task | Completed by | Date |
+|------|--------------|------|
+| 7-A: `POST /api/v1/sessions/:sessionId/clips` endpoint + server-side peak generation (`AudioFile.peaks`, upload response, WS fan-out) | Backend Engineer | 2026-05-19 |
+| 7-B: Designer spec `docs/specs/audio-file-import.md` — all 17 sections, Status: Current | Designer | 2026-05-19 |
+| 7-C: Audio file import — drag-and-drop, file picker, `PeakGenerator` abstraction, all clip import states | Frontend Engineer | 2026-05-19 |
+| 7-D: Server peaks wired into clip state; `audio.uploaded` WS handler; snapshot peak hydration; live BPM; failed-decode warn tint | Frontend Engineer | 2026-05-19 |
+| 7-K: Sprint 7 UAT — PASS, zero P0/P1 defects; 4 P2/P3 defects found and fixed before close | UAT | 2026-05-19 |
+
+## Done ✓ — Sprint 6 (closed 2026-05-19)
+
+| Task | Completed by | Date |
+|------|--------------|------|
+| 6-A: First Prisma migration (`20260519192307_init`) — all tables created; server boots with PrismaStorageAdapter (PostgreSQL) | Backend Engineer | 2026-05-19 |
+| 6-B: PrismaStorageAdapter fully implemented — all StorageAdapter methods complete | Backend Engineer | 2026-05-19 |
+| 6-C: `POST /api/v1/sessions/:sessionId/audio` — multipart upload to R2, music-metadata extraction, AudioFile DB row | Backend Engineer | 2026-05-19 |
+| 6-D: `GET /api/v1/audio/:audioFileId/stream-url` — presigned R2 URL (1hr TTL), session membership enforced | Backend Engineer | 2026-05-19 |
+| 6-E: `docs/guides/local-setup.md` + `.env.example` R2 vars documented | Backend Engineer | 2026-05-19 |
+| Infrastructure: Docker PostgreSQL live, Cloudflare R2 bucket `dawin-audio-dev` connected and verified | PM | 2026-05-19 |
+| Dependencies: tsx replaces ts-node, @fastify/websocket updated to v11, pino-pretty added, .env added to .gitignore | Backend Engineer | 2026-05-19 |
 
 ## Sprint 6 Blocked
 
@@ -45,12 +89,12 @@
 | 5-A: Session hydration on WS join — session.snapshot extended with DB-backed session metadata, tracks, clips | Backend Engineer | 2026-05-18 |
 | 5-B: sessions.ts GET/POST wired to storage — POST /sessions creates DB row, GET /sessions/:id reads from DB | Backend Engineer | 2026-05-18 |
 | 5-C: JWT role on WS connect — WS ticket decoded; userId, displayName, color, role from token; replaces hardcoded dev-user-001 | Backend Engineer | 2026-05-18 |
-| 5-D: Frontend consumes session.snapshot tracks/clips — seed state eliminated for track/clip entities; hydrated from DB on join | Frontend Engineer | 2026-05-18 |
-| 5-E: Presence verification with real user IDs — presence cursors driven by live WS events; userId verified from JWT | Backend Engineer | 2026-05-18 |
+| 5-D: ✅ REMEDIATED — case 'session.snapshot' handler added; track/clip/comment/transport state hydrated from payload; INITIAL_TRACKS no longer used in production flow; deep link resolver uses live state (commit c235c7e) | Frontend Engineer | 2026-05-19 |
+| 5-E: ✅ REMEDIATED — presence.joined/left wired to state; DEMO_PRESENCE removed from all render paths; cursors only render on real WS events (commit c235c7e) | Frontend Engineer | 2026-05-19 |
 | 5-F: addReply race fix + InMemoryStorageAdapter.reset() — test isolation verified; no race condition on concurrent replies | Backend Engineer | 2026-05-18 |
 | 5-G: Graceful shutdown (SIGTERM/SIGINT) — prisma.$disconnect() hook in server/index.ts | Backend Engineer | 2026-05-18 |
 | 5-H: DB startup health check — clear error message and non-zero exit if DATABASE_URL set but DB unreachable | Backend Engineer | 2026-05-18 |
-| 5-I: VU stereo meters + 0 VU tick mark — true stereo SplitterNode calibration, visual tick at unity gain | Frontend Engineer | 2026-05-18 |
+| 5-I: ⚠️ PARTIAL — two VU columns render correctly; 0 VU tick mark visual present; but both channels driven by same mono RMS signal — no ChannelSplitterNode in audio graph. P2, does not block Sprint 6. | Frontend Engineer | 2026-05-18 |
 | 5-J: Loop region + inline clip Rename — context menu completions wired and working | Frontend Engineer | 2026-05-18 |
 | 5-K: Sprint 5 UAT — PASS, zero P0/P1 defects (6 P2/P3 found and fixed during UAT) | UAT | 2026-05-18 |
 | Pre-work: ADR-004 (PostgreSQL schema), Prisma schema, StorageAdapter interface, PrismaStorageAdapter, InMemoryStorageAdapter, docker-compose.yml | Backend Engineer | 2026-05-18 |
