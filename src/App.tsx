@@ -4827,6 +4827,363 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPl
   )
 }
 
+// ─── Recent sessions localStorage helpers ────────────────────────────────────
+const RECENT_SESSIONS_KEY = 'dawin_recent_sessions'
+const RECENT_SESSIONS_MAX = 3
+
+interface RecentSession { id: string; name: string; openedAt: number }
+
+function readRecentSessions(): RecentSession[] {
+  try {
+    const raw = localStorage.getItem(RECENT_SESSIONS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (e): e is RecentSession =>
+        typeof e === 'object' && e !== null &&
+        typeof (e as RecentSession).id === 'string' &&
+        typeof (e as RecentSession).name === 'string' &&
+        typeof (e as RecentSession).openedAt === 'number',
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeRecentSession(session: { id: string; name: string }): void {
+  const existing = readRecentSessions().filter(e => e.id !== session.id)
+  const next: RecentSession[] = [{ id: session.id, name: session.name, openedAt: Date.now() }, ...existing].slice(0, RECENT_SESSIONS_MAX)
+  localStorage.setItem(RECENT_SESSIONS_KEY, JSON.stringify(next))
+}
+
+function relativeTime(openedAt: number): string {
+  const diffMs = Date.now() - openedAt
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return 'just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin} min ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr} hr ago`
+  const diffDays = Math.floor(diffHr / 24)
+  return `${diffDays} days ago`
+}
+
+// ─── SessionLobby ─────────────────────────────────────────────────────────────
+function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: string) => void }) {
+  const [createName, setCreateName]     = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
+  const [createError, setCreateError]   = useState('')
+
+  const [joinId, setJoinId]             = useState('')
+  const [joinLoading, setJoinLoading]   = useState(false)
+  const [joinError, setJoinError]       = useState('')
+
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>(() => readRecentSessions())
+  const [recentErrors, setRecentErrors] = useState<Record<string, string>>({})
+  const [recentLoading, setRecentLoading] = useState<Record<string, boolean>>({})
+
+  const createNameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    createNameRef.current?.focus()
+  }, [])
+
+  async function handleCreate(e?: React.FormEvent) {
+    e?.preventDefault()
+    if (createLoading) return
+    setCreateLoading(true)
+    setCreateError('')
+    const name = createName.trim() || 'Untitled Session'
+    try {
+      const resp = await fetch('http://localhost:3000/api/v1/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!resp.ok) throw new Error(`status ${resp.status}`)
+      const data = (await resp.json()) as { id: string; name: string }
+      writeRecentSession({ id: data.id, name: data.name })
+      onEnterSession(data.id, data.name)
+    } catch {
+      setCreateError('Could not create session — try again.')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  async function handleJoin(e?: React.FormEvent) {
+    e?.preventDefault()
+    const id = joinId.trim()
+    if (!id || joinLoading) return
+    setJoinLoading(true)
+    setJoinError('')
+    try {
+      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${id}`)
+      if (resp.status === 404) {
+        setJoinError('Session not found — check the ID and try again.')
+        return
+      }
+      if (!resp.ok) throw new Error(`status ${resp.status}`)
+      const data = (await resp.json()) as { id: string; name: string }
+      writeRecentSession({ id: data.id, name: data.name })
+      onEnterSession(data.id, data.name)
+    } catch (err) {
+      const msg = (err as Error).message
+      if (!msg.includes('Session not found')) {
+        setJoinError('Could not reach the server — check your connection.')
+      }
+    } finally {
+      setJoinLoading(false)
+    }
+  }
+
+  async function handleRecentClick(session: RecentSession) {
+    if (recentLoading[session.id]) return
+    setRecentLoading(prev => ({ ...prev, [session.id]: true }))
+    setRecentErrors(prev => ({ ...prev, [session.id]: '' }))
+    try {
+      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${session.id}`)
+      if (resp.status === 404) {
+        setRecentErrors(prev => ({ ...prev, [session.id]: 'Session not found — check the ID and try again.' }))
+        // Remove from localStorage on 404
+        const updated = readRecentSessions().filter(e => e.id !== session.id)
+        localStorage.setItem(RECENT_SESSIONS_KEY, JSON.stringify(updated))
+        setRecentSessions(updated)
+        return
+      }
+      if (!resp.ok) throw new Error(`status ${resp.status}`)
+      const data = (await resp.json()) as { id: string; name: string }
+      writeRecentSession({ id: data.id, name: data.name })
+      onEnterSession(data.id, data.name)
+    } catch {
+      setRecentErrors(prev => ({ ...prev, [session.id]: 'Could not reach the server — check your connection.' }))
+    } finally {
+      setRecentLoading(prev => ({ ...prev, [session.id]: false }))
+    }
+  }
+
+  const inputStyle = (error: boolean, disabled: boolean): React.CSSProperties => ({
+    width: '100%',
+    height: 32,
+    padding: '0 10px',
+    borderRadius: 4,
+    fontSize: 13,
+    fontFamily: 'inherit',
+    background: C.well,
+    border: `1px solid ${error ? C.danger : C.border}`,
+    boxShadow: error ? `0 0 0 2px ${C.danger}22` : 'none',
+    color: C.textPri,
+    outline: 'none',
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? 'not-allowed' : 'text',
+  })
+
+  const btnStyle = (disabled: boolean, loading: boolean): React.CSSProperties => ({
+    width: '100%',
+    height: 32,
+    marginTop: 8,
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    background: C.accent,
+    color: '#fff',
+    border: 'none',
+    cursor: disabled || loading ? 'not-allowed' : 'pointer',
+    opacity: disabled && !loading ? 0.4 : 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'filter 100ms ease',
+  })
+
+  const Spinner = () => (
+    <>
+      <style>{`@keyframes dawin-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+      <svg width="16" height="16" viewBox="0 0 16 16" style={{ animation: 'dawin-spin 0.7s linear infinite' }}>
+        <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,0.9)" strokeWidth="2" fill="none" strokeDasharray="20 18" />
+      </svg>
+    </>
+  )
+
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSec,
+  }
+
+  return (
+    <div
+      role="main"
+      aria-label="DAWin session lobby"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: C.bg,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24,
+        paddingTop: '10vh',  // shifts group slightly above optical center (~45% from top)
+      }}
+    >
+      {/* ── Lobby card ── */}
+      <div style={{
+        width: 480,
+        background: C.elevated,
+        border: `1px solid ${C.border}`,
+        borderRadius: 6,
+        overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
+      }}>
+        {/* Decorative wood strip */}
+        <div style={{ height: 4, background: C.wood, width: '100%' }} />
+
+        <div style={{ padding: '32px 40px 36px' }}>
+          {/* Wordmark */}
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.textPri }}>
+              DAWin
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 400, letterSpacing: '0.08em', color: C.textSec, marginTop: 4 }}>
+              Collaborative Studio
+            </div>
+          </div>
+
+          {/* Create section */}
+          <section aria-labelledby="create-heading">
+            <h2 id="create-heading" style={{ ...sectionLabel, marginBottom: 10, margin: 0 }}>New Session</h2>
+            <div style={{ marginTop: 10 }}>
+              <form onSubmit={handleCreate}>
+                <input
+                  ref={createNameRef}
+                  id="create-session-name"
+                  type="text"
+                  autoFocus
+                  aria-label="Session name"
+                  aria-describedby="create-error"
+                  placeholder="Untitled Session"
+                  value={createName}
+                  disabled={createLoading}
+                  onChange={e => { setCreateName(e.target.value); if (createError) setCreateError('') }}
+                  onFocus={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.boxShadow = `0 0 0 2px ${C.accent}33` }}
+                  onBlur={e => { e.currentTarget.style.borderColor = createError ? C.danger : C.border; e.currentTarget.style.boxShadow = createError ? `0 0 0 2px ${C.danger}22` : 'none' }}
+                  style={inputStyle(!!createError, createLoading)}
+                />
+                <button
+                  type="submit"
+                  aria-label={createLoading ? 'Creating session…' : 'Create session'}
+                  aria-disabled={createLoading ? 'true' : undefined}
+                  disabled={createLoading}
+                  style={btnStyle(false, createLoading)}
+                  onMouseEnter={e => { if (!createLoading) (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.12)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1)' }}
+                  onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(0.9)' }}
+                  onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.12)' }}
+                >
+                  {createLoading ? <Spinner /> : 'Create Session'}
+                </button>
+              </form>
+              <div id="create-error" role="alert" aria-live="assertive" style={{ marginTop: 6, minHeight: 16 }}>
+                {createError && <span style={{ fontSize: 11, color: C.danger }}>{createError}</span>}
+              </div>
+            </div>
+          </section>
+
+          {/* Divider */}
+          <div style={{ borderTop: `1px solid ${C.border}`, margin: '28px 0' }} />
+
+          {/* Join section */}
+          <section aria-labelledby="join-heading">
+            <h2 id="join-heading" style={{ ...sectionLabel, marginBottom: 10, margin: 0 }}>Join Session</h2>
+            <div style={{ marginTop: 10 }}>
+              <form onSubmit={handleJoin}>
+                <input
+                  id="join-session-id"
+                  type="text"
+                  aria-label="Session ID"
+                  aria-describedby="join-error"
+                  placeholder="Paste session ID"
+                  value={joinId}
+                  disabled={joinLoading}
+                  onChange={e => { setJoinId(e.target.value); if (joinError) setJoinError('') }}
+                  onFocus={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.boxShadow = `0 0 0 2px ${C.accent}33` }}
+                  onBlur={e => { e.currentTarget.style.borderColor = joinError ? C.danger : C.border; e.currentTarget.style.boxShadow = joinError ? `0 0 0 2px ${C.danger}22` : 'none' }}
+                  style={inputStyle(!!joinError, joinLoading)}
+                />
+                <button
+                  type="submit"
+                  aria-label={joinLoading ? 'Joining session…' : 'Join session'}
+                  aria-disabled={joinLoading ? 'true' : undefined}
+                  disabled={!joinId.trim() || joinLoading}
+                  style={btnStyle(!joinId.trim(), joinLoading)}
+                  onMouseEnter={e => { if (!joinLoading && joinId.trim()) (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.12)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1)' }}
+                  onMouseDown={e => { if (joinId.trim()) (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(0.9)' }}
+                  onMouseUp={e => { if (joinId.trim()) (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.12)' }}
+                >
+                  {joinLoading ? <Spinner /> : 'Join Session'}
+                </button>
+              </form>
+              <div id="join-error" role="alert" aria-live="assertive" style={{ marginTop: 6, minHeight: 16 }}>
+                {joinError && <span style={{ fontSize: 11, color: C.danger }}>{joinError}</span>}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {/* ── Recent sessions ── */}
+      {recentSessions.length > 0 && (
+        <nav aria-label="Recent sessions" style={{ width: 480 }}>
+          <div style={{ ...sectionLabel, marginBottom: 8 }}>Recent</div>
+          {recentSessions.map(session => (
+            <div key={session.id}>
+              <button
+                aria-label={`Join session ${session.name} (ID: ${session.id})`}
+                onClick={() => handleRecentClick(session)}
+                disabled={recentLoading[session.id]}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                  height: 34, padding: '0 12px', borderRadius: 4, cursor: 'pointer',
+                  background: C.elevated, border: `1px solid ${C.border}`,
+                  marginBottom: 4, transition: 'background 100ms ease',
+                  color: 'inherit', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.control }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = C.elevated }}
+                onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.background = C.border }}
+                onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.background = C.control }}
+              >
+                {/* Session indicator dot or spinner */}
+                {recentLoading[session.id] ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" style={{ animation: 'dawin-spin 0.7s linear infinite', flexShrink: 0 }}>
+                    <circle cx="6" cy="6" r="4.5" stroke={C.accent} strokeWidth="1.5" fill="none" strokeDasharray="14 8" />
+                  </svg>
+                ) : (
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accent, flexShrink: 0 }} />
+                )}
+                {/* Session name */}
+                <span style={{ fontSize: 12, fontWeight: 500, color: C.textPri, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
+                  {session.name}
+                </span>
+                {/* Truncated ID */}
+                <span style={{ fontFamily: 'monospace', fontSize: 10, color: C.textSec, whiteSpace: 'nowrap' }}>
+                  {session.id.length > 8 ? `${session.id.slice(0, 8)}…` : session.id}
+                </span>
+                {/* Relative time */}
+                <span style={{ fontSize: 10, color: C.textSec, whiteSpace: 'nowrap', marginLeft: 8 }}>
+                  {relativeTime(session.openedAt)}
+                </span>
+              </button>
+              {recentErrors[session.id] && (
+                <div style={{ fontSize: 11, color: C.danger, padding: '2px 12px 6px' }}>
+                  {recentErrors[session.id]}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
+      )}
+    </div>
+  )
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function App() {
   // Boot with empty state — session.snapshot handler hydrates from the server.
@@ -5260,9 +5617,11 @@ export default function App() {
     }
   }, [playing, pluginChains])
 
-  // Global keyboard shortcuts — skip when focus is in a text input
+  // Global keyboard shortcuts — skip when focus is in a text input or lobby is showing
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // No shortcuts while lobby is visible — none of these actions are meaningful there
+      if (!sessionId) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
@@ -5307,7 +5666,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [setTracks])
+  }, [setTracks, sessionId])
 
   function handleSelectTrack(id: string) {
     setSelectedTrackId(prev => prev === id ? null : id)
@@ -5406,6 +5765,23 @@ export default function App() {
       setLinkIconActive(false)
       setToastMessage(null)
     }, 1500)
+  }
+
+  function handleEnterSession(id: string, name: string) {
+    setSessionId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set('session', id)
+    window.history.pushState({}, '', url.toString())
+    // Open WS for the new session
+    try {
+      getWsClient(id, () => {/* WS messages handled in the main useEffect */}, setWsStatus)
+    } catch { /* WS constructor failure — non-fatal */ }
+    void name  // name is written to localStorage by the caller; kept for future use
+  }
+
+  // Show lobby when no session is active
+  if (!sessionId) {
+    return <SessionLobby onEnterSession={handleEnterSession} />
   }
 
   return (
