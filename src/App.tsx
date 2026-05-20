@@ -89,6 +89,7 @@ interface ClipData {
   importFile?: File            // retained for retry on failed-upload
   uploadProgress?: number      // 0–100 during uploading; undefined if not available
   audioFileId?: string | null  // server AudioFile.id once upload succeeds
+  audioLoading?: boolean       // true while real buffer is being fetched/decoded
 }
 
 interface Track {
@@ -150,14 +151,16 @@ interface PresenceEntry {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BAR_W       = 72
-const BARS        = 32
-const TRACK_H     = 64
-const RULER_H     = 24
-const HANDLE_W    = 8
-const FADE_HDL_W  = 12
-const TRANSPORT_H = 52   // px — matches TransportBar height
-const STATUS_BAR_H = 28  // px — matches StatusBar height
+const BAR_W        = 72
+const BARS         = 32
+const TRACK_H      = 64
+const RULER_H      = 24
+const HANDLE_W     = 8
+const FADE_HDL_W   = 12
+const TRANSPORT_H  = 52   // px — matches TransportBar height
+const STATUS_BAR_H = 28   // px — matches StatusBar height
+const MENU_BAR_H   = 24   // px — application menu bar (Sprint 8)
+const CHROME_TOP   = MENU_BAR_H + TRANSPORT_H  // 76px — total top chrome height
 
 // ─── Virtual instruments for Bounce modal ─────────────────────────────────────
 const VIRTUAL_INSTRUMENTS = [
@@ -332,6 +335,25 @@ function getAudioCtx(): AudioContext {
 
 // Decoded buffer cache: assetUrl → AudioBuffer
 const _bufferCache = new Map<string, AudioBuffer>()
+
+// Real decoded AudioBuffer cache: audioFileId → AudioBuffer
+// Eviction: none — retained for page lifetime (prototype acceptable per ADR-007)
+const _realBufferCache = new Map<string, AudioBuffer>()
+
+// In-flight decode promises: audioFileId → Promise (guards concurrent fetches)
+const _bufferDecodeInFlight = new Map<string, Promise<AudioBuffer | null>>()
+
+// Presigned URL cache: audioFileId → { url, fetchedAt }
+interface CachedPresignedUrl { url: string; fetchedAt: number }
+const _presignedUrlCache = new Map<string, CachedPresignedUrl>()
+
+// Conservative TTL: 55 min vs server's 60 min to avoid stale-URL race at boundary
+const PRESIGNED_URL_TTL_MS = 55 * 60 * 1000
+
+// JWT stored in localStorage by the auth flow; falls back to empty string (no-auth dev mode)
+function getJwt(): string {
+  return localStorage.getItem('dawin_jwt') ?? ''
+}
 
 // Waveform sample cache: assetUrl → downsampled Float32Array for canvas drawing
 const _waveformCache = new Map<string, Float32Array>()
@@ -553,6 +575,49 @@ function synthesizeBuffer(key: string, ctx: AudioContext): AudioBuffer {
     case AUDIO_KEY.vox:   return synthVox(ctx)
     default: return ctx.createBuffer(2, ctx.sampleRate, ctx.sampleRate)
   }
+}
+
+// Resolves a real uploaded audio file to an AudioBuffer.
+// Checks in-memory cache first; fetches presigned URL if needed; guards concurrent fetches.
+async function resolveRealBuffer(audioFileId: string): Promise<AudioBuffer | null> {
+  const cached = _realBufferCache.get(audioFileId)
+  if (cached) return cached
+
+  const inFlight = _bufferDecodeInFlight.get(audioFileId)
+  if (inFlight) return inFlight
+
+  const promise = (async (): Promise<AudioBuffer | null> => {
+    try {
+      let presigned = _presignedUrlCache.get(audioFileId)
+      if (!presigned || Date.now() - presigned.fetchedAt > PRESIGNED_URL_TTL_MS) {
+        const jwt = getJwt()
+        const headers: Record<string, string> = {}
+        if (jwt) headers['Authorization'] = `Bearer ${jwt}`
+        const resp = await fetch(`http://localhost:3000/api/v1/audio/${audioFileId}/stream-url`, { headers })
+        if (!resp.ok) throw new Error(`stream-url fetch failed: ${resp.status}`)
+        const { url } = (await resp.json()) as { url: string }
+        presigned = { url, fetchedAt: Date.now() }
+        _presignedUrlCache.set(audioFileId, presigned)
+      }
+
+      const audioResp = await fetch(presigned.url)
+      if (!audioResp.ok) throw new Error(`audio fetch failed: ${audioResp.status}`)
+      const arrayBuffer = await audioResp.arrayBuffer()
+
+      const ctx = getAudioCtx()
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+      _realBufferCache.set(audioFileId, audioBuffer)
+      return audioBuffer
+    } catch (err) {
+      console.error('[resolveRealBuffer]', audioFileId, err)
+      return null
+    } finally {
+      _bufferDecodeInFlight.delete(audioFileId)
+    }
+  })()
+
+  _bufferDecodeInFlight.set(audioFileId, promise)
+  return promise
 }
 
 // Resolves an assetUrl to an AudioBuffer, synthesizing and caching on first call.
@@ -781,6 +846,78 @@ function stopAllSources() {
   // Also clear all plugin nodes when transport stops
   for (const trackId of [..._pluginNodeMap.keys()]) {
     clearTrackPluginNodes(trackId)
+  }
+}
+
+// Starts AudioBufferSourceNodes for clips with audioFileId. Fire-and-forget from Effect A.
+// Guards against transport-stopped race: checks _activeSources before calling .start().
+async function startRealBufferSources(
+  tracks: Track[],
+  ctx: AudioContext,
+  playheadBar: number,
+  bpm: number,
+  updateClip: (trackId: string, clipId: string, patch: Partial<ClipData>) => void,
+  pluginChains: Record<string, PluginSlot[]>,
+) {
+  const secondsPerBar = (60 / bpm) * 4
+
+  for (const track of tracks) {
+    const clip = track.clips.find(c => c.audioFileId)
+    if (!clip || !clip.audioFileId) continue
+
+    updateClip(track.id, clip.id, { audioLoading: true })
+
+    const audioBuffer = await resolveRealBuffer(clip.audioFileId)
+
+    // Transport stopped while awaiting — discard to avoid late start
+    if (!_activeSources.has(track.id) && audioBuffer) {
+      updateClip(track.id, clip.id, { audioLoading: false })
+      continue
+    }
+
+    if (!audioBuffer) {
+      updateClip(track.id, clip.id, { audioLoading: false, importStatus: 'failed-decode' })
+      continue
+    }
+
+    const clipStartSec    = clip.bar * secondsPerBar
+    const playheadSec     = playheadBar * secondsPerBar
+    const offsetIntoClip  = Math.max(0, playheadSec - clipStartSec)
+
+    if (offsetIntoClip >= audioBuffer.duration) {
+      updateClip(track.id, clip.id, { audioLoading: false })
+      continue
+    }
+
+    const source = ctx.createBufferSource()
+    source.buffer = audioBuffer
+    source.loop   = false  // real clips are finite; loop-region playback is Sprint 9
+
+    const gain = ctx.createGain()
+    gain.gain.value = track.volume / 100
+
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 256
+    analyser.smoothingTimeConstant = 0
+
+    const panner = ctx.createStereoPanner()
+    panner.pan.value = track.pan / 100
+
+    const trackPlugins = pluginChains[track.id] ?? []
+    rewirePluginChain(ctx, track.id, trackPlugins, source, gain)
+
+    gain.connect(analyser)
+    analyser.connect(panner)
+    if (_masterGain) {
+      panner.connect(_masterGain)
+    } else {
+      panner.connect(ctx.destination)
+    }
+
+    source.start(ctx.currentTime, offsetIntoClip)
+    _activeSources.set(track.id, { source, gain, analyser, panner })
+
+    updateClip(track.id, clip.id, { audioLoading: false })
   }
 }
 
@@ -1780,8 +1917,13 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
       {/* Waveform placeholder — shown when peaks aren't available yet */}
       {!showCanvas && <WaveformPlaceholder ownerColor={track.owner.color} />}
 
+      {/* Real-buffer loading overlay — takes precedence over importStatus overlay */}
+      {clip.audioLoading && (
+        <ClipProgressOverlay status="decoding" progress={undefined} ownerColor={track.owner.color} />
+      )}
+
       {/* Upload / decode progress overlay */}
-      {isInProgress && (
+      {!clip.audioLoading && isInProgress && (
         <ClipProgressOverlay
           status={clip.importStatus as 'uploading' | 'decoding'}
           progress={clip.uploadProgress}
@@ -4734,6 +4876,12 @@ export default function App() {
   // Ref so Effect A can read pluginChains without taking a dep that restarts sources
   const pluginChainsRef = useRef<Record<string, PluginSlot[]>>(pluginChains)
   pluginChainsRef.current = pluginChains
+  // Ref so startRealBufferSources can read playheadBar without stale closure
+  const playheadBarRef = useRef<number>(playheadBar)
+  playheadBarRef.current = playheadBar
+  // Ref so Effect A can read tracks for real-buffer path without restarting sources
+  const tracksRef = useRef<Track[]>(tracks)
+  tracksRef.current = tracks
   // Pending deep link params — resolved in session.snapshot handler once tracks are loaded
   const pendingDeepLinkRef = useRef<{ trackParam: string | null; clipParam: string | null } | null>(null)
   // Peaks received via audio.uploaded WS event before the local clip exists (collaborator upload).
@@ -5006,6 +5154,15 @@ export default function App() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, [playing, bpm]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Stable callback for startRealBufferSources to patch clips without restarting sources.
+  // Uses setTracks directly (stable identity from useState).
+  const updateClipForPlayback = useCallback((trackId: string, clipId: string, patch: Partial<ClipData>) => {
+    setTracks(prev => prev.map(t => {
+      if (t.id !== trackId) return t
+      return { ...t, clips: t.clips.map(c => c.id !== clipId ? c : { ...c, ...patch }) }
+    }))
+  }, [setTracks])
+
   // Effect A — source lifecycle: only create/destroy sources when transport starts or stops.
   // Intentionally does NOT depend on `tracks` — mutations (mute, volume, pan) are handled
   // smoothly in Effect B without stopping sources and causing audible gaps.
@@ -5020,8 +5177,10 @@ export default function App() {
 
     stopAllSources()
 
-    tracks.forEach(track => {
-      const clip = track.clips.find(c => c.assetUrl !== null)
+    tracksRef.current.forEach(track => {
+      // Real-buffer clips are handled async by startRealBufferSources below.
+      // Only start procedural sources here.
+      const clip = track.clips.find(c => c.assetUrl !== null && !c.audioFileId)
       if (!clip || !clip.assetUrl) return
 
       const buf = resolveBuffer(clip.assetUrl)
@@ -5058,6 +5217,17 @@ export default function App() {
 
       _activeSources.set(track.id, { source, gain, analyser, panner })
     })
+
+    // Start real-buffer sources asynchronously — fire and forget.
+    // startRealBufferSources guards against transport-stopped race internally.
+    void startRealBufferSources(
+      tracksRef.current,
+      ctx,
+      playheadBarRef.current,
+      bpm,
+      updateClipForPlayback,
+      pluginChainsRef.current,
+    )
 
     return () => { stopAllSources() }
   }, [playing]) // eslint-disable-line react-hooks/exhaustive-deps
