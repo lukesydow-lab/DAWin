@@ -26,6 +26,7 @@ import { parseBuffer } from 'music-metadata';
 import { randomUUID } from 'crypto';
 import { verifyToken } from '../jwt.js';
 import { r2, R2_BUCKET } from '../r2.js';
+import { broadcastAudioUploaded } from '../ws/handler.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,6 +53,91 @@ const MIME_TO_EXT: Record<string, string> = {
 
 /** Presigned URL TTL in seconds (1 hour). */
 const STREAM_URL_TTL_SECONDS = 3600;
+
+// ---------------------------------------------------------------------------
+// Peak generation (ADR-006, Sprint 7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate `count` RMS waveform peak values from an audio buffer.
+ *
+ * Uses node-web-audio-api's AudioContext.decodeAudioData to get raw PCM from
+ * any format the Web Audio API supports (WAV, MP3, OGG, FLAC, AAC).
+ * Only channel 0 is used — sufficient for a visual waveform overview.
+ *
+ * Returns an empty array on any decode or processing failure so the upload
+ * is never blocked by peak generation.
+ */
+async function generatePeaks(buffer: Buffer, count = 200): Promise<number[]> {
+  try {
+    // node-web-audio-api provides a Web Audio API surface on Node.js.
+    // Dynamic require is used because node-web-audio-api ships as CJS and
+    // may export AudioContext on the default export or as a named export.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nwaa = require('node-web-audio-api') as {
+      AudioContext?: new () => {
+        decodeAudioData(buf: ArrayBuffer): Promise<{ getChannelData(ch: number): Float32Array; length: number }>;
+        close(): Promise<void>;
+      };
+      default?: {
+        AudioContext?: new () => {
+          decodeAudioData(buf: ArrayBuffer): Promise<{ getChannelData(ch: number): Float32Array; length: number }>;
+          close(): Promise<void>;
+        };
+      };
+    };
+
+    const AudioContextCtor = nwaa.AudioContext ?? nwaa.default?.AudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('node-web-audio-api: AudioContext not found on exports');
+    }
+
+    const ctx = new AudioContextCtor();
+    let audioBuffer: { getChannelData(ch: number): Float32Array; length: number };
+    try {
+      // decodeAudioData requires a plain ArrayBuffer.
+      // buffer.buffer may be a SharedArrayBuffer when the Buffer was created from
+      // a shared pool, so we copy into a fresh ArrayBuffer unconditionally.
+      const arrayBuffer = buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength
+      ) as ArrayBuffer;
+      audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    } finally {
+      await ctx.close();
+    }
+
+    const samples = audioBuffer.getChannelData(0);
+    const totalSamples = samples.length;
+
+    if (totalSamples === 0) return new Array<number>(count).fill(0);
+
+    const chunkSize = Math.max(1, Math.floor(totalSamples / count));
+    const peaks: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const start = i * chunkSize;
+      // Last chunk absorbs any remainder so we always return exactly `count` values.
+      const end = i === count - 1 ? totalSamples : start + chunkSize;
+      let sumOfSquares = 0;
+      for (let j = start; j < end; j++) {
+        const s = samples[j] ?? 0;
+        sumOfSquares += s * s;
+      }
+      const rms = Math.sqrt(sumOfSquares / (end - start));
+      // Clamp to [0, 1] — RMS of PCM [-1,1] samples is already in this range but
+      // we clamp defensively for any decoded value that escapes normalisation.
+      peaks.push(Math.min(1, Math.max(0, rms)));
+    }
+
+    return peaks;
+  } catch (err: unknown) {
+    // Peak generation is best-effort — never block the upload.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[generatePeaks] failed:', message);
+    return [];
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Auth helper
@@ -193,6 +279,14 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
           .send({ error: 'internal_error', message: 'File upload failed' });
       }
 
+      // Generate waveform peaks from the in-memory buffer (ADR-006).
+      // Best-effort: failures return [] and never block the upload.
+      const peaks = await generatePeaks(fileData);
+      fastify.log.info(
+        { sessionId, peakCount: peaks.length },
+        peaks.length > 0 ? 'peaks generated' : 'peak generation skipped (empty result)'
+      );
+
       // Persist the AudioFile row.
       let audioFile;
       try {
@@ -206,6 +300,7 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
           sampleRate,
           channels,
           fileSizeBytes: BigInt(fileData.byteLength),
+          peaks,
         });
       } catch (err) {
         fastify.log.error({ err }, 'AudioFile DB write failed');
@@ -213,6 +308,22 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
           .code(500)
           .send({ error: 'internal_error', message: 'Failed to save audio file record' });
       }
+
+      // Fan out audio.uploaded to all other connected session clients (Part 5).
+      // We derive the filename from the R2 key for the WS payload.
+      const rawFilename = request.headers['x-filename'];
+      const filename =
+        typeof rawFilename === 'string' && rawFilename.trim().length > 0
+          ? rawFilename.trim()
+          : s3StreamKey.split('/').pop() ?? 'unknown';
+
+      broadcastAudioUploaded(fastify, sessionId, {
+        audioFileId: audioFile.id,
+        sessionId,
+        filename,
+        durationSec: audioFile.durationSec,
+        peaks: audioFile.peaks,
+      });
 
       // fileSizeBytes is BigInt — serialize as string for JSON.
       return reply.code(200).send({

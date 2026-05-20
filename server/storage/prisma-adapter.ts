@@ -120,6 +120,7 @@ function mapAudioFileRow(row: {
   sampleRate: number;
   channels: number;
   fileSizeBytes: bigint;
+  peaks: number[];
 }): AudioFileRow {
   return {
     id: row.id,
@@ -132,6 +133,7 @@ function mapAudioFileRow(row: {
     sampleRate: row.sampleRate,
     channels: row.channels,
     fileSizeBytes: row.fileSizeBytes,
+    peaks: row.peaks,
   };
 }
 
@@ -467,6 +469,7 @@ export class PrismaStorageAdapter implements StorageAdapter {
           sampleRate: data.sampleRate,
           channels: data.channels,
           fileSizeBytes: data.fileSizeBytes,
+          peaks: data.peaks,
         },
       });
     });

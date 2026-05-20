@@ -39,6 +39,7 @@ import type {
   TrackArmRejectedPayload,
   SessionId,
   UserId,
+  AudioUploadedPayload,
 } from "../types.js";
 import type { SessionRow, TrackRow, ClipRow } from "../storage/adapter.js";
 import {
@@ -387,6 +388,35 @@ export function broadcastCommentEvent(
   payload: unknown
 ): void {
   const frame = broadcast<unknown>(type, sessionId, fromUserId, payload);
+  broadcastToSession(sessionId, frame);
+}
+
+// ---------------------------------------------------------------------------
+// Audio upload fan-out (ADR-006, Sprint 7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Broadcast an `audio.uploaded` event to all WS clients in the session.
+ *
+ * Called by the REST upload route after the AudioFile row is persisted.
+ * Delivers server-authoritative peaks to all connected collaborators so they
+ * can replace any local PeakGenerator preview with the canonical waveform.
+ *
+ * Broadcasts to ALL clients in the session (including the uploader's WS
+ * connection if they have one open) — the REST response is the primary ack
+ * for the uploading client, but the WS fan-out ensures collaborators receive
+ * the peaks without polling.
+ */
+export function broadcastAudioUploaded(
+  fastify: FastifyInstance,
+  sessionId: SessionId,
+  payload: AudioUploadedPayload
+): void {
+  fastify.log.info(
+    { sessionId, audioFileId: payload.audioFileId, peakCount: payload.peaks.length },
+    'ws: broadcasting audio.uploaded'
+  );
+  const frame = broadcast<AudioUploadedPayload>('audio.uploaded', sessionId, 'server', payload);
   broadcastToSession(sessionId, frame);
 }
 

@@ -58,6 +58,8 @@ export interface AudioFileRow {
   sampleRate: number;
   channels: number;
   fileSizeBytes: bigint;
+  /** 200-value RMS waveform peaks — server-generated at upload time (ADR-006). Empty array = no peaks. */
+  peaks: number[];
 }
 
 // ---------------------------------------------------------------------------

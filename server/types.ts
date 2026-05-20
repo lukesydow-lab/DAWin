@@ -175,6 +175,14 @@ export interface SessionState {
   transport: TransportState;
   /** keyed by clientId (a uuid generated per WS connection) */
   clients: Map<string, ClientMeta>;
+  /** Maps trackId → userId currently holding an exclusive arm/record lock. */
+  trackLocks: Map<TrackId, UserId>;
+  /**
+   * In-memory comment list for this session.
+   * TEMPORARY — lost on server restart. Replace with a storage adapter in Sprint 5+.
+   * See ADR-003, Decision 2.
+   */
+  comments: SessionComment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +221,136 @@ export interface WsBroadcast<T = unknown> {
 /** @deprecated — use WsBroadcast. Kept for backward compat with existing handler stub. */
 export interface WsMessage<T = unknown> extends WsMessageInbound<T> {
   from: UserId;
+}
+
+// ---------------------------------------------------------------------------
+// Track lock WS payloads
+// ---------------------------------------------------------------------------
+
+/** Client → Server: request to arm (record-enable) a track. */
+export interface TrackArmPayload {
+  trackId: TrackId;
+}
+
+/**
+ * Server → Client: arm request rejected.
+ *   locked    — another user already holds the lock
+ *   forbidden — sender's role does not permit recording (viewer)
+ */
+export interface TrackArmRejectedPayload {
+  trackId: TrackId;
+  reason: "locked" | "forbidden";
+}
+
+// ---------------------------------------------------------------------------
+// Comment anchor model (ADR-003)
+// ---------------------------------------------------------------------------
+
+export type CommentId = string;
+
+export type CommentAnchorType =
+  | "timeline"
+  | "timeRange"
+  | "track"
+  | "clip"
+  | "trackMoment";
+
+/**
+ * Canonical anchor for both inline comments and timeline deep links.
+ *
+ * Invariants (enforced server-side, not in the type system):
+ *   - anchorType 'timeline' | 'trackMoment' | 'timeRange' → startBar required
+ *   - anchorType 'timeRange' → endBar required, endBar > startBar
+ *   - anchorType 'track' | 'trackMoment' → trackId required
+ *   - anchorType 'clip' → trackId and clipId both required
+ *
+ * Bar-based only. startTimeSec/endTimeSec are intentionally omitted — derivable
+ * from startBar + session BPM. See ADR-003 for rationale.
+ */
+export interface CommentAnchor {
+  anchorType: CommentAnchorType;
+  /** Bar position. Required for: timeline, timeRange, trackMoment. Optional seek hint for clip. */
+  startBar?: number;
+  /** End bar for ranges. Required for timeRange; must be > startBar. */
+  endBar?: number;
+  /** Required for: track, clip, trackMoment. */
+  trackId?: TrackId;
+  /** Required for: clip. Must be paired with trackId. */
+  clipId?: ClipId;
+  /**
+   * Optional comment thread ID associated with this anchor.
+   * Deep links use this to auto-open the thread popover on navigation.
+   */
+  threadId?: CommentId;
+}
+
+export interface CommentReply {
+  id: CommentId;
+  commentId: CommentId;
+  authorId: UserId;
+  body: string;
+  createdAt: string; // ISO 8601
+}
+
+/**
+ * A comment anchored to the session timeline, a track, or a clip.
+ *
+ * TEMPORARY: stored in SessionState.comments (in-memory, lost on restart).
+ * Replace SessionState.comments with a storage adapter in Sprint 5+.
+ * See ADR-003, Decision 2.
+ */
+export interface SessionComment {
+  id: CommentId;
+  sessionId: SessionId;
+  authorId: UserId;
+  body: string;
+  anchor: CommentAnchor;
+  replies: CommentReply[];
+  status: "open" | "resolved";
+  resolvedBy: UserId | null;
+  resolvedAt: string | null; // ISO 8601 or null
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+}
+
+// ---------------------------------------------------------------------------
+// Comment WS payloads (ADR-003, Decision 5)
+// Used with WsBroadcast<T>. Server stamps `from` and `ts`.
+// ---------------------------------------------------------------------------
+
+/** Server → all clients (except originator): a new comment was created. */
+// WsBroadcast<SessionComment> — no separate payload type needed; use SessionComment directly.
+
+/** Server → all clients: a reply was added to an existing thread. */
+export interface CommentReplyPayload {
+  commentId: CommentId;
+  reply: CommentReply;
+}
+
+/** Server → all clients: a comment was resolved. */
+export interface CommentResolvePayload {
+  commentId: CommentId;
+  resolvedBy: UserId;
+  resolvedAt: string; // ISO 8601
+}
+
+/** Server → all clients: a resolved comment was reopened. */
+export interface CommentReopenPayload {
+  commentId: CommentId;
+}
+
+// ---------------------------------------------------------------------------
+// Audio file upload WS payload (ADR-006, Sprint 7)
+// ---------------------------------------------------------------------------
+
+/** Server → all session clients: a new audio file was successfully uploaded. */
+export interface AudioUploadedPayload {
+  audioFileId: string;
+  sessionId: SessionId;
+  filename: string;
+  durationSec: number;
+  /** 200-value RMS peaks array. Empty array = generation failed (render WaveformPlaceholder). */
+  peaks: number[];
 }
 
 // ---------------------------------------------------------------------------

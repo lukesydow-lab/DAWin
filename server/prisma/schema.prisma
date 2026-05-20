@@ -1,0 +1,303 @@
+// server/prisma/schema.prisma
+//
+// DAWin canonical database schema — Sprint 5
+// Source of truth for the Backend Engineer's Prisma implementation.
+//
+// Key decisions (see ADR-004 for full rationale):
+//   - cuid() for all IDs — URL-safe, shorter than UUID, consistent with server/types.ts string IDs
+//   - JSONB (Json) for: Plugin.params, Comment.anchor, Session.timeSignature
+//   - Separate Comment and CommentReply tables — replies are individually addressable
+//   - PluginChain + Plugin tables — supports reorder and per-plugin enable/disable without JSONB read-modify-write
+//   - SessionMember junction table — collaborator color is per (userId, sessionId), not per user
+//   - Soft deletes on: User, Session, Comment, CommentReply
+//   - Transport volatile state (playing, playheadBar, syncedAt) is NOT in the DB — in-memory only
+//   - AudioFile model ready for Sprint 8-9 recording pipeline
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+model User {
+  id              String    @id @default(cuid())
+  email           String?   @unique
+  displayName     String
+  passwordHash    String?   // null for guest users
+  isGuest         Boolean   @default(false)
+  // Set to now() + 14 days on guest creation; cleared (null) when guest converts
+  // to a free account. Purge job queries: isGuest=true AND guestExpiresAt < now()
+  // AND deletedAt IS NULL. See ADR-004 Q2 for full guest lifecycle policy.
+  guestExpiresAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime? // soft delete
+
+  // Relations
+  sessions     SessionMember[]
+  ownedTracks  Track[]         @relation("TrackOwner")
+  comments     Comment[]
+  replies      CommentReply[]
+  audioFiles   AudioFile[]
+
+  @@index([email])
+  @@index([deletedAt])
+  @@index([guestExpiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+model Session {
+  id            String   @id @default(cuid())
+  name          String
+  bpm           Float    @default(120)
+  // { numerator: number, denominator: number }
+  timeSignature Json     @default("{\"numerator\": 4, \"denominator\": 4}")
+  totalBars     Int      @default(128)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime? // soft delete
+
+  // Relations
+  members      SessionMember[]
+  tracks       Track[]
+  clips        Clip[]
+  pluginChains PluginChain[]
+  comments     Comment[]
+  audioFiles   AudioFile[]
+
+  @@index([deletedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Session membership (junction)
+// ---------------------------------------------------------------------------
+// color is assigned at join time per (userId, sessionId) — not per user globally.
+// role is a String enum ("owner" | "collaborator" | "viewer") — not a PG ENUM
+// so values can be added without a migration.
+
+model SessionMember {
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String
+  role      String   // "owner" | "collaborator" | "viewer"
+  color     String   // hex collaborator color, e.g. "#A855F7"
+  joinedAt  DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  session Session @relation(fields: [sessionId], references: [id])
+
+  @@unique([userId, sessionId])
+  @@index([sessionId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Track
+// ---------------------------------------------------------------------------
+// lockedBy is NOT stored in the DB — track locks are transient per WS connection
+// and live in the in-memory SessionState.trackLocks map only.
+
+model Track {
+  id        String   @id @default(cuid())
+  sessionId String
+  name      String
+  ownerId   String
+  color     String   // hex, inherited from owner's collaborator color at creation
+  volume    Float    @default(1.0) // 0–1 linear; fader curve applied client-side
+  pan       Float    @default(0.0) // -1.0 to +1.0
+  muted     Boolean  @default(false)
+  soloed    Boolean  @default(false)
+  armed     Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // No deletedAt — hard delete is acceptable for tracks (no audit requirement)
+
+  session     Session      @relation(fields: [sessionId], references: [id])
+  owner       User         @relation("TrackOwner", fields: [ownerId], references: [id])
+  clips       Clip[]
+  pluginChain PluginChain?
+
+  @@index([sessionId])
+  @@index([ownerId])
+}
+
+// ---------------------------------------------------------------------------
+// Clip
+// ---------------------------------------------------------------------------
+// assetId references AudioFile.id — nullable until an audio file is attached.
+// fadeCurve is reserved for Sprint 7 crossfade work; JSONB for opaque bezier handles.
+
+model Clip {
+  id           String   @id @default(cuid())
+  trackId      String
+  sessionId    String
+  startBar     Float    // bar position (float to support sub-bar placement)
+  durationBars Float
+  assetId      String?  // FK to AudioFile.id; nullable for MIDI/empty clips
+  color        String   // hex; inherited from track owner color at creation
+  fadeCurve    Json?    // reserved: bezier fade handles — JSONB, null until Sprint 7
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  // No deletedAt — hard delete is acceptable for clips
+
+  track     Track      @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  session   Session    @relation(fields: [sessionId], references: [id])
+  audioFile AudioFile? @relation(fields: [assetId], references: [id])
+
+  @@index([trackId])
+  @@index([sessionId])
+  @@index([assetId])
+}
+
+// ---------------------------------------------------------------------------
+// Plugin chain + Plugin
+// ---------------------------------------------------------------------------
+// One PluginChain per track (or null trackId = master bus).
+// Plugin rows have an `order` int for deterministic ordering.
+// Plugin.params is JSONB — opaque, plugin-type-specific, never queried by field.
+
+model PluginChain {
+  id        String   @id @default(cuid())
+  trackId   String?  @unique // null = master bus chain
+  sessionId String
+  updatedAt DateTime @updatedAt
+
+  track   Track?   @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  session Session  @relation(fields: [sessionId], references: [id])
+  plugins Plugin[]
+
+  @@index([sessionId])
+}
+
+model Plugin {
+  id          String  @id @default(cuid())
+  chainId     String
+  type        String  // "compressor" | "reverb" | "delay" | "maximizer" | "eq"
+  enabled     Boolean @default(true)
+  order       Int     // ascending; gaps after deletion are accepted — do not re-pack (see ADR-004 Q4)
+  // Opaque param blob — shape is plugin-type-specific, never queried by field
+  params      Json    @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chain PluginChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+
+  @@index([chainId])
+  @@index([chainId, order])
+}
+
+// ---------------------------------------------------------------------------
+// Audio file metadata
+// ---------------------------------------------------------------------------
+// Actual audio bytes live in S3 (or equivalent blob storage).
+// This table stores the metadata only.
+// Ready for Sprint 8-9 recording pipeline.
+// Atomic creation of AudioFile + Clip is done via a Prisma transaction at the
+// recording pipeline call site.
+//
+// Storage model (see ADR-004 Q3 — final decision 2026-05-17):
+//   s3StreamKey — always populated; points to the compressed/streaming copy
+//                 (e.g. 128kbps AAC or Opus) used by all clients on all platforms.
+//   s3FullKey — temporary relay for desktop-only full-quality transfer. When a
+//               desktop client uploads a full-quality master (24-bit WAV, FLAC, etc),
+//               it is placed at s3FullKey for peer desktop clients to download at
+//               S3 speeds. Once all desktop clients confirm receipt (or TTL expires),
+//               the relay copy is purged and s3FullKey is cleared. Null = not a
+//               desktop-quality upload, or relay has been purged.
+//   fullQualityPurgedAt — timestamp when s3FullKey was deleted. Null if relay copy
+//                         is still available. Tracked for operational visibility and
+//                         to gate purge-job resumption logic.
+//   Web, tablet, and mobile clients never receive s3FullKey and always play
+//   s3StreamKey. This is by design, not a limitation.
+
+model AudioFile {
+  id                    String   @id @default(cuid())
+  sessionId             String
+  uploaderId            String   // User.id of the user who uploaded/recorded this file
+  // Compressed/streaming copy — always present, always unique, all platforms
+  s3StreamKey           String   @unique
+  // Full-quality relay — desktop clients only, purged after distribution
+  s3FullKey             String?
+  fullQualityPurgedAt   DateTime?
+  mimeType              String   // e.g. "audio/wav", "audio/ogg"
+  durationSec           Float    // seconds
+  sampleRate            Int      // Hz, e.g. 44100
+  channels              Int      @default(2)
+  fileSizeBytes         BigInt
+  // 200-value RMS peak array — generated server-side during upload (ADR-006, Sprint 7).
+  // Empty array [] = no peaks available (pre-Sprint-7 rows or generation failure).
+  // Clients render WaveformPlaceholder when this array is empty.
+  peaks                 Float[]
+  createdAt             DateTime @default(now())
+  // No updatedAt — audio files are immutable after upload
+  // No deletedAt — S3 lifecycle policies handle actual deletion; the row stays
+
+  session  Session @relation(fields: [sessionId], references: [id])
+  uploader User    @relation(fields: [uploaderId], references: [id])
+  clips    Clip[]
+
+  @@index([sessionId])
+  @@index([uploaderId])
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+// anchor is JSONB — CommentAnchor shape (see ADR-003 and server/types.ts).
+// Invariant validation is enforced in the REST handler, not in the DB.
+// Soft delete via deletedAt.
+
+model Comment {
+  id         String    @id @default(cuid())
+  sessionId  String
+  authorId   String
+  body       String
+  // CommentAnchor JSONB blob — see server/types.ts CommentAnchor interface
+  anchor     Json
+  status     String    @default("open") // "open" | "resolved"
+  resolvedBy String?   // User.id; null if open
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime? // soft delete
+
+  session Session       @relation(fields: [sessionId], references: [id])
+  author  User          @relation(fields: [authorId], references: [id])
+  replies CommentReply[]
+
+  @@index([sessionId])
+  @@index([authorId])
+  @@index([sessionId, deletedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Comment replies
+// ---------------------------------------------------------------------------
+// Separate table — replies are individually addressable (see ADR-004, Decision 3).
+// Soft delete via deletedAt.
+
+model CommentReply {
+  id        String    @id @default(cuid())
+  commentId String
+  authorId  String
+  body      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft delete
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@index([commentId])
+  @@index([authorId])
+}

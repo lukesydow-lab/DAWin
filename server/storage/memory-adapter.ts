@@ -183,7 +183,7 @@ export class InMemoryStorageAdapter implements StorageAdapter {
   // ---------------------------------------------------------------------------
 
   async createAudioFile(data: Omit<AudioFileRow, 'id'>): Promise<AudioFileRow> {
-    const row: AudioFileRow = { id: randomUUID(), ...data };
+    const row: AudioFileRow = { id: randomUUID(), ...data, peaks: data.peaks ?? [] };
     audioFiles.set(row.id, row);
     return row;
   }
