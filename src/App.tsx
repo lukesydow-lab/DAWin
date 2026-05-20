@@ -2307,9 +2307,9 @@ const ThreadPopover = ({ comment, tracks, isViewer, onClose, onResolve, onReopen
   const pinLeft = (comment.anchor.startBar ?? 0) * BAR_W
   const rawLeft = pinLeft - 100
   const clampedLeft = Math.min(Math.max(8, rawLeft), window.innerWidth - 336)
-  // Position above the transport bar per spec
+  // Position above the combined chrome (menu bar + transport bar)
   const popoverHeight = 320
-  const topPos = TRANSPORT_H - popoverHeight - 8
+  const topPos = CHROME_TOP - popoverHeight - 8
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -4242,8 +4242,9 @@ interface TransportBarProps {
   linkIconActive: boolean; onLinkIconClick: () => void
   loopStart: number | null; loopEnd: number | null
   onClearLoop: () => void
+  bpmInputRef?: React.RefObject<HTMLInputElement | null>
 }
-function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite, linkIconActive, onLinkIconClick, loopStart, loopEnd, onClearLoop }: TransportBarProps) {
+function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, setBpm, playheadBar, setPlayheadBar, setShowInvite, linkIconActive, onLinkIconClick, loopStart, loopEnd, onClearLoop, bpmInputRef }: TransportBarProps) {
 
   const bar   = Math.floor(playheadBar) + 1
   const beat  = Math.floor((playheadBar % 1) * 4) + 1
@@ -4304,7 +4305,7 @@ function TransportBar({ isRecording, setIsRecording, playing, setPlaying, bpm, s
       <div className="flex items-center gap-1.5 rounded px-2.5 py-1"
         style={{ background: C.well, border: `1px solid ${C.border}`, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.6)' }}>
         <span className="text-xs" style={{ color: C.textSec, letterSpacing: '0.05em' }}>BPM</span>
-        <input type="number" value={bpm}
+        <input ref={bpmInputRef} type="number" value={bpm}
           onChange={e => setBpm(clamp(Number(e.target.value), 40, 300))}
           onBlur={e => setBpm(clamp(Number(e.target.value), 40, 300))}
           className="w-12 bg-transparent font-mono text-sm font-semibold tabular-nums text-right"
@@ -4827,6 +4828,546 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPl
   )
 }
 
+// ─── KeyboardShortcutsModal ───────────────────────────────────────────────────
+function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  const groups: Array<{ heading: string; rows: Array<{ action: string; shortcut: string }> }> = [
+    {
+      heading: 'Transport',
+      rows: [{ action: 'Play / Pause', shortcut: 'Space' }],
+    },
+    {
+      heading: 'Tools',
+      rows: [
+        { action: 'Select tool', shortcut: 'V' },
+        { action: 'Cut tool', shortcut: 'C' },
+      ],
+    },
+    {
+      heading: 'Editing',
+      rows: [
+        { action: 'Fade curve steeper', shortcut: 'Shift + ,' },
+        { action: 'Fade curve shallower', shortcut: 'Shift + .' },
+        { action: 'Rename selected clip (commit)', shortcut: 'Enter (in rename input)' },
+        { action: 'Cancel rename', shortcut: 'Escape (in rename input)' },
+        { action: 'Move focused plugin up', shortcut: '⌘ + ↑' },
+        { action: 'Move focused plugin down', shortcut: '⌘ + ↓' },
+      ],
+    },
+    {
+      heading: 'Import',
+      rows: [{ action: 'Open file import picker', shortcut: 'I' }],
+    },
+    {
+      heading: 'Navigation',
+      rows: [
+        { action: 'Adjust focused knob/fader up', shortcut: '↑' },
+        { action: 'Adjust focused knob/fader down', shortcut: '↓' },
+        { action: 'Adjust pan knob right (+1)', shortcut: '→' },
+        { action: 'Adjust pan knob left (−1)', shortcut: '←' },
+        { action: 'Center pan (0)', shortcut: 'Home' },
+        { action: 'Open comment thread', shortcut: 'Enter or Space' },
+      ],
+    },
+    {
+      heading: 'Panels and Modals',
+      rows: [
+        { action: 'Close modal / deselect track', shortcut: 'Escape' },
+        { action: 'Keyboard shortcuts', shortcut: '?' },
+      ],
+    },
+  ]
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcuts-title"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: 560, maxHeight: '80vh', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      >
+        {/* Header */}
+        <div style={{ height: 44, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: C.elevated, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <span id="shortcuts-title" style={{ fontSize: 13, fontWeight: 600, color: C.textPri }}>Keyboard Shortcuts</span>
+          <button
+            aria-label="Close keyboard shortcuts"
+            onClick={onClose}
+            style={{ width: 20, height: 20, borderRadius: 3, background: 'transparent', border: 'none', color: C.textSec, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.control; (e.currentTarget as HTMLButtonElement).style.color = C.textPri }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textSec }}
+          >×</button>
+        </div>
+        {/* Body */}
+        <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
+          {groups.map((group, gi) => (
+            <div key={group.heading}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSec, marginBottom: 6, marginTop: gi === 0 ? 0 : 16 }}>
+                {group.heading}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 1 }}>
+                {group.rows.map((row, ri) => {
+                  const bg = ri % 2 === 0 ? C.elevated : 'rgba(255,255,255,0.02)'
+                  return (
+                    <React.Fragment key={row.action}>
+                      <div style={{ display: 'flex', alignItems: 'center', padding: '0 8px', height: 26, fontSize: 11, color: C.textPri, background: bg, borderRadius: '3px 0 0 3px' }}>
+                        {row.action}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 8px', height: 26, fontSize: 11, color: C.textSec, background: bg, borderRadius: '0 3px 3px 0', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                        {row.shortcut}
+                      </div>
+                    </React.Fragment>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── AboutModal ───────────────────────────────────────────────────────────────
+function AboutModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="about-title"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: 320, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: '28px 28px 24px', textAlign: 'center' }}
+      >
+        <div id="about-title" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.textPri, marginBottom: 4 }}>
+          DAWin
+        </div>
+        <div style={{ fontSize: 11, color: C.textSec, letterSpacing: '0.06em', marginBottom: 20 }}>
+          Collaborative Studio
+        </div>
+        <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>Sprint 8 — Playable Beta</div>
+        <div style={{ fontSize: 11, color: C.textSec, fontFamily: 'monospace', marginBottom: 24 }}>v0.8.0-beta</div>
+        <button
+          onClick={onClose}
+          style={{ width: '100%', height: 30, borderRadius: 4, background: C.control, color: C.textSec, fontSize: 12, border: `1px solid ${C.border}`, cursor: 'pointer' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.metalMid; (e.currentTarget as HTMLButtonElement).style.color = C.textPri }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = C.control; (e.currentTarget as HTMLButtonElement).style.color = C.textSec }}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── OpenSessionModal ─────────────────────────────────────────────────────────
+// Small modal for File → Open Session... — lets users join a session by ID
+// without leaving the current one via the lobby.
+function OpenSessionModal({ onClose, onEnterSession }: { onClose: () => void; onEnterSession: (id: string, name: string) => void }) {
+  const [joinId, setJoinId]         = useState('')
+  const [joinLoading, setJoinLoading] = useState(false)
+  const [joinError, setJoinError]   = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault()
+    const id = joinId.trim()
+    if (!id || joinLoading) return
+    setJoinLoading(true)
+    setJoinError('')
+    try {
+      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${id}`)
+      if (resp.status === 404) { setJoinError('Session not found — check the ID and try again.'); return }
+      if (!resp.ok) throw new Error(`status ${resp.status}`)
+      const data = (await resp.json()) as { id: string; name: string }
+      writeRecentSession({ id: data.id, name: data.name })
+      onEnterSession(data.id, data.name)
+      onClose()
+    } catch (err) {
+      const msg = (err as Error).message
+      if (!msg.includes('Session not found')) setJoinError('Could not reach the server — check your connection.')
+    } finally {
+      setJoinLoading(false)
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ width: 320, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 6, padding: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.textPri, marginBottom: 12 }}>Open Session</div>
+        <form onSubmit={handleSubmit}>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Paste session ID"
+            value={joinId}
+            disabled={joinLoading}
+            onChange={e => { setJoinId(e.target.value); if (joinError) setJoinError('') }}
+            style={{ width: '100%', height: 32, padding: '0 10px', borderRadius: 4, fontSize: 13, fontFamily: 'inherit', background: C.well, border: `1px solid ${joinError ? C.danger : C.border}`, color: C.textPri, outline: 'none', boxSizing: 'border-box' }}
+            onFocus={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.boxShadow = `0 0 0 2px ${C.accent}33` }}
+            onBlur={e => { e.currentTarget.style.borderColor = joinError ? C.danger : C.border; e.currentTarget.style.boxShadow = joinError ? `0 0 0 2px ${C.danger}22` : 'none' }}
+          />
+          <button
+            type="submit"
+            disabled={!joinId.trim() || joinLoading}
+            style={{ width: '100%', height: 32, marginTop: 8, borderRadius: 4, fontSize: 12, fontWeight: 600, background: C.accent, color: '#fff', border: 'none', cursor: joinId.trim() && !joinLoading ? 'pointer' : 'not-allowed', opacity: !joinId.trim() ? 0.4 : 1 }}
+          >
+            {joinLoading ? 'Joining…' : 'Join'}
+          </button>
+        </form>
+        {joinError && <div style={{ fontSize: 11, color: C.danger, marginTop: 6 }}>{joinError}</div>}
+      </div>
+    </div>
+  )
+}
+
+// ─── MenuBar ──────────────────────────────────────────────────────────────────
+interface MenuBarProps {
+  playing: boolean
+  setPlaying: (v: boolean | ((p: boolean) => boolean)) => void
+  setPlayheadBar: (v: number) => void
+  loopStart: number | null
+  loopEnd: number | null
+  setLoopStart: (v: number | null) => void
+  setLoopEnd: (v: number | null) => void
+  selectedClipId: string | null
+  chatOpen: boolean
+  setChatOpen: (v: boolean | ((p: boolean) => boolean)) => void
+  unreadCount: number
+  showMixer: boolean
+  setShowMixer: (v: boolean | ((p: boolean) => boolean)) => void
+  selectedTrackId: string | null
+  setSelectedTrackId: (v: string | null) => void
+  tracks: Track[]
+  onImportAudio: () => void
+  onLeaveSession: () => void
+  onCopySessionLink: () => void
+  onEnterSession: (id: string, name: string) => void
+  bpmInputRef: React.RefObject<HTMLInputElement | null>
+  onDeleteClip: () => void
+  onDuplicateClip: () => void
+  onCutClip: () => void
+}
+
+const MENU_NAMES = ['File', 'Edit', 'Session', 'View', 'Transport', 'Help'] as const
+type MenuName = typeof MENU_NAMES[number]
+
+const MenuBar = ({
+  playing, setPlaying, setPlayheadBar,
+  loopStart, loopEnd, setLoopStart, setLoopEnd,
+  selectedClipId,
+  chatOpen, setChatOpen, unreadCount,
+  showMixer, setShowMixer,
+  selectedTrackId, setSelectedTrackId, tracks,
+  onImportAudio, onLeaveSession, onCopySessionLink, onEnterSession,
+  bpmInputRef,
+  onDeleteClip, onDuplicateClip, onCutClip,
+}: MenuBarProps) => {
+  const [openMenu, setOpenMenu]       = useState<MenuName | null>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showAbout, setShowAbout]     = useState(false)
+  const [showOpenSession, setShowOpenSession] = useState(false)
+  const menuBarRef = useRef<HTMLElement>(null)
+  const labelRefs  = useRef<Record<MenuName, HTMLButtonElement | null>>({} as Record<MenuName, HTMLButtonElement | null>)
+  const dropdownRef = useRef<HTMLDivElement | null>(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!openMenu) return
+    function onMouseDown(e: MouseEvent) {
+      if (
+        dropdownRef.current && dropdownRef.current.contains(e.target as Node)
+      ) return
+      if (menuBarRef.current && menuBarRef.current.contains(e.target as Node)) return
+      setOpenMenu(null)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [openMenu])
+
+  // Escape closes menu and stops propagation so global Escape handler doesn't fire
+  useEffect(() => {
+    if (!openMenu) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        const current = openMenu
+        setOpenMenu(null)
+        setTimeout(() => labelRefs.current[current]?.focus(), 0)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [openMenu])
+
+  function toggleMenu(name: MenuName) {
+    setOpenMenu(prev => prev === name ? null : name)
+  }
+
+  function closeMenu() { setOpenMenu(null) }
+
+  function menuItems(name: MenuName): React.ReactNode {
+    const Item = ({ label, shortcut, stub = false, onClick }: { label: string; shortcut?: string; stub?: boolean; onClick?: () => void }) => (
+      <button
+        role="menuitem"
+        aria-disabled={stub ? 'true' : undefined}
+        tabIndex={stub ? -1 : 0}
+        onClick={stub ? undefined : () => { closeMenu(); onClick?.() }}
+        style={{
+          height: 22, display: 'flex', alignItems: 'center', padding: '0 12px',
+          cursor: 'default', userSelect: 'none', whiteSpace: 'nowrap',
+          width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: C.textPri,
+          fontSize: 11, opacity: stub ? 0.4 : 1,
+        }}
+        onMouseEnter={stub ? undefined : e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(107,92,231,0.18)' }}
+        onMouseLeave={stub ? undefined : e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+        onMouseDown={stub ? undefined : e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(107,92,231,0.35)'; e.preventDefault() }}
+        onMouseUp={stub ? undefined : e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(107,92,231,0.18)' }}
+      >
+        <span style={{ flex: 1 }}>{label}</span>
+        {shortcut && !stub && <span style={{ fontSize: 10, color: C.textSec, marginLeft: 24, fontFamily: 'inherit' }}>{shortcut}</span>}
+      </button>
+    )
+    const Sep = () => <div role="separator" style={{ height: 1, background: C.border, margin: '3px 0' }} />
+
+    switch (name) {
+      case 'File':
+        return (
+          <>
+            <Item label="New Session" onClick={onLeaveSession} />
+            <Item label="Open Session…" onClick={() => setShowOpenSession(true)} />
+            <Sep />
+            <Item label="Import Audio" shortcut="I" onClick={onImportAudio} />
+            <Sep />
+            <Item label="Leave Session" onClick={onLeaveSession} />
+          </>
+        )
+      case 'Edit': {
+        const hasClip = selectedClipId !== null
+        return (
+          <>
+            <Item label="Undo" shortcut="⌘Z" stub />
+            <Item label="Redo" shortcut="⌘⇧Z" stub />
+            <Sep />
+            <Item label="Cut Clip" stub={!hasClip} onClick={onCutClip} />
+            <Item label="Duplicate Clip" stub={!hasClip} onClick={onDuplicateClip} />
+            <Item label="Delete Clip" shortcut="⌫" stub={!hasClip} onClick={onDeleteClip} />
+            <Sep />
+            <Item label="Select All" shortcut="⌘A" stub />
+            <Sep />
+            <Item label="Preferences" stub />
+          </>
+        )
+      }
+      case 'Session':
+        return (
+          <>
+            <Item label="Session Settings" stub />
+            <Sep />
+            <Item label="Copy Session Link" onClick={onCopySessionLink} />
+            <Item label="Invite Collaborator" stub />
+            <Sep />
+            <Item label="Leave Session" onClick={onLeaveSession} />
+          </>
+        )
+      case 'View': {
+        const chatLabel = chatOpen
+          ? 'Hide Chat'
+          : unreadCount > 0 ? `Show Chat (${unreadCount})` : 'Show Chat'
+        const fxLabel = selectedTrackId !== null ? 'Hide FX Panel' : 'Show FX Panel'
+        return (
+          <>
+            <Item
+              label={showMixer ? 'Hide Mixer' : 'Show Mixer'}
+              onClick={() => setShowMixer(v => !v)}
+            />
+            <Item
+              label={fxLabel}
+              onClick={() => {
+                if (selectedTrackId !== null) {
+                  setSelectedTrackId(null)
+                } else {
+                  // Show FX: select first track (or last-selected)
+                  const firstTrack = tracks[0]
+                  if (firstTrack) setSelectedTrackId(firstTrack.id)
+                }
+              }}
+            />
+            <Item label={chatLabel} onClick={() => setChatOpen(v => !v)} />
+            <Sep />
+            <Item label="Zoom In" shortcut="⌘+" stub />
+            <Item label="Zoom Out" shortcut="⌘–" stub />
+            <Item label="Reset Zoom" shortcut="⌘0" stub />
+          </>
+        )
+      }
+      case 'Transport': {
+        const loopLabel = loopStart !== null ? 'Disable Loop' : 'Enable Loop'
+        return (
+          <>
+            <Item label={playing ? 'Pause' : 'Play'} shortcut="Space" onClick={() => setPlaying(p => !p)} />
+            <Item label="Stop" onClick={() => setPlaying(false)} />
+            <Item label="Return to Zero" onClick={() => { setPlaying(false); setPlayheadBar(0) }} />
+            <Sep />
+            <Item label={loopLabel} onClick={() => {
+              if (loopStart !== null) {
+                setLoopStart(null); setLoopEnd(null)
+              } else {
+                setLoopStart(0); setLoopEnd(8)
+              }
+            }} />
+            <Sep />
+            <Item label="Set BPM…" onClick={() => {
+              setTimeout(() => bpmInputRef.current?.focus(), 0)
+            }} />
+          </>
+        )
+      }
+      case 'Help':
+        return (
+          <>
+            <Item label="Keyboard Shortcuts" shortcut="?" onClick={() => setShowShortcuts(true)} />
+            <Sep />
+            <Item label="About DAWin" onClick={() => setShowAbout(true)} />
+          </>
+        )
+    }
+  }
+
+  // Dropdown position: aligned to the left edge of the triggering label
+  const [dropdownPos, setDropdownPos] = useState({ left: 0 })
+  useEffect(() => {
+    if (openMenu) {
+      const el = labelRefs.current[openMenu]
+      if (el) {
+        const rect = el.getBoundingClientRect()
+        setDropdownPos({ left: rect.left })
+      }
+    }
+  }, [openMenu])
+
+  return (
+    <>
+      <nav
+        ref={menuBarRef}
+        role="menubar"
+        aria-label="Application menu"
+        style={{
+          position: 'relative',
+          height: MENU_BAR_H,
+          background: C.elevated,
+          borderBottom: `1px solid ${C.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          zIndex: 100,
+        }}
+      >
+        {/* Wordmark — decorative, not a button */}
+        <span style={{ paddingLeft: 10, fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSec, userSelect: 'none' }}>
+          DAWin
+        </span>
+
+        {/* Menu labels */}
+        <div style={{ display: 'flex', alignItems: 'center', marginLeft: 16 }}>
+          {MENU_NAMES.map(name => (
+            <button
+              key={name}
+              ref={el => { labelRefs.current[name] = el }}
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === name ? 'true' : 'false'}
+              aria-controls={`menu-${name.toLowerCase()}`}
+              onClick={() => toggleMenu(name)}
+              onMouseEnter={() => {
+                if (openMenu !== null && openMenu !== name) setOpenMenu(name)
+              }}
+              style={{
+                fontSize: 11,
+                color: openMenu === name ? C.textPri : C.textSec,
+                background: openMenu === name
+                  ? C.accentMuted
+                  : 'transparent',
+                padding: '0 8px',
+                height: MENU_BAR_H,
+                lineHeight: `${MENU_BAR_H}px`,
+                cursor: 'default',
+                userSelect: 'none',
+                whiteSpace: 'nowrap',
+                border: 'none',
+                transition: 'background 80ms ease, color 80ms ease',
+              }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* Dropdown panel */}
+      {openMenu && (
+        <div
+          ref={dropdownRef}
+          id={`menu-${openMenu.toLowerCase()}`}
+          role="menu"
+          aria-label={`${openMenu} menu`}
+          style={{
+            position: 'fixed',
+            top: MENU_BAR_H,
+            left: dropdownPos.left,
+            minWidth: 200,
+            background: C.elevated,
+            border: `1px solid ${C.border}`,
+            borderRadius: 4,
+            padding: '3px 0',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+            zIndex: 200,
+          }}
+        >
+          {menuItems(openMenu)}
+        </div>
+      )}
+
+      {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      {showOpenSession && <OpenSessionModal onClose={() => setShowOpenSession(false)} onEnterSession={onEnterSession} />}
+    </>
+  )
+}
+
 // ─── Recent sessions localStorage helpers ────────────────────────────────────
 const RECENT_SESSIONS_KEY = 'dawin_recent_sessions'
 const RECENT_SESSIONS_MAX = 3
@@ -5223,7 +5764,10 @@ export default function App() {
   const [chatInput, setChatInput]       = useState('')
   const [loopStart, setLoopStart]       = useState<number | null>(null)
   const [loopEnd, setLoopEnd]           = useState<number | null>(null)
+  const [showMixer, setShowMixer]       = useState(true)
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const lastChatOpenedAt                = useRef<number>(Date.now())
+  const bpmInputRef = useRef<HTMLInputElement>(null)
   const rafRef        = useRef<number | null>(null)
   const playStartRef  = useRef<number>(0)
   const barAtStartRef = useRef<number>(0)
@@ -5638,6 +6182,14 @@ export default function App() {
       if (e.key === 'v' || e.key === 'V') { setTool('select'); return }
       if (e.key === 'c' || e.key === 'C') { setTool('cut'); return }
 
+      // ? key — open keyboard shortcuts modal
+      if (e.key === '?') {
+        // Guard: skip if focus is inside menu bar (Space guard per spec §12)
+        if ((e.target as HTMLElement).closest('[role="menubar"]')) return
+        setShowKeyboardShortcuts(true)
+        return
+      }
+
       // Shift+, / Shift+. — adjust active clip fade curve ±0.05
       if (e.shiftKey && e.key === '<') {
         setTracks(prev => prev.map(t => ({
@@ -5767,6 +6319,49 @@ export default function App() {
     }, 1500)
   }
 
+  function handleLeaveSession() {
+    // Navigate to lobby by clearing the session param from the URL
+    setSessionId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('session')
+    window.history.pushState({}, '', url.toString())
+  }
+
+  function handleDeleteSelectedClip() {
+    const clipId = selectedClipIdRef.current
+    if (!clipId) return
+    setTracks(prev => prev.map(t => ({ ...t, clips: t.clips.filter(c => c.id !== clipId) })))
+    setSelectedClipId(null)
+  }
+
+  function handleDuplicateSelectedClip() {
+    const clipId = selectedClipIdRef.current
+    if (!clipId) return
+    setTracks(prev => prev.map(t => {
+      const src = t.clips.find(c => c.id === clipId)
+      if (!src) return t
+      const copy: ClipData = { ...src, id: `${src.id}-dup-${Date.now()}`, bar: src.bar + src.len }
+      return { ...t, clips: [...t.clips, copy] }
+    }))
+  }
+
+  function handleCutSelectedClip() {
+    // Cut = split at current playhead position. If no clip selected, no-op.
+    // This mirrors the cut-tool behavior at the playhead bar.
+    const clipId = selectedClipIdRef.current
+    if (!clipId) return
+    const ph = Math.round(playheadBarRef.current)
+    setTracks(prev => prev.map(t => {
+      const src = t.clips.find(c => c.id === clipId)
+      if (!src) return t
+      if (ph <= src.bar || ph >= src.bar + src.len) return t
+      const left: ClipData  = { ...src, len: ph - src.bar }
+      const right: ClipData = { ...src, id: `${src.id}-cut-${Date.now()}`, bar: ph, len: src.bar + src.len - ph }
+      return { ...t, clips: t.clips.map(c => c.id === clipId ? left : c).concat(right) }
+    }))
+    setSelectedClipId(null)
+  }
+
   function handleEnterSession(id: string, name: string) {
     setSessionId(id)
     const url = new URL(window.location.href)
@@ -5784,8 +6379,41 @@ export default function App() {
     return <SessionLobby onEnterSession={handleEnterSession} />
   }
 
+  const unreadCount = comments.filter(c =>
+    c.authorId !== CURRENT_USER.id &&
+    new Date(c.createdAt).getTime() > lastChatOpenedAt.current
+  ).length
+
   return (
     <div className="flex flex-col" style={{ minWidth: 1280, height: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <MenuBar
+        playing={playing} setPlaying={setPlaying}
+        setPlayheadBar={setPlayheadBar}
+        loopStart={loopStart} loopEnd={loopEnd}
+        setLoopStart={setLoopStart} setLoopEnd={setLoopEnd}
+        selectedClipId={selectedClipId}
+        chatOpen={chatOpen} setChatOpen={setChatOpen}
+        unreadCount={unreadCount}
+        showMixer={showMixer} setShowMixer={setShowMixer}
+        selectedTrackId={selectedTrackId} setSelectedTrackId={setSelectedTrackId}
+        tracks={tracks}
+        onImportAudio={() => {
+          // Trigger the hidden file input inside ArrangeView via keyboard shortcut simulation
+          // The ArrangeView exposes no imperative handle, so we dispatch the 'I' keydown
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', code: 'KeyI', bubbles: true }))
+        }}
+        onLeaveSession={handleLeaveSession}
+        onCopySessionLink={() => {
+          copyDeepLink({ t: Math.round(playheadBar) })
+          setToastMessage('Link copied')
+          setTimeout(() => setToastMessage(null), 2000)
+        }}
+        onEnterSession={handleEnterSession}
+        bpmInputRef={bpmInputRef}
+        onDeleteClip={handleDeleteSelectedClip}
+        onDuplicateClip={handleDuplicateSelectedClip}
+        onCutClip={handleCutSelectedClip}
+      />
       <TransportBar
         isRecording={isRecording} setIsRecording={setIsRecording}
         playing={playing} setPlaying={setPlaying}
@@ -5795,6 +6423,7 @@ export default function App() {
         linkIconActive={linkIconActive} onLinkIconClick={handleLinkIconClick}
         loopStart={loopStart} loopEnd={loopEnd}
         onClearLoop={() => { setLoopStart(null); setLoopEnd(null) }}
+        bpmInputRef={bpmInputRef}
       />
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -5817,7 +6446,7 @@ export default function App() {
             presence={presence}
             sessionId={sessionId}
           />
-          <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />
+          {showMixer && <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />}
         </div>
       </div>
       <StatusBar wsStatus={wsStatus} />
@@ -5827,7 +6456,7 @@ export default function App() {
         onClick={() => setSelectedTrackId(null)}
         style={{
           position: 'fixed',
-          top: TRANSPORT_H,
+          top: CHROME_TOP,
           bottom: STATUS_BAR_H,
           left: 0,
           right: 0,
@@ -5843,7 +6472,7 @@ export default function App() {
       <div
         style={{
           position: 'fixed',
-          top: TRANSPORT_H,
+          top: CHROME_TOP,
           bottom: STATUS_BAR_H,
           right: 0,
           width: 720,
@@ -5894,7 +6523,7 @@ export default function App() {
         <div style={{
           position: 'fixed',
           right: 28,
-          top: TRANSPORT_H,
+          top: CHROME_TOP,
           bottom: STATUS_BAR_H,
           width: 280,
           background: C.surface,
@@ -5969,15 +6598,11 @@ export default function App() {
 
       {/* Icon rail — always visible */}
       {(() => {
-        const unreadCount = comments.filter(c =>
-          c.authorId !== CURRENT_USER.id &&
-          new Date(c.createdAt).getTime() > lastChatOpenedAt.current
-        ).length
         return (
           <div style={{
             position: 'fixed',
             right: 0,
-            top: TRANSPORT_H,
+            top: CHROME_TOP,
             bottom: STATUS_BAR_H,
             width: 28,
             background: C.surface,
@@ -6041,6 +6666,8 @@ export default function App() {
           </div>
         )
       })()}
+
+      {showKeyboardShortcuts && <KeyboardShortcutsModal onClose={() => setShowKeyboardShortcuts(false)} />}
 
       {/* Toast notification — bottom-center fixed position, auto-dismisses */}
       {toastMessage !== null && (
