@@ -1588,14 +1588,18 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     const canvas = canvasRef.current
     // For imported clips with complete peaks, draw from importPeaks regardless of assetUrl
     if (!canvas) return
-    if (!clip.assetUrl && !clip.importPeaks) return
+    // Guard: treat a zero-length Float32Array as no peaks (server-side generation failed)
+    const hasPeaks = clip.importPeaks && clip.importPeaks.length > 0
+    if (!clip.assetUrl && !hasPeaks) return
     const w = clipW
     const h = clipH
     canvas.width  = w
     canvas.height = h
 
-    // Use importPeaks if available (imported audio file with completed peak generation)
-    let peaks: Float32Array | undefined = clip.importPeaks
+    // Use importPeaks if available and non-empty (empty = server peak gen failed, use assetUrl path)
+    let peaks: Float32Array | undefined = (clip.importPeaks && clip.importPeaks.length > 0)
+      ? clip.importPeaks
+      : undefined
 
     if (!peaks) {
       if (!clip.assetUrl) return
@@ -1741,9 +1745,11 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
   const borderColor = isFailed ? C.danger : track.owner.color
   const ringColor   = isFailed ? `${C.danger}88` : `${track.owner.color}44`
 
-  // For imported clips, show canvas only when peaks are complete
+  // For imported clips, show canvas only when peaks are complete and non-empty.
+  // Empty peaks = server generation failed → show WaveformPlaceholder instead.
+  const hasRenderablePeaks = clip.importPeaks && clip.importPeaks.length > 0
   const showCanvas = clip.importStatus === 'complete'
-    ? true
+    ? (!!clip.assetUrl || !!hasRenderablePeaks)
     : clip.importStatus === undefined && clip.assetUrl !== null
 
   return (
@@ -2681,6 +2687,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `http://localhost:3000/api/v1/sessions/${sessionId}/audio`)
+    xhr.setRequestHeader('X-Filename', file.name)
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) {
@@ -2691,7 +2698,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        type AudioFileResponse = { id: string; durationSec: number }
+        type AudioFileResponse = { id: string; durationSec: number; peaks: number[] }
         let serverData: AudioFileResponse | null = null
         try {
           serverData = JSON.parse(xhr.responseText) as AudioFileResponse
@@ -2705,6 +2712,25 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
           ? Math.max(1, Math.ceil(durationSec / (60 / bpm / 4)))
           : 1
 
+        // If the server returned peaks, use them and short-circuit local generation.
+        // An empty array means server-side generation failed — mark complete with no
+        // peaks so WaveformPlaceholder renders rather than crashing.
+        const serverPeaks = serverData?.peaks
+        if (Array.isArray(serverPeaks)) {
+          const importPeaks = serverPeaks.length > 0
+            ? new Float32Array(serverPeaks)
+            : undefined
+          updateImportClip(targetTrackId, clipId, {
+            importStatus: 'complete',
+            audioFileId: serverData?.id ?? null,
+            len: durationBars,
+            uploadProgress: undefined,
+            importPeaks,
+          })
+          announceToScreenReader(`Import complete. ${file.name} added to track ${track.name}.`)
+          return
+        }
+
         updateImportClip(targetTrackId, clipId, {
           importStatus: 'decoding',
           audioFileId: serverData?.id ?? null,
@@ -2714,7 +2740,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
 
         announceToScreenReader(`Waveform generating for ${file.name}.`)
 
-        // Start local peak generation
+        // Start local peak generation (fallback when server omits peaks field)
         const gen = getPeakGenerator()
         if (!gen) {
           // Device cannot generate peaks — mark complete with empty peaks, show placeholder
@@ -4709,6 +4735,9 @@ export default function App() {
   pluginChainsRef.current = pluginChains
   // Pending deep link params — resolved in session.snapshot handler once tracks are loaded
   const pendingDeepLinkRef = useRef<{ trackParam: string | null; clipParam: string | null } | null>(null)
+  // Peaks received via audio.uploaded WS event before the local clip exists (collaborator upload).
+  // Keyed by audioFileId. Applied when the clip is created via the clips WS event (future work).
+  const pendingServerPeaksRef = useRef<Map<string, Float32Array>>(new Map())
 
   useEffect(() => {
     fetch('http://localhost:3000/api/v1/auth/me')
@@ -4870,6 +4899,32 @@ export default function App() {
           setComments(prev => prev.map(c =>
             c.id === p.commentId ? { ...c, status: 'open' } : c
           ))
+          break
+        }
+        case 'audio.uploaded': {
+          type AudioUploadedPayload = { audioFileId: string; sessionId: string; filename: string; durationSec: number; peaks: number[] }
+          const p = frame.payload as AudioUploadedPayload
+          const serverPeaks = p.peaks.length > 0 ? new Float32Array(p.peaks) : undefined
+          let applied = false
+          setTracks(prev => {
+            const next = prev.map(t => ({
+              ...t,
+              clips: t.clips.map(c => {
+                if (c.audioFileId !== p.audioFileId) return c
+                applied = true
+                // Only overwrite peaks if the clip is not already complete with peaks —
+                // the local generator may have finished first and produced equally good data.
+                if (c.importStatus === 'complete' && c.importPeaks) return c
+                return { ...c, importPeaks: serverPeaks, importStatus: 'complete' as const }
+              }),
+            }))
+            return next
+          })
+          if (!applied && serverPeaks) {
+            // Collaborator's upload — no local clip yet. Cache peaks for when the
+            // clip arrives via the clips WS event (not yet implemented: flagged in handoff).
+            pendingServerPeaksRef.current.set(p.audioFileId, serverPeaks)
+          }
           break
         }
         default:
