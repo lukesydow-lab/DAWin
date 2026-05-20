@@ -1739,11 +1739,12 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     onCut(clip.id, track.id, cutBar)
   }
 
-  const isFailed = clip.importStatus === 'failed-upload'
+  const isFailed       = clip.importStatus === 'failed-upload'
+  const isFailedDecode = clip.importStatus === 'failed-decode'
   const isInProgress = clip.importStatus === 'uploading' || clip.importStatus === 'decoding'
-  // Failed-upload clips get danger tinting on border and ring
-  const borderColor = isFailed ? C.danger : track.owner.color
-  const ringColor   = isFailed ? `${C.danger}88` : `${track.owner.color}44`
+  // failed-upload → danger red; failed-decode → amber warn (waveform unavailable but clip is usable)
+  const borderColor = isFailed ? C.danger : isFailedDecode ? C.warn : track.owner.color
+  const ringColor   = isFailed ? `${C.danger}88` : isFailedDecode ? `${C.warn}44` : `${track.owner.color}44`
 
   // For imported clips, show canvas only when peaks are complete and non-empty.
   // Empty peaks = server generation failed → show WaveformPlaceholder instead.
@@ -2707,7 +2708,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
         }
 
         const durationSec = serverData?.durationSec ?? 0
-        const bpm = 128 // TODO: read from session state when session BPM is in scope here
+        // bpm is the live session state variable — correct bar width for any tempo
         const durationBars = durationSec > 0
           ? Math.max(1, Math.ceil(durationSec / (60 / bpm / 4)))
           : 1
@@ -4781,7 +4782,7 @@ export default function App() {
           // the frontend Track shape. Fields not present in the server model
           // (type, owner, audioInput) fall back to safe defaults.
           type TrackRow = { id: string; sessionId: string; name: string; ownerId: string; color: string; volume: number; pan: number; muted: boolean; soloed: boolean; armed: boolean }
-          type ClipRow  = { id: string; trackId: string; sessionId: string; startBar: number; durationBars: number; assetId: string | null; color: string }
+          type ClipRow  = { id: string; trackId: string; sessionId: string; startBar: number; durationBars: number; assetId: string | null; color: string; audioFileId: string | null; peaks: number[] }
           type SnapPayload = {
             session: { id: string; name: string; bpm: number; timeSignature: { numerator: number; denominator: number }; totalBars: number }
             tracks: TrackRow[]
@@ -4825,6 +4826,11 @@ export default function App() {
               fadeOutCurve: 0.7,
               crossfadeLocked: true,
               assetUrl: cl.assetId,
+              audioFileId: cl.audioFileId ?? null,
+              // Restore persisted waveform peaks — non-empty array means server has them stored
+              ...(cl.peaks && cl.peaks.length > 0
+                ? { importPeaks: new Float32Array(cl.peaks), importStatus: 'complete' as const }
+                : {}),
             })),
           }))
 
