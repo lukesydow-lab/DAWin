@@ -97,6 +97,7 @@ function mapClipRow(row: {
   durationBars: number;
   assetId: string | null;
   color: string;
+  audioFile?: { id: string; peaks: number[] } | null;
 }): ClipRow {
   return {
     id: row.id,
@@ -106,6 +107,8 @@ function mapClipRow(row: {
     durationBars: row.durationBars,
     assetId: row.assetId,
     color: row.color,
+    audioFileId: row.audioFile?.id ?? null,
+    peaks: row.audioFile?.peaks ?? [],
   };
 }
 
@@ -120,7 +123,7 @@ function mapAudioFileRow(row: {
   sampleRate: number;
   channels: number;
   fileSizeBytes: bigint;
-  peaks: number[];
+  peaks: number[] | null;
 }): AudioFileRow {
   return {
     id: row.id,
@@ -133,7 +136,10 @@ function mapAudioFileRow(row: {
     sampleRate: row.sampleRate,
     channels: row.channels,
     fileSizeBytes: row.fileSizeBytes,
-    peaks: row.peaks,
+    // Null guard: pre-Sprint-7 rows have no DEFAULT and come back NULL from Postgres.
+    // The migration backfills existing rows, but this guard protects against any
+    // row that slips through (e.g. written before the migration ran on a replica).
+    peaks: row.peaks ?? [],
   };
 }
 
@@ -259,9 +265,16 @@ export class PrismaStorageAdapter implements StorageAdapter {
   // ---------------------------------------------------------------------------
 
   async getClips(sessionId: string): Promise<ClipRow[]> {
-    // Clip uses hard delete — no deletedAt filter needed (see ADR-004 §7)
+    // Clip uses hard delete — no deletedAt filter needed (see ADR-004 §7).
+    // Include the audioFile relation so peaks flow through to ClipRow and into
+    // the session.snapshot payload (SPRINT-7-002).
     const rows = await this.prisma.clip.findMany({
       where: { sessionId },
+      include: {
+        audioFile: {
+          select: { id: true, peaks: true },
+        },
+      },
     });
     return rows.map(mapClipRow);
   }
@@ -276,6 +289,11 @@ export class PrismaStorageAdapter implements StorageAdapter {
         assetId: data.assetId,
         color: data.color,
       },
+      include: {
+        audioFile: {
+          select: { id: true, peaks: true },
+        },
+      },
     });
     return mapClipRow(row);
   }
@@ -287,6 +305,11 @@ export class PrismaStorageAdapter implements StorageAdapter {
     const row = await this.prisma.clip.update({
       where: { id },
       data: patch,
+      include: {
+        audioFile: {
+          select: { id: true, peaks: true },
+        },
+      },
     });
     return mapClipRow(row);
   }

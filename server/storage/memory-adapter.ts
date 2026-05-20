@@ -92,7 +92,13 @@ export class InMemoryStorageAdapter implements StorageAdapter {
   }
 
   async createClip(data: Omit<ClipRow, 'id'>): Promise<ClipRow> {
-    const row: ClipRow = { id: randomUUID(), ...data };
+    const row: ClipRow = {
+      id: randomUUID(),
+      ...data,
+      // In-memory has no AudioFile store — audioFileId and peaks are always inert.
+      audioFileId: data.audioFileId ?? null,
+      peaks: data.peaks ?? [],
+    };
     clips.set(row.id, row);
     return row;
   }

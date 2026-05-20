@@ -45,6 +45,10 @@ export interface ClipRow {
   durationBars: number;
   assetId: string | null;
   color: string;
+  /** ID of the AudioFile row this clip references. null if no audio is attached. */
+  audioFileId: string | null;
+  /** 200-value RMS waveform peaks from the attached AudioFile. Empty array if no audio or peaks unavailable. */
+  peaks: number[];
 }
 
 export interface AudioFileRow {
