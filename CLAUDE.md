@@ -58,12 +58,14 @@ Do not proceed until approval is given. If the PM is not available, default to `
 | What is the current project state? | `handoff-documentation/DAWin_HANDOFF.md` |
 | What components exist and where? | `handoff-documentation/DAWin_PROJECT_STATE.md` |
 | What is actively in progress? | `STATUS.md` |
-| What are the architecture decisions? | `docs/adr/` |
-| What specs must I implement? | `docs/specs/<feature>.md` |
-| What has been handed off for review? | `docs/handoffs/<feature>.md` |
+| What did Sprint N ship? | `docs/sprints/sprint-NN.md` (e.g. `sprint-05.md`) |
+| What is the active sprint work order? | `docs/handoffs/active/` |
+| What are the architecture decisions? | `docs/adr/README.md` then the specific ADR |
+| What specs must I implement? | `docs/specs/README.md` then the specific spec |
+| Historical handoffs (Sprints 1–5) | `docs/handoffs/archive/` — do not treat as current instructions |
 | What is the sprint close process? | `docs/process/sprint-close-protocol.md` |
 
-When these documents conflict, the most recently dated one wins. If still unclear, stop and ask the PM.
+**Conflict resolution:** Source-of-truth hierarchy wins first (see `DAWin_CURRENT_CONTEXT.md`). Only `Status: Current` documents are authoritative. If two same-tier documents conflict, the one with the newer in-document `Last updated` date wins. If still unclear, stop and ask the PM.
 
 ---
 
@@ -104,6 +106,21 @@ When these documents conflict, the most recently dated one wins. If still unclea
 - `docs/adr/` is written by the Tech Lead only
 - `docs/specs/` is written by the Designer or PM
 - `docs/handoffs/` is written by any agent dropping work for Tech Lead review
+
+---
+
+## Branch strategy
+
+| Branch | Purpose | Deploy | How to merge |
+|---|---|---|---|
+| `main` | Production — what real users see | Vercel production + Railway production | PR from `beta` only; CI must pass |
+| `beta` | Staging — integration testing before production | Vercel beta + Railway staging | PR from `feature/*` or `fix/*`; CI must pass |
+| `feature/sprint-N-description` | Feature work | None | PR to `beta` when complete and tsc-clean |
+| `fix/description` | Bug fixes | None | PR to `beta`, then fast-track to `main` |
+
+**Rule:** Nothing ever goes directly to `main`. All changes go `feature/* → beta → main`.
+
+See `docs/process/development-workflow.md` for the full workflow with flowcharts.
 
 ---
 
