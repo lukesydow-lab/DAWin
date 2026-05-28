@@ -1,58 +1,38 @@
 /**
  * server/routes/sessions.ts
  *
- * Session routes — Sprint 2 scaffold stubs.
- * Returns seed session data for frontend integration testing.
+ * Session routes — wired to fastify.storage in Sprint 5-B.
  *
  * Endpoints implemented:
- *   GET  /api/v1/sessions/:id   → Session (with collaborators[])
+ *   GET  /api/v1/sessions/:id   → SessionRow mapped to HTTP response shape
+ *   POST /api/v1/sessions       → create a new session (owner role required)
  *
  * Stubbed (501):
- *   POST   /api/v1/sessions
  *   POST   /api/v1/sessions/:id/join
  *   DELETE /api/v1/sessions/:id
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { Session } from "../types.js";
-
-/** Seed session — mirrors the shape of session state in src/App.tsx. */
-const SEED_SESSION: Session = {
-  id: "dev-session-001",
-  name: "Untitled Session",
-  bpm: 120,
-  timeSignature: { numerator: 4, denominator: 4 },
-  createdAt: new Date().toISOString(),
-  collaborators: [
-    {
-      userId: "dev-user-001",
-      displayName: "Dev User",
-      color: "#7C3AED",
-      role: "owner",
-      isGuest: false,
-    },
-    {
-      userId: "dev-user-002",
-      displayName: "Collaborator A",
-      color: "#2563EB",
-      role: "collaborator",
-      isGuest: false,
-    },
-  ],
-};
+import { verifyToken } from "../jwt.js";
+import type { Collaborator } from "../types.js";
 
 interface SessionParams {
   id: string;
+}
+
+interface CreateSessionBody {
+  name: unknown;
+  bpm?: unknown;
+  totalBars?: unknown;
 }
 
 export async function sessionRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/v1/sessions/:id
    *
-   * Returns the session record including current collaborators list.
-   * Stub: matches on the dev seed session ID, returns 404 otherwise.
-   *
-   * Production: query session store, verify caller is a session member.
+   * Calls fastify.storage.getSession(id). Returns 404 if not found.
+   * Collaborators are not yet loaded from a SessionMember table — returns []
+   * until Sprint 6 adds that join.
    */
   fastify.get(
     "/api/v1/sessions/:id",
@@ -62,21 +42,91 @@ export async function sessionRoutes(fastify: FastifyInstance): Promise<void> {
     ) => {
       const { id } = request.params;
 
-      if (id !== SEED_SESSION.id) {
-        return reply
-          .code(404)
-          .send({ error: "session_not_found", code: "SESSION_NOT_FOUND" });
+      const session = await fastify.storage.getSession(id);
+
+      if (session === null) {
+        return reply.code(404).send({ error: "Session not found" });
       }
 
-      return reply.code(200).send({ data: SEED_SESSION });
+      // TODO: load from SessionMember table in Sprint 6
+      const collaborators: Collaborator[] = [];
+
+      return reply.code(200).send({
+        data: {
+          id: session.id,
+          name: session.name,
+          bpm: session.bpm,
+          timeSignature: session.timeSignature,
+          totalBars: session.totalBars,
+          collaborators,
+        },
+      });
     }
   );
 
-  /** POST /api/v1/sessions — stub */
+  /**
+   * POST /api/v1/sessions
+   *
+   * Requires a valid Bearer JWT with role === 'owner'.
+   * Body: { name: string, bpm?: number, totalBars?: number }
+   * Returns 201 with the created SessionRow.
+   */
   fastify.post(
     "/api/v1/sessions",
-    async (_request: FastifyRequest, reply: FastifyReply) => {
-      return reply.code(501).send({ error: "not_implemented" });
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // --- Auth: require Bearer token with owner role ---
+      const authHeader = request.headers["authorization"];
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return reply
+          .code(401)
+          .send({ error: "unauthorized", message: "Missing Bearer token" });
+      }
+
+      const token = authHeader.slice("Bearer ".length).trim();
+      let claims;
+      try {
+        claims = await verifyToken(token);
+      } catch {
+        return reply
+          .code(401)
+          .send({ error: "unauthorized", message: "Invalid or expired token" });
+      }
+
+      if (claims.role !== "owner") {
+        return reply
+          .code(403)
+          .send({ error: "forbidden", message: "Owner role required to create a session" });
+      }
+
+      // --- Body validation ---
+      const body = request.body as CreateSessionBody | null;
+
+      if (
+        !body ||
+        typeof body.name !== "string" ||
+        body.name.trim().length === 0
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "bad_request", message: "name must be a non-empty string" });
+      }
+
+      const bpm =
+        typeof body.bpm === "number" && isFinite(body.bpm) ? body.bpm : 120;
+      const totalBars =
+        typeof body.totalBars === "number" && isFinite(body.totalBars)
+          ? body.totalBars
+          : 128;
+
+      // --- Persist ---
+      const created = await fastify.storage.createSession({
+        name: body.name.trim(),
+        bpm,
+        timeSignature: { numerator: 4, denominator: 4 },
+        totalBars,
+      });
+
+      return reply.code(201).send({ data: created });
     }
   );
 

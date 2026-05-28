@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DAWin · Plugin Rack Controls (140px)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --owner: #6B5CE7;
+    --owner-glow: rgba(107,92,231,0.5);
+    --wood-light: #3a2814;
+    --wood-dark: #1a1208;
+    --metal-light: #4a4a54;
+    --metal-mid: #2a2a34;
+    --metal-dark: #18181f;
+    --plate-top: #1f1f27;
+    --plate-mid: #15151c;
+    --plate-bot: #0d0d12;
+    --lcd-bg: #050505;
+    --lcd-amber: #f5a623;
+    --green: #1D9E75;
+    --amber: #F5A623;
+    --red: #E94560;
+  }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 32px 48px 80px;
+    min-width: 1280px;
+  }
+
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888899; margin-bottom: 20px; max-width: 820px; line-height: 1.5; }
+
+  .pull-quote {
+    font-size: 12px; line-height: 1.6; color: #888899; max-width: 820px;
+    padding: 14px 18px; background: #111118; border-left: 2px solid var(--owner);
+    border-radius: 4px; margin-bottom: 28px;
+  }
+  .pull-quote strong { color: #F0F0F5; }
+
+  /* ────────────────── CABINET (carries 4 rack units) ──────────────── */
+  .cabinet {
+    width: 560px;
+    background: var(--wood-dark);
+    box-shadow: inset 4px 0 12px rgba(0,0,0,0.6);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .cabinet-rail {
+    height: 26px;
+    flex-shrink: 0;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 6px),
+      linear-gradient(180deg, var(--wood-light) 0%, var(--wood-dark) 100%);
+    border-bottom: 1px solid rgba(0,0,0,0.5);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    display: flex; align-items: center;
+    padding: 0 18px;
+    gap: 12px;
+  }
+  .cabinet-rail.bottom { border-bottom: 0; border-top: 1px solid rgba(0,0,0,0.5); }
+  .cabinet-rail .badge {
+    font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.3); font-weight: 700;
+  }
+  .cabinet-rail .track-name { font-size: 11px; font-weight: 700; color: #F0F0F5; }
+  .cabinet-rail .slot-count {
+    font-size: 9px; color: rgba(255,255,255,0.4); font-family: 'SF Mono', monospace;
+    background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;
+    margin-left: auto;
+  }
+
+  .cabinet-trim {
+    height: 2px;
+    background: var(--owner);
+    box-shadow: 0 0 8px var(--owner-glow);
+    flex-shrink: 0;
+  }
+
+  .rack-interior {
+    background: #060609;
+    padding: 14px 14px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    background-image:
+      linear-gradient(90deg, rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px, rgba(0,0,0,0.4) 1px, rgba(0,0,0,0.4) 4px, transparent 4px),
+      linear-gradient(270deg, rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px, rgba(0,0,0,0.4) 1px, rgba(0,0,0,0.4) 4px, transparent 4px);
+    box-shadow: inset 0 6px 12px rgba(0,0,0,0.8);
+  }
+
+  /* ────────────────── RACK UNIT (160px tall) ────────────────── */
+  .rack {
+    height: 160px;
+    display: flex;
+    align-items: stretch;
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow:
+      0 3px 6px rgba(0,0,0,0.6),
+      0 1px 2px rgba(0,0,0,0.8),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    cursor: grab;
+    position: relative;
+  }
+  .rack:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 10px rgba(0,0,0,0.7), 0 2px 3px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .rack:active { cursor: grabbing; }
+  .rack.bypassed .faceplate { filter: brightness(0.55) saturate(0.6); }
+
+  /* Brackets with screws */
+  .bracket {
+    width: 14px;
+    background: linear-gradient(180deg, var(--metal-light) 0%, var(--metal-mid) 50%, var(--metal-dark) 100%);
+    flex-shrink: 0;
+    position: relative;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.3);
+  }
+  .bracket::before, .bracket::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9a9aa4 0%, #5a5a64 40%, #2a2a34 80%, #18181f 100%);
+    box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.5), 0 1px 1px rgba(0,0,0,0.5);
+  }
+  .bracket::before { top: 10px; }
+  .bracket::after  { bottom: 10px; }
+
+  /* Sidechain pin — small input on left bracket */
+  .bracket.left .sc-pin {
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px; height: 8px;
+    background: radial-gradient(circle at 40% 30%, #2a2a32 0%, #0a0a0f 80%);
+    border-radius: 50%;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.8);
+  }
+
+  /* Faceplate */
+  .faceplate {
+    flex: 1;
+    background: linear-gradient(180deg, var(--plate-top) 0%, var(--plate-mid) 50%, var(--plate-bot) 100%);
+    display: flex; flex-direction: column;
+    position: relative;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.4);
+  }
+  .faceplate::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+    pointer-events: none;
+  }
+
+  /* Top zone — name, preset screen, actions, power */
+  .face-top {
+    height: 38px;
+    padding: 6px 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    z-index: 1;
+  }
+  .face-top .name-block { line-height: 1.1; flex-shrink: 0; }
+  .plugin-name {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #d4d4dc;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.8);
+  }
+  .plugin-mfr {
+    display: block;
+    font-size: 8px;
+    color: rgba(255,255,255,0.3);
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    margin-top: 2px;
+  }
+  .face-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+
+  /* ────────────────── PRESET SCREEN (LCD-style rackmount) ────────────────── */
+  .preset-bay {
+    flex: 1;
+    max-width: 280px;
+    height: 26px;
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 0 auto;
+  }
+  .preset-arrow {
+    width: 18px;
+    background: linear-gradient(180deg, #2a2a32 0%, #15151c 100%);
+    border: 1px solid #050507;
+    border-radius: 2px 0 0 2px;
+    color: #888899;
+    cursor: pointer;
+    font-size: 9px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.4);
+    transition: color 0.1s ease;
+  }
+  .preset-arrow:hover { color: #F0F0F5; }
+  .preset-arrow.right { border-radius: 0 2px 2px 0; border-left: 0; }
+  .preset-screen {
+    flex: 1;
+    background: var(--lcd-bg);
+    border-top: 1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(255,255,255,0.02);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px;
+    font-family: 'SF Mono', 'Courier New', monospace;
+    font-size: 10px;
+    color: var(--lcd-amber);
+    text-shadow: 0 0 4px rgba(245,166,35,0.5);
+    letter-spacing: 0.04em;
+    position: relative;
+    overflow: hidden;
+  }
+  .preset-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(0,0,0,0.18) 1px, rgba(0,0,0,0.18) 2px);
+    pointer-events: none;
+  }
+  .preset-screen .preset-name { z-index: 1; }
+  .preset-screen .preset-caret {
+    z-index: 1;
+    font-size: 8px;
+    color: rgba(245,166,35,0.6);
+  }
+
+  /* Preset dropdown list — fixed position so it escapes the rack's overflow:hidden */
+  .preset-dropdown {
+    position: fixed;
+    width: 240px;
+    background: var(--lcd-bg);
+    border: 1px solid #050507;
+    border-radius: 3px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.03);
+    z-index: 1200;
+    display: none;
+    overflow: hidden;
+  }
+  .preset-dropdown.open { display: block; }
+  .preset-dropdown::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(0,0,0,0.15) 1px, rgba(0,0,0,0.15) 2px);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .preset-dropdown .preset-item {
+    padding: 7px 12px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    color: rgba(245,166,35,0.6);
+    cursor: pointer;
+    position: relative;
+    z-index: 2;
+    transition: background 0.08s ease, color 0.08s ease;
+    display: flex; align-items: center;
+    gap: 8px;
+  }
+  .preset-dropdown .preset-item:hover {
+    background: rgba(245,166,35,0.08);
+    color: var(--lcd-amber);
+    text-shadow: 0 0 4px rgba(245,166,35,0.5);
+  }
+  .preset-dropdown .preset-item.active {
+    color: var(--lcd-amber);
+    text-shadow: 0 0 4px rgba(245,166,35,0.5);
+  }
+  .preset-dropdown .preset-item .check {
+    width: 10px;
+    color: var(--lcd-amber);
+  }
+  .preset-dropdown .preset-divider {
+    height: 1px;
+    background: rgba(245,166,35,0.15);
+    position: relative; z-index: 2;
+  }
+  .preset-dropdown .preset-item.save {
+    color: rgba(107,92,231,0.7);
+    font-style: italic;
+  }
+  .preset-dropdown .preset-item.save:hover {
+    color: var(--owner);
+    text-shadow: 0 0 4px var(--owner-glow);
+  }
+
+  /* ────────────────── PAGE BUTTONS (LCD-style numbered) ────────────────── */
+  .face-bottom {
+    height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 5px;
+    position: relative;
+    z-index: 1;
+    padding: 2px 0;
+  }
+  .page-btn {
+    width: 22px;
+    height: 18px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #2a2a32 0%, #18181f 100%);
+    border: 1px solid #050507;
+    color: #6a6a76;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 1px rgba(0,0,0,0.4);
+    transition: all 0.12s ease;
+  }
+  .page-btn:hover { color: #d4d4dc; }
+  .page-btn.active {
+    background: linear-gradient(180deg, var(--owner) 0%, #4a3a8a 100%);
+    color: white;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.2),
+      inset 0 -1px 0 rgba(0,0,0,0.3),
+      0 0 8px var(--owner-glow),
+      0 0 2px var(--owner);
+    text-shadow: 0 0 4px rgba(255,255,255,0.5);
+  }
+  .face-icon {
+    width: 16px; height: 16px;
+    background: transparent;
+    border: 0;
+    color: #888899;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.1s ease;
+  }
+  .face-icon:hover { color: #F0F0F5; }
+
+  /* Power LED (bypass) */
+  .power-btn {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.6) 70%);
+    border: 1px solid rgba(0,0,0,0.6);
+    position: relative;
+    cursor: pointer;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+    flex-shrink: 0;
+  }
+  .power-btn::after {
+    content: '';
+    position: absolute; inset: 3px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, #3a3a44 0%, #1a1a22 80%);
+    transition: all 0.18s ease;
+  }
+  .power-btn.on::after {
+    background: radial-gradient(circle at 50% 35%, #ff8080 0%, var(--owner) 35%, #4a3a8a 90%);
+    box-shadow: 0 0 6px var(--owner), 0 0 12px var(--owner-glow), inset 0 1px 0 rgba(255,255,255,0.4);
+  }
+
+  /* Knob row (standard 4-knob) */
+  .face-knobs {
+    flex: 1;
+    padding: 6px 14px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 4px;
+    position: relative;
+    z-index: 1;
+  }
+  .knob-slot {
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: ns-resize;
+  }
+  .knob-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #d4d4dc;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .knob-value {
+    font-size: 9px;
+    font-family: 'SF Mono', 'Courier New', monospace;
+    color: var(--lcd-amber);
+    text-shadow: 0 0 3px rgba(245,166,35,0.4);
+    line-height: 1;
+  }
+  .knob-slot.learning .knob-label { color: var(--owner); }
+  .knob-slot.learning .knob-svg { filter: drop-shadow(0 0 6px var(--owner-glow)); animation: learn-pulse 1.2s ease-in-out infinite; }
+  @keyframes learn-pulse {
+    0%, 100% { filter: drop-shadow(0 0 4px var(--owner-glow)); }
+    50%      { filter: drop-shadow(0 0 12px var(--owner-glow)); }
+  }
+
+  /* EQ now uses standard 6-knob layout (same as .face-knobs) — no crossovers needed */
+  .eq-knobs {
+    flex: 1;
+    padding: 6px 14px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 4px;
+    position: relative;
+    z-index: 1;
+  }
+  .eq-knobs .knob-slot.freq .knob-label { color: rgba(245,166,35,0.8); }
+
+  /* ────────────────── HERO (One Knob) — big knob + dry/wet slider ────────────────── */
+  .face-hero {
+    flex: 1;
+    padding: 6px 14px 4px;
+    display: flex; flex-direction: column;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-row {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .hero-knob-wrap {
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    cursor: ns-resize;
+  }
+  .hero-knob-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    color: #d4d4dc;
+    text-transform: uppercase;
+  }
+  .hero-knob-value {
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+    color: var(--lcd-amber);
+    text-shadow: 0 0 4px rgba(245,166,35,0.5);
+    font-weight: 700;
+  }
+
+  /* GR meter (vertical) */
+  .gr-meter {
+    width: 8px;
+    height: 70px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1px;
+  }
+  .gr-seg {
+    flex: 1;
+    background: #1a1a22;
+    border-radius: 1px;
+    transition: background 0.04s linear;
+  }
+  .gr-seg.lit-green  { background: var(--green);  box-shadow: 0 0 3px var(--green); }
+  .gr-seg.lit-amber  { background: var(--amber);  box-shadow: 0 0 3px var(--amber); }
+  .gr-seg.lit-red    { background: var(--red);    box-shadow: 0 0 3px var(--red); }
+
+  /* Dry/Wet slider */
+  .drywet {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 0;
+  }
+  .drywet-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.45);
+  }
+  .drywet-track {
+    flex: 1;
+    height: 4px;
+    background: var(--lcd-bg);
+    border-radius: 2px;
+    position: relative;
+    cursor: pointer;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.8);
+  }
+  .drywet-fill {
+    height: 100%;
+    background: var(--owner);
+    border-radius: 2px;
+    box-shadow: 0 0 4px var(--owner-glow);
+  }
+  .drywet-thumb {
+    position: absolute;
+    top: 50%;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle at 35% 30%, #d4d4dc 0%, #6a6a78 60%, #2a2a32 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .drywet-value {
+    font-size: 9px;
+    font-family: 'SF Mono', monospace;
+    color: var(--lcd-amber);
+    min-width: 32px;
+    text-align: right;
+  }
+
+  /* ────────────────── DRAG REORDER ────────────────── */
+  .rack.dragging { opacity: 0.45; }
+  .drop-line {
+    height: 3px;
+    border-radius: 1.5px;
+    background: var(--owner);
+    box-shadow: 0 0 10px var(--owner-glow);
+    margin: -6.5px 0;
+    pointer-events: none;
+  }
+
+  /* ────────────────── PLUGIN GUI WINDOW (mocked third-party) ────────────────── */
+  .plugin-window {
+    position: fixed;
+    width: 480px;
+    background: #15151c;
+    border: 1px solid #050507;
+    border-radius: 6px;
+    box-shadow: 0 24px 56px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,0,0,0.4);
+    z-index: 1000;
+    display: none;
+    overflow: hidden;
+    user-select: none;
+  }
+  .plugin-window.open { display: block; }
+  .pw-header {
+    height: 32px;
+    background: linear-gradient(180deg, #2a2a34 0%, #1a1a22 100%);
+    border-bottom: 1px solid #050507;
+    display: flex; align-items: center;
+    padding: 0 10px;
+    gap: 10px;
+    cursor: grab;
+  }
+  .pw-header:active { cursor: grabbing; }
+  .pw-title { flex: 1; font-size: 11px; color: #d4d4dc; font-weight: 700; letter-spacing: 0.06em; }
+  .pw-mfr { font-size: 9px; color: #888899; }
+  .pw-icon {
+    width: 18px; height: 18px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    color: #888899;
+    border: 0;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .pw-icon:hover { background: rgba(255,255,255,0.1); color: #F0F0F5; }
+  .pw-icon.on { background: rgba(107,92,231,0.2); color: var(--owner); }
+
+  .pw-body {
+    padding: 18px;
+    background:
+      linear-gradient(180deg, #1f1f27 0%, #15151c 100%);
+    min-height: 240px;
+    position: relative;
+  }
+  .pw-body::before {
+    content: 'Third-party plugin GUI renders here at native resolution';
+    position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 11px;
+    color: #555567;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+  }
+  /* Fake plugin controls to make the body look populated */
+  .pw-body .mock-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    padding: 16px 0;
+  }
+  .pw-body .mock-knob {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, #4a4a54 0%, #2a2a32 60%, #15151c 100%);
+    box-shadow: inset 0 -3px 4px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4);
+    position: relative;
+    cursor: pointer;
+  }
+  .pw-body .mock-knob.learnable:hover {
+    outline: 2px solid var(--owner);
+    outline-offset: 4px;
+  }
+  .pw-body .mock-knob::after {
+    content: '';
+    position: absolute;
+    top: 8%; left: 50%;
+    width: 2px; height: 30%;
+    background: rgba(255,255,255,0.7);
+    border-radius: 1px;
+    transform-origin: 50% 100%;
+    transform: translateX(-50%) rotate(var(--rot, 0deg));
+  }
+  /* Resize handle on plugin window */
+  .pw-resize {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 14px; height: 14px;
+    cursor: nwse-resize;
+    background:
+      linear-gradient(135deg, transparent 50%, #4a4a54 50%, #4a4a54 60%, transparent 60%, transparent 70%, #4a4a54 70%, #4a4a54 80%, transparent 80%);
+  }
+
+  /* ────────────────── CONTEXT MENU (right-click knob) ────────────────── */
+  .knob-menu {
+    position: fixed;
+    width: 200px;
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+    z-index: 1100;
+    padding: 4px 0;
+    display: none;
+  }
+  .knob-menu.open { display: block; }
+  .knob-menu .row {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: #B8B8C2;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .knob-menu .row:hover { background: rgba(255,255,255,0.05); color: #F0F0F5; }
+  .knob-menu .row.danger:hover { background: rgba(233,69,96,0.12); color: var(--red); }
+  .knob-menu .divider { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 0; }
+  .knob-menu .icon { width: 14px; font-size: 11px; color: #888899; }
+  .knob-menu .row:hover .icon { color: inherit; }
+
+  /* ────────────────── annotations ────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 580px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .ann-stack { display: flex; flex-direction: column; gap: 14px; }
+  .annotation { padding: 16px 18px; background: #111118; border: 1px solid #1E1E28; border-radius: 8px; }
+  .annotation h3 {
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--owner); margin-bottom: 8px; font-weight: 700;
+  }
+  .annotation p { font-size: 12px; color: #888899; line-height: 1.55; margin-bottom: 6px; }
+  .annotation strong { color: #F0F0F5; }
+  .annotation code { font-family: 'SF Mono', monospace; font-size: 11px; background: #1A1A24; color: #F0F0F5; padding: 1px 5px; border-radius: 3px; }
+
+  .hints {
+    font-size: 11px;
+    color: #888899;
+    margin-bottom: 24px;
+  }
+  .hints kbd {
+    background: #1A1A24; border: 1px solid #2A2A38;
+    border-radius: 3px; padding: 1px 5px;
+    font-family: 'SF Mono', monospace; font-size: 11px;
+    color: #B8B8C2; margin: 0 2px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Plugin Rack Controls — 140px Hi-fi</h1>
+<div class="subtitle">
+  Four rack-unit types in one cabinet: standard 4-knob (Compressor), EQ with draggable crossovers, One Knob hero (Maximizer), and a third-party plugin with custom-mapped controls + pages + GUI launcher.
+</div>
+
+<div class="pull-quote">
+  <strong>The rack IS the interface.</strong> 140px tall units fit 4 working knobs with descriptors. Native plugins use the rack only — there's no "full GUI" because the rack is the whole plugin. Third-party plugins expose 4 manufacturer-default controls (or custom-mapped ones) on the rack and reveal their full GUI on double-click. Right-click any knob → <strong>Map Control</strong> for the parameter-learn workflow.
+</div>
+
+<div class="hints">
+  Try: drag a rack to reorder · double-click a knob to learn · double-click an empty rack area for the third-party GUI · right-click a knob for the menu · click any power LED to bypass · drag the EQ crossovers · drag the dry/wet slider on Maximizer
+</div>
+
+<div class="layout">
+  <div class="cabinet">
+    <!-- Top rail -->
+    <div class="cabinet-rail">
+      <span class="badge">DAWIN</span>
+      <span class="track-name">Vocals</span>
+      <span class="slot-count">4 / 8</span>
+    </div>
+    <div class="cabinet-trim"></div>
+
+    <!-- Rack interior with 4 rack units -->
+    <div class="rack-interior" id="rack-interior">
+      <!-- ──────────────────────── 1. EQ (6 knobs, parametric) ──────────────────────── -->
+      <div class="rack" draggable="true" data-id="eq">
+        <div class="bracket left"><div class="sc-pin"></div></div>
+        <div class="faceplate">
+          <div class="face-top">
+            <div class="name-block">
+              <span class="plugin-name">Parametric EQ</span>
+              <span class="plugin-mfr">DAWin · 3-Band</span>
+            </div>
+            <div class="preset-bay" data-rack="eq">
+              <button class="preset-arrow left" title="Previous preset">◀</button>
+              <div class="preset-screen">
+                <span class="preset-name">Vocal Brightener</span>
+                <span class="preset-caret">▾</span>
+              </div>
+              <button class="preset-arrow right" title="Next preset">▶</button>
+              <div class="preset-dropdown">
+                <div class="preset-item">Init</div>
+                <div class="preset-item active"><span class="check">✓</span><span>Vocal Brightener</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Acoustic Guitar Air</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Drum Bus Tighten</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Bass DI Cleanup</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Master Sweetener</span></div>
+                <div class="preset-divider"></div>
+                <div class="preset-item save">+ Save current as preset…</div>
+              </div>
+            </div>
+            <div class="face-actions">
+              <button class="face-icon" title="Settings">⋯</button>
+              <button class="power-btn on" title="Bypass"></button>
+            </div>
+          </div>
+          <div class="eq-knobs">
+            <div class="knob-slot"      data-param="low_gain"  data-value="62"><div class="knob-svg" data-knob='{"size":34,"value":62,"color":"#6B5CE7"}'></div><span class="knob-label">LOW</span><span class="knob-value">+2.0 dB</span></div>
+            <div class="knob-slot freq" data-param="low_freq"  data-value="22"><div class="knob-svg" data-knob='{"size":34,"value":22,"color":"#F5A623"}'></div><span class="knob-label">L-FREQ</span><span class="knob-value">120 Hz</span></div>
+            <div class="knob-slot"      data-param="mid_gain"  data-value="52"><div class="knob-svg" data-knob='{"size":34,"value":52,"color":"#6B5CE7"}'></div><span class="knob-label">MID</span><span class="knob-value">+0.5 dB</span></div>
+            <div class="knob-slot freq" data-param="mid_freq"  data-value="50"><div class="knob-svg" data-knob='{"size":34,"value":50,"color":"#F5A623"}'></div><span class="knob-label">M-FREQ</span><span class="knob-value">1.2 kHz</span></div>
+            <div class="knob-slot"      data-param="high_gain" data-value="40"><div class="knob-svg" data-knob='{"size":34,"value":40,"color":"#6B5CE7"}'></div><span class="knob-label">HIGH</span><span class="knob-value">−1.5 dB</span></div>
+            <div class="knob-slot freq" data-param="high_freq" data-value="68"><div class="knob-svg" data-knob='{"size":34,"value":68,"color":"#F5A623"}'></div><span class="knob-label">H-FREQ</span><span class="knob-value">8.0 kHz</span></div>
+          </div>
+          <div class="face-bottom">
+            <button class="page-btn active" data-page="1">1</button>
+          </div>
+        </div>
+        <div class="bracket right"></div>
+      </div>
+
+      <!-- ──────────────────────── 2. Compressor (standard 4-knob) ──────────────────────── -->
+      <div class="rack" draggable="true" data-id="comp">
+        <div class="bracket left"><div class="sc-pin"></div></div>
+        <div class="faceplate">
+          <div class="face-top">
+            <div class="name-block">
+              <span class="plugin-name">Compressor</span>
+              <span class="plugin-mfr">DAWin · Glue</span>
+            </div>
+            <div class="preset-bay" data-rack="comp">
+              <button class="preset-arrow left" title="Previous preset">◀</button>
+              <div class="preset-screen">
+                <span class="preset-name">Drum Bus Glue</span>
+                <span class="preset-caret">▾</span>
+              </div>
+              <button class="preset-arrow right" title="Next preset">▶</button>
+              <div class="preset-dropdown">
+                <div class="preset-item">Init</div>
+                <div class="preset-item active"><span class="check">✓</span><span>Drum Bus Glue</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Vocal Lead Tight</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Bass Smasher</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Mix Bus Clamp</span></div>
+                <div class="preset-divider"></div>
+                <div class="preset-item save">+ Save current as preset…</div>
+              </div>
+            </div>
+            <div class="face-actions">
+              <button class="face-icon" title="Settings">⋯</button>
+              <button class="power-btn on" title="Bypass"></button>
+            </div>
+          </div>
+          <div class="face-knobs">
+            <div class="knob-slot" data-param="squeeze"  data-value="58"><div class="knob-svg" data-knob='{"size":36,"value":58,"color":"#6B5CE7"}'></div><span class="knob-label">SQUEEZE</span><span class="knob-value">−12 dB</span></div>
+            <div class="knob-slot" data-param="attack"   data-value="22"><div class="knob-svg" data-knob='{"size":36,"value":22,"color":"#6B5CE7"}'></div><span class="knob-label">ATTACK</span><span class="knob-value">12 ms</span></div>
+            <div class="knob-slot" data-param="release"  data-value="48"><div class="knob-svg" data-knob='{"size":36,"value":48,"color":"#6B5CE7"}'></div><span class="knob-label">RELEASE</span><span class="knob-value">120 ms</span></div>
+            <div class="knob-slot" data-param="out"      data-value="55"><div class="knob-svg" data-knob='{"size":36,"value":55,"color":"#6B5CE7"}'></div><span class="knob-label">OUT</span><span class="knob-value">+1.5 dB</span></div>
+          </div>
+          <div class="face-bottom">
+            <button class="page-btn active" data-page="1">1</button>
+          </div>
+        </div>
+        <div class="bracket right"></div>
+      </div>
+
+      <!-- ──────────────────────── 3. Maximizer (One Knob hero) ──────────────────────── -->
+      <div class="rack" draggable="true" data-id="max">
+        <div class="bracket left"><div class="sc-pin"></div></div>
+        <div class="faceplate">
+          <div class="face-top">
+            <div class="name-block">
+              <span class="plugin-name">Maximizer</span>
+              <span class="plugin-mfr">One Knob · DAWin</span>
+            </div>
+            <div class="preset-bay" data-rack="max">
+              <button class="preset-arrow left" title="Previous preset">◀</button>
+              <div class="preset-screen">
+                <span class="preset-name">Master Slam</span>
+                <span class="preset-caret">▾</span>
+              </div>
+              <button class="preset-arrow right" title="Next preset">▶</button>
+              <div class="preset-dropdown">
+                <div class="preset-item">Init</div>
+                <div class="preset-item active"><span class="check">✓</span><span>Master Slam</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Streaming Loud</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Vinyl Safe</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Transparent Push</span></div>
+                <div class="preset-divider"></div>
+                <div class="preset-item save">+ Save current as preset…</div>
+              </div>
+            </div>
+            <div class="face-actions">
+              <button class="face-icon" title="Settings">⋯</button>
+              <button class="power-btn on" title="Bypass"></button>
+            </div>
+          </div>
+          <div class="face-hero">
+            <div class="hero-row">
+              <div class="hero-knob-wrap" id="hero-knob-wrap">
+                <div class="knob-svg" data-knob='{"size":76,"value":62,"color":"#6B5CE7","strokeMul":2.6,"zones":[0.6,0.85]}' id="hero-knob"></div>
+                <span class="hero-knob-label">LOUD</span>
+                <span class="hero-knob-value" id="hero-knob-value">+9.2 dB</span>
+              </div>
+              <div class="gr-meter" id="gr-meter">
+                <div class="gr-seg"></div><div class="gr-seg"></div><div class="gr-seg"></div>
+                <div class="gr-seg"></div><div class="gr-seg"></div><div class="gr-seg"></div>
+                <div class="gr-seg"></div><div class="gr-seg"></div><div class="gr-seg"></div>
+                <div class="gr-seg"></div>
+              </div>
+            </div>
+            <div class="drywet">
+              <span class="drywet-label">DRY</span>
+              <div class="drywet-track" id="drywet-track">
+                <div class="drywet-fill" id="drywet-fill" style="width: 68%;"></div>
+                <div class="drywet-thumb" id="drywet-thumb" style="left: 68%;"></div>
+              </div>
+              <span class="drywet-label">WET</span>
+              <span class="drywet-value" id="drywet-value">68%</span>
+            </div>
+          </div>
+        </div>
+        <div class="bracket right"></div>
+      </div>
+
+      <!-- ──────────────────────── 4. Third-party (with GUI launcher) ──────────────────────── -->
+      <div class="rack" draggable="true" data-id="thirdparty">
+        <div class="bracket left"><div class="sc-pin"></div></div>
+        <div class="faceplate">
+          <div class="face-top">
+            <div class="name-block">
+              <span class="plugin-name">Vintage 1176</span>
+              <span class="plugin-mfr">Waves · 3rd-party</span>
+            </div>
+            <div class="preset-bay" data-rack="thirdparty">
+              <button class="preset-arrow left" title="Previous preset">◀</button>
+              <div class="preset-screen">
+                <span class="preset-name">All Buttons In</span>
+                <span class="preset-caret">▾</span>
+              </div>
+              <button class="preset-arrow right" title="Next preset">▶</button>
+              <div class="preset-dropdown">
+                <div class="preset-item">Init</div>
+                <div class="preset-item active"><span class="check">✓</span><span>All Buttons In</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Vocal — Aggressive</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Drums — Glue</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Bass — Tight</span></div>
+                <div class="preset-item"><span class="check"> </span><span>Mix Bus — Subtle</span></div>
+                <div class="preset-divider"></div>
+                <div class="preset-item save">+ Save current as preset…</div>
+              </div>
+            </div>
+            <div class="face-actions">
+              <button class="face-icon" title="Settings">⋯</button>
+              <button class="face-icon" id="open-gui" title="Open full GUI">↗</button>
+              <button class="power-btn on" title="Bypass"></button>
+            </div>
+          </div>
+          <div class="face-knobs">
+            <div class="knob-slot" data-param="input"   data-value="72" data-mapped="Input"  ><div class="knob-svg" data-knob='{"size":36,"value":72,"color":"#6B5CE7"}'></div><span class="knob-label">INPUT</span><span class="knob-value">+4.0 dB</span></div>
+            <div class="knob-slot" data-param="output"  data-value="50" data-mapped="Output" ><div class="knob-svg" data-knob='{"size":36,"value":50,"color":"#6B5CE7"}'></div><span class="knob-label">OUTPUT</span><span class="knob-value">0.0 dB</span></div>
+            <div class="knob-slot" data-param="attack"  data-value="30" data-mapped="Attack" ><div class="knob-svg" data-knob='{"size":36,"value":30,"color":"#6B5CE7"}'></div><span class="knob-label">ATTACK</span><span class="knob-value">3</span></div>
+            <div class="knob-slot" data-param="release" data-value="40" data-mapped="Release"><div class="knob-svg" data-knob='{"size":36,"value":40,"color":"#6B5CE7"}'></div><span class="knob-label">RELEASE</span><span class="knob-value">5</span></div>
+          </div>
+          <div class="face-bottom">
+            <button class="page-btn active" data-page="1">1</button>
+            <button class="page-btn" data-page="2">2</button>
+            <button class="page-btn" data-page="3">3</button>
+          </div>
+        </div>
+        <div class="bracket right"></div>
+      </div>
+    </div>
+
+    <div class="cabinet-trim"></div>
+    <div class="cabinet-rail bottom">
+      <span class="badge" style="font-size: 8px;">Drag a rack to reorder · Right-click a knob to map</span>
+    </div>
+  </div>
+
+  <!-- Annotations on the right -->
+  <div class="ann-stack">
+    <div class="annotation">
+      <h3>The four rack types</h3>
+      <p><strong>1. EQ</strong> — 3 gain knobs, draggable crossover frequencies along the bottom (drag the amber labels to shift Low/Mid and Mid/High boundaries).</p>
+      <p><strong>2. Standard (Compressor)</strong> — 4 knobs in a row. Same layout for Comp, Reverb, Delay, Exciter.</p>
+      <p><strong>3. Hero (Maximizer)</strong> — One big knob (76px), gain-reduction meter on the right, dry/wet slider below. <code>OUT</code> trim removed — dry/wet replaces it (parallel-comp move).</p>
+      <p><strong>4. Third-party</strong> — 4 mapped controls + page dots + GUI launcher (↗). Knobs show the bound parameter name as the label.</p>
+    </div>
+
+    <div class="annotation">
+      <h3>Map Control workflow</h3>
+      <p>Right-click any knob on the third-party rack to open the menu. Choose <strong>"Map Control…"</strong> — the plugin window opens, the rack knob pulses owner color (learn mode), and you wiggle any parameter in the plugin GUI. First parameter that fires its event gets bound to the rack knob. Descriptor updates instantly.</p>
+      <p>Right-click the <strong>INPUT</strong> knob on the Vintage 1176 to try it.</p>
+    </div>
+
+    <div class="annotation">
+      <h3>Audio-reactive hero LED ring</h3>
+      <p>The big <strong>LOUD</strong> knob's arc isn't just a value indicator — it pulses brighter with simulated gain reduction. The arc color shifts <strong>green → amber → red</strong> at 60% and 85% of value, giving immediate "you're slamming it" feedback.</p>
+      <p>Settings toggle (future spec): <code>Settings → Visual feedback → Audio-reactive plugin glow</code></p>
+    </div>
+
+    <div class="annotation">
+      <h3>Drag-to-reorder (at 140px)</h3>
+      <p>Bigger units = easier drag targets. Grab any rack body (not a knob) and drag — purple insertion line appears between racks at the drop position. Release to commit.</p>
+      <p>The chain is scrollable when there are more than ~5 racks — total height stays manageable.</p>
+    </div>
+
+    <div class="annotation">
+      <h3>Knob component — extended, not duplicated</h3>
+      <p>The same <code>Knob</code> component renders at 36px (standard) and 76px (hero). Two new opt-in props:</p>
+      <p>• <code>strokeMul</code> — multiplies arc + pointer thickness (defaults to 1.0)<br>
+         • <code>zones</code> — optional <code>[green→amber threshold, amber→red threshold]</code> for hot-zone color shift</p>
+      <p>Design system net change: <strong>+0 components, +2 props on existing Knob</strong>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Plugin GUI window (third-party mock) ───────────────────────────── -->
+<div class="plugin-window" id="plugin-window" style="top: 120px; left: 700px;">
+  <div class="pw-header" id="pw-header">
+    <button class="pw-icon" title="Always on top" id="pw-pin">⌖</button>
+    <span class="pw-title">Vintage 1176 <span class="pw-mfr">· Waves</span></span>
+    <button class="pw-icon" id="pw-minimize" title="Minimize">▁</button>
+    <button class="pw-icon" id="pw-close" title="Close">×</button>
+  </div>
+  <div class="pw-body">
+    <div class="mock-grid">
+      <div class="mock-knob learnable" data-name="Input" style="--rot: -120deg;"></div>
+      <div class="mock-knob learnable" data-name="Output" style="--rot: -40deg;"></div>
+      <div class="mock-knob learnable" data-name="Attack" style="--rot: -100deg;"></div>
+      <div class="mock-knob learnable" data-name="Release" style="--rot: -60deg;"></div>
+      <div class="mock-knob learnable" data-name="Ratio" style="--rot: -130deg;"></div>
+      <div class="mock-knob learnable" data-name="Mix" style="--rot: 30deg;"></div>
+    </div>
+  </div>
+  <div class="pw-resize" id="pw-resize"></div>
+</div>
+
+<!-- ── Right-click context menu ───────────────────────────────────────── -->
+<div class="knob-menu" id="knob-menu">
+  <div class="row" data-action="learn">
+    <span class="icon">⟲</span><span>Map Control…</span>
+  </div>
+  <div class="row" data-action="reset">
+    <span class="icon">↺</span><span>Reset to default</span>
+  </div>
+  <div class="divider"></div>
+  <div class="row" data-action="add-page">
+    <span class="icon">+</span><span>Add page</span>
+  </div>
+  <div class="row" data-action="save-default">
+    <span class="icon">⇣</span><span>Save mapping as default</span>
+  </div>
+  <div class="divider"></div>
+  <div class="row danger" data-action="unmap">
+    <span class="icon">×</span><span>Unmap</span>
+  </div>
+</div>
+
+<script>
+  // ── KNOB RENDER ───────────────────────────────────────────────────────
+  // Renders the existing-component-style knob into a given container.
+  function renderKnob(container) {
+    const cfg = JSON.parse(container.dataset.knob || '{}');
+    const size = cfg.size || 32;
+    const value = cfg.value ?? 50;
+    const color = cfg.color || '#6B5CE7';
+    const strokeMul = cfg.strokeMul ?? 1.0;
+    const zones = cfg.zones; // [greenMax, amberMax] in 0..1
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const rOuter = size / 2 - 1;
+    const rKnob = rOuter - 2;
+    const rArc = rOuter - 0.5;
+    const baseStroke = 2;
+    const stroke = baseStroke * strokeMul;
+    const pointerStroke = 1.5 * strokeMul;
+    const pointerDot = 1.5 * strokeMul;
+
+    const valNorm = value / 100;
+    const angle = valNorm * 270 - 135;
+    const angleRad = angle * Math.PI / 180;
+
+    // Zone-based arc color
+    let arcColor = color;
+    if (zones) {
+      if (valNorm > zones[1])      arcColor = '#E94560'; // red
+      else if (valNorm > zones[0]) arcColor = '#F5A623'; // amber
+      else                          arcColor = '#1D9E75'; // green
+    }
+
+    const arcStart = -135 * Math.PI / 180;
+    const trackEnd = 135 * Math.PI / 180;
+
+    function arcPath(fromRad, toRad, radius) {
+      const x1 = cx + radius * Math.sin(fromRad);
+      const y1 = cy - radius * Math.cos(fromRad);
+      const x2 = cx + radius * Math.sin(toRad);
+      const y2 = cy - radius * Math.cos(toRad);
+      const large = (toRad - fromRad) > Math.PI ? 1 : 0;
+      return `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2}`;
+    }
+
+    const tipR = rKnob - Math.max(3, pointerStroke * 2);
+    const px = cx + tipR * Math.sin(angleRad);
+    const py = cy - tipR * Math.cos(angleRad);
+
+    const gid = 'kg' + Math.random().toString(36).slice(2, 8);
+
+    container.innerHTML = `
+      <svg width="${size}" height="${size}" style="display: block;">
+        <defs>
+          <radialGradient id="${gid}-body" cx="35%" cy="28%" r="70%">
+            <stop offset="0%"   stop-color="#4a4a54"/>
+            <stop offset="45%"  stop-color="#2a2a34"/>
+            <stop offset="100%" stop-color="#18181f"/>
+          </radialGradient>
+          <radialGradient id="${gid}-shine" cx="32%" cy="22%" r="55%">
+            <stop offset="0%"   stop-color="rgba(255,255,255,0.18)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+        </defs>
+        <path d="${arcPath(arcStart, trackEnd, rArc)}" fill="none" stroke="#0D0D14" stroke-width="${stroke}" stroke-linecap="round"/>
+        ${value > 0 ? `<path d="${arcPath(arcStart, angleRad, rArc)}" fill="none" stroke="${arcColor}" stroke-width="${stroke}" stroke-linecap="round" style="filter: drop-shadow(0 0 ${2 * strokeMul}px ${arcColor}88);"/>` : ''}
+        <circle cx="${cx}" cy="${cy}" r="${rKnob}" fill="url(#${gid}-body)"/>
+        <circle cx="${cx}" cy="${cy}" r="${rKnob}" fill="url(#${gid}-shine)"/>
+        <circle cx="${cx}" cy="${cy}" r="${rKnob}" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="1"/>
+        <line x1="${cx}" y1="${cy}" x2="${px}" y2="${py}" stroke="rgba(255,255,255,0.85)" stroke-width="${pointerStroke}" stroke-linecap="round"/>
+        <circle cx="${px}" cy="${py}" r="${pointerDot}" fill="rgba(255,255,255,0.9)"/>
+      </svg>
+    `;
+  }
+
+  // Render all knobs on the page
+  document.querySelectorAll('.knob-svg').forEach(renderKnob);
+
+  // ── KNOB DRAG ────────────────────────────────────────────────────────
+  function makeKnobInteractive(slot) {
+    const knobEl = slot.querySelector('.knob-svg');
+    if (!knobEl) return;
+    const cfg = JSON.parse(knobEl.dataset.knob);
+    let dragging = null;
+    knobEl.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      dragging = { startY: e.clientY, startVal: cfg.value };
+      const onMove = (me) => {
+        if (!dragging) return;
+        const dy = dragging.startY - me.clientY;
+        const next = Math.max(0, Math.min(100, dragging.startVal + dy * 0.7));
+        cfg.value = next;
+        knobEl.dataset.knob = JSON.stringify(cfg);
+        renderKnob(knobEl);
+        if (knobEl === document.getElementById('hero-knob')) {
+          document.getElementById('hero-knob-value').textContent = (next * 0.18).toFixed(1) + ' dB';
+        }
+      };
+      const onUp = () => {
+        dragging = null;
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+    knobEl.addEventListener('dblclick', () => {
+      cfg.value = 50;
+      knobEl.dataset.knob = JSON.stringify(cfg);
+      renderKnob(knobEl);
+    });
+  }
+  document.querySelectorAll('.knob-slot, .hero-knob-wrap').forEach(makeKnobInteractive);
+
+  // ── EQ CROSSOVERS DRAG ───────────────────────────────────────────────
+  document.querySelectorAll('.crossover-handle').forEach(handle => {
+    let dragging = null;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const track = handle.parentElement;
+      const rect = track.getBoundingClientRect();
+      dragging = { rect };
+      const onMove = (me) => {
+        if (!dragging) return;
+        let pct = ((me.clientX - dragging.rect.left) / dragging.rect.width) * 100;
+        pct = Math.max(8, Math.min(92, pct));
+        handle.style.left = pct + '%';
+        // Compute a fake Hz value
+        const minHz = 60, maxHz = 16000;
+        const norm = pct / 100;
+        const hz = Math.round(minHz * Math.pow(maxHz / minHz, norm));
+        handle.textContent = hz >= 1000 ? (hz / 1000).toFixed(1) + ' kHz' : hz + ' Hz';
+      };
+      const onUp = () => { dragging = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  });
+
+  // ── DRY/WET SLIDER ───────────────────────────────────────────────────
+  const dwTrack = document.getElementById('drywet-track');
+  const dwFill = document.getElementById('drywet-fill');
+  const dwThumb = document.getElementById('drywet-thumb');
+  const dwValue = document.getElementById('drywet-value');
+  let dwDrag = null;
+  function setDryWet(pct) {
+    pct = Math.max(0, Math.min(100, pct));
+    dwFill.style.width = pct + '%';
+    dwThumb.style.left = pct + '%';
+    dwValue.textContent = Math.round(pct) + '%';
+  }
+  dwTrack.addEventListener('mousedown', (e) => {
+    const rect = dwTrack.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setDryWet(pct);
+    dwDrag = { rect };
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dwDrag) return;
+    const pct = ((e.clientX - dwDrag.rect.left) / dwDrag.rect.width) * 100;
+    setDryWet(pct);
+  });
+  document.addEventListener('mouseup', () => { dwDrag = null; });
+
+  // ── HERO AUDIO-REACTIVE LED + GR METER (simulated) ───────────────────
+  const heroKnob = document.getElementById('hero-knob');
+  const grSegs = document.querySelectorAll('#gr-meter .gr-seg');
+  function tickHero(now) {
+    const cfg = JSON.parse(heroKnob.dataset.knob);
+    const value = cfg.value;
+    // Simulated gain reduction — pulses based on a fake audio signal
+    const baseDr = value / 100;
+    const wobble = Math.abs(Math.sin(now * 0.004) * 0.5 + Math.sin(now * 0.011) * 0.5);
+    const dr = baseDr * (0.4 + wobble * 0.6);
+    // Apply to GR meter (10 segs)
+    const lit = Math.round(dr * grSegs.length);
+    grSegs.forEach((seg, i) => {
+      seg.className = 'gr-seg';
+      if (i < lit) {
+        if (i < 6) seg.classList.add('lit-green');
+        else if (i < 8) seg.classList.add('lit-amber');
+        else seg.classList.add('lit-red');
+      }
+    });
+    // Pulse the hero knob's arc by re-rendering with brightness modulation
+    // (cheaper than re-rendering: tweak filter on the SVG)
+    const svg = heroKnob.querySelector('svg');
+    if (svg) {
+      const intensity = 1 + dr * 0.5;
+      svg.style.filter = `brightness(${intensity})`;
+    }
+    requestAnimationFrame(tickHero);
+  }
+  requestAnimationFrame(tickHero);
+
+  // ── POWER BUTTONS ────────────────────────────────────────────────────
+  document.querySelectorAll('.power-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btn.classList.toggle('on');
+      const rack = btn.closest('.rack');
+      if (rack) rack.classList.toggle('bypassed', !btn.classList.contains('on'));
+    });
+  });
+
+  // ── DRAG TO REORDER ───────────────────────────────────────────────────
+  const rackInterior = document.getElementById('rack-interior');
+  let draggedRack = null;
+  let dropLine = null;
+
+  document.querySelectorAll('.rack').forEach(rack => {
+    rack.addEventListener('dragstart', (e) => {
+      // Don't drag if cursor started on an interactive element
+      const target = e.target;
+      if (target.closest('.knob-svg, button, .drywet-track, .drywet-thumb, .preset-bay')) {
+        e.preventDefault();
+        return;
+      }
+      draggedRack = rack;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', rack.dataset.id);
+      setTimeout(() => rack.classList.add('dragging'), 0);
+    });
+    rack.addEventListener('dragend', () => {
+      rack.classList.remove('dragging');
+      if (dropLine && dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
+      dropLine = null;
+      draggedRack = null;
+    });
+  });
+
+  rackInterior.addEventListener('dragover', (e) => {
+    if (!draggedRack) return;
+    e.preventDefault();
+    if (!dropLine) {
+      dropLine = document.createElement('div');
+      dropLine.className = 'drop-line';
+    }
+    const racks = [...rackInterior.querySelectorAll('.rack')];
+    const target = racks.find(r => {
+      if (r === draggedRack) return false;
+      const rect = r.getBoundingClientRect();
+      return e.clientY < rect.top + rect.height / 2;
+    });
+    if (target) rackInterior.insertBefore(dropLine, target);
+    else rackInterior.appendChild(dropLine);
+  });
+
+  rackInterior.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (!draggedRack || !dropLine) return;
+    rackInterior.insertBefore(draggedRack, dropLine);
+    if (dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
+    dropLine = null;
+  });
+
+  // ── CONTEXT MENU on knobs ────────────────────────────────────────────
+  const knobMenu = document.getElementById('knob-menu');
+  let menuTargetSlot = null;
+  document.querySelectorAll('.knob-slot').forEach(slot => {
+    slot.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      menuTargetSlot = slot;
+      const rack = slot.closest('.rack');
+      const isThirdParty = rack?.dataset.id === 'thirdparty';
+      // Hide "Map Control" if it's a native plugin (no GUI to learn from)
+      knobMenu.querySelector('[data-action="learn"]').style.display = isThirdParty ? '' : 'none';
+      knobMenu.classList.add('open');
+      knobMenu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
+      knobMenu.style.top  = Math.min(e.clientY, window.innerHeight - 280) + 'px';
+    });
+  });
+  document.addEventListener('click', (e) => {
+    if (!knobMenu.contains(e.target)) knobMenu.classList.remove('open');
+  });
+  knobMenu.querySelectorAll('.row').forEach(row => {
+    row.addEventListener('click', () => {
+      const action = row.dataset.action;
+      if (action === 'learn' && menuTargetSlot) {
+        // Enter learn mode
+        document.querySelectorAll('.knob-slot.learning').forEach(s => s.classList.remove('learning'));
+        menuTargetSlot.classList.add('learning');
+        // Open plugin window
+        pluginWindow.classList.add('open');
+        // Wait for the user to click a mock knob in the GUI
+        learnTargetSlot = menuTargetSlot;
+      }
+      knobMenu.classList.remove('open');
+    });
+  });
+
+  // ── PLUGIN WINDOW (open via ↗ or double-click rack body) ─────────────
+  const pluginWindow = document.getElementById('plugin-window');
+  const openGuiBtn = document.getElementById('open-gui');
+  const pwClose = document.getElementById('pw-close');
+  const pwPin = document.getElementById('pw-pin');
+  const pwMinimize = document.getElementById('pw-minimize');
+  const pwHeader = document.getElementById('pw-header');
+  const pwResize = document.getElementById('pw-resize');
+
+  openGuiBtn.addEventListener('click', () => pluginWindow.classList.add('open'));
+  pwClose.addEventListener('click', () => {
+    pluginWindow.classList.remove('open');
+    document.querySelectorAll('.knob-slot.learning').forEach(s => s.classList.remove('learning'));
+    learnTargetSlot = null;
+  });
+  pwMinimize.addEventListener('click', () => pluginWindow.classList.remove('open'));
+  pwPin.addEventListener('click', () => pwPin.classList.toggle('on'));
+
+  // Double-click rack body to open GUI
+  document.querySelector('.rack[data-id="thirdparty"] .faceplate').addEventListener('dblclick', (e) => {
+    if (e.target.closest('.knob-svg, button')) return;
+    pluginWindow.classList.add('open');
+  });
+
+  // Drag plugin window
+  let pwDrag = null;
+  pwHeader.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    pwDrag = { startX: e.clientX, startY: e.clientY, x: pluginWindow.offsetLeft, y: pluginWindow.offsetTop };
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!pwDrag) return;
+    pluginWindow.style.left = (pwDrag.x + (e.clientX - pwDrag.startX)) + 'px';
+    pluginWindow.style.top  = (pwDrag.y + (e.clientY - pwDrag.startY)) + 'px';
+  });
+  document.addEventListener('mouseup', () => { pwDrag = null; pwResizeDrag = null; });
+
+  // Resize plugin window
+  let pwResizeDrag = null;
+  pwResize.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    pwResizeDrag = { startX: e.clientX, startY: e.clientY, w: pluginWindow.offsetWidth, h: pluginWindow.offsetHeight };
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!pwResizeDrag) return;
+    const w = Math.max(280, pwResizeDrag.w + (e.clientX - pwResizeDrag.startX));
+    const h = Math.max(180, pwResizeDrag.h + (e.clientY - pwResizeDrag.startY));
+    pluginWindow.style.width = w + 'px';
+    pluginWindow.querySelector('.pw-body').style.minHeight = (h - 32) + 'px';
+  });
+
+  // Learn-mode binding: when in learn mode, click a mock knob in the GUI
+  let learnTargetSlot = null;
+  document.querySelectorAll('.mock-knob.learnable').forEach(mk => {
+    mk.addEventListener('click', () => {
+      if (!learnTargetSlot) return;
+      const newParam = mk.dataset.name;
+      learnTargetSlot.dataset.mapped = newParam;
+      const label = learnTargetSlot.querySelector('.knob-label');
+      if (label) label.textContent = newParam.toUpperCase();
+      learnTargetSlot.classList.remove('learning');
+      learnTargetSlot = null;
+    });
+  });
+
+  // ── PAGE BUTTONS (LCD-style numbered) ────────────────────────────────
+  document.querySelectorAll('.rack').forEach(rack => {
+    rack.querySelectorAll('.page-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        rack.querySelectorAll('.page-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+  });
+
+  // ── PRESET BAY (LCD screen + arrows + dropdown) ──────────────────────
+  document.querySelectorAll('.preset-bay').forEach(bay => {
+    const screen = bay.querySelector('.preset-screen');
+    const arrowLeft = bay.querySelector('.preset-arrow.left');
+    const arrowRight = bay.querySelector('.preset-arrow.right');
+    const dropdown = bay.querySelector('.preset-dropdown');
+    const nameEl = bay.querySelector('.preset-name');
+
+    function getPresetItems() {
+      return [...bay.querySelectorAll('.preset-item:not(.save)')];
+    }
+    function setActive(item) {
+      if (!item || item.classList.contains('save')) return;
+      getPresetItems().forEach(i => {
+        i.classList.remove('active');
+        const chk = i.querySelector('.check');
+        if (chk) chk.textContent = ' ';
+      });
+      item.classList.add('active');
+      const chk = item.querySelector('.check');
+      if (chk) chk.textContent = '✓';
+      // Update screen name — use text content of item (skip the checkmark span)
+      const nameText = item.textContent.replace('✓', '').trim();
+      nameEl.textContent = nameText;
+    }
+    function moveBy(delta) {
+      const items = getPresetItems();
+      const activeIdx = items.findIndex(i => i.classList.contains('active'));
+      const nextIdx = (activeIdx + delta + items.length) % items.length;
+      setActive(items[nextIdx]);
+    }
+
+    // Position the dropdown directly below the preset screen using fixed coords
+    function positionDropdown() {
+      const rect = screen.getBoundingClientRect();
+      // Anchor: left edge aligned to screen, top edge just below the screen
+      const top = rect.bottom + 4;
+      let left = rect.left;
+      // Keep within viewport
+      const maxLeft = window.innerWidth - 240 - 8;
+      if (left > maxLeft) left = maxLeft;
+      dropdown.style.top  = top + 'px';
+      dropdown.style.left = left + 'px';
+    }
+
+    // Click the screen body to toggle the dropdown
+    screen.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close all other open dropdowns first
+      document.querySelectorAll('.preset-dropdown.open').forEach(d => {
+        if (d !== dropdown) d.classList.remove('open');
+      });
+      const willOpen = !dropdown.classList.contains('open');
+      if (willOpen) positionDropdown();
+      dropdown.classList.toggle('open');
+    });
+
+    // Reposition on scroll or resize while open
+    window.addEventListener('scroll', () => {
+      if (dropdown.classList.contains('open')) positionDropdown();
+    }, true);
+    window.addEventListener('resize', () => {
+      if (dropdown.classList.contains('open')) positionDropdown();
+    });
+
+    // Arrows step through presets
+    arrowLeft.addEventListener('click', (e) => { e.stopPropagation(); moveBy(-1); });
+    arrowRight.addEventListener('click', (e) => { e.stopPropagation(); moveBy(1); });
+
+    // Click an item in the dropdown to select
+    dropdown.querySelectorAll('.preset-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (item.classList.contains('save')) {
+          // Stub for save flow
+          dropdown.classList.remove('open');
+          return;
+        }
+        setActive(item);
+        dropdown.classList.remove('open');
+      });
+    });
+  });
+
+  // Close all preset dropdowns on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.preset-bay')) {
+      document.querySelectorAll('.preset-dropdown.open').forEach(d => d.classList.remove('open'));
+    }
+  });
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>

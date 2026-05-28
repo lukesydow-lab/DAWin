@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DAWin · Peer-to-Peer · Round 1 (Foundation)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 32px 48px 80px;
+    min-width: 1280px;
+  }
+
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888899; margin-bottom: 20px; max-width: 760px; line-height: 1.5; }
+
+  .pull-quote {
+    font-size: 12px; line-height: 1.6; color: #888899; max-width: 820px;
+    padding: 14px 18px; background: #111118; border-left: 2px solid #6B5CE7;
+    border-radius: 4px; margin-bottom: 28px;
+  }
+  .pull-quote strong { color: #F0F0F5; }
+
+  /* ── Simulated transport bar with comms components inline ────────────── */
+  .stage {
+    background: #0A0A0F;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  /* The transport bar */
+  .transport {
+    height: 52px;
+    background: #111118;
+    border-bottom: 1px solid #1E1E28;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 18px;
+    position: relative;
+  }
+
+  .logo {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: #6B5CE7;
+  }
+  .divider {
+    width: 1px;
+    height: 28px;
+    background: #1E1E28;
+    flex-shrink: 0;
+  }
+
+  /* Standard transport controls (sketched) */
+  .transport-controls {
+    display: flex;
+    gap: 6px;
+  }
+  .t-btn {
+    width: 28px; height: 28px;
+    background: #2A2A38;
+    color: #888899;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .t-btn.play { background: #6B5CE7; color: white; }
+  .t-btn.rec { background: #2A2A38; color: #E94560; font-size: 14px; }
+
+  .bpm-bay {
+    background: #0D0D14;
+    border: 1px solid #1E1E28;
+    border-radius: 4px;
+    padding: 4px 10px;
+    display: flex; align-items: center; gap: 6px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .bpm-bay .label { font-size: 9px; color: #888899; letter-spacing: 0.12em; }
+  .bpm-bay .val {
+    font-family: 'SF Mono', monospace;
+    font-size: 13px; font-weight: 700;
+    color: #1D9E75;
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────
+   *  COMPONENT 1 — Talkback hardware button + voice filter popover
+   * ──────────────────────────────────────────────────────────────────────── */
+  .comms-bay {
+    display: flex; align-items: center; gap: 10px;
+    margin-left: 6px;
+    padding: 6px 10px;
+    background: linear-gradient(180deg, #15151c 0%, #0d0d12 100%);
+    border: 1px solid #1E1E28;
+    border-radius: 5px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.3);
+    position: relative;
+  }
+
+  .talkback {
+    position: relative;
+    width: 46px;
+    height: 38px;
+    border-radius: 4px;
+    background:
+      linear-gradient(180deg, #34343f 0%, #1d1d24 50%, #15151c 100%);
+    border: 1px solid #0a0a0f;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      inset 0 -1px 0 rgba(0,0,0,0.4),
+      0 1px 2px rgba(0,0,0,0.5);
+    cursor: pointer;
+    transition: transform 0.04s ease, box-shadow 0.04s ease;
+  }
+  .talkback:active,
+  .talkback.live {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 2px 4px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(233,69,96,0.4);
+  }
+
+  /* The LED dome (top) */
+  .talkback::before {
+    content: '';
+    position: absolute;
+    top: 3px; left: 50%;
+    transform: translateX(-50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #3a1820 0%, #0e0608 80%);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+    transition: all 0.1s ease;
+  }
+  .talkback.live::before {
+    background: radial-gradient(circle at 50% 25%, #ffb0b0 0%, #ff5050 35%, #e94560 65%, #8a1a30 100%);
+    box-shadow:
+      0 0 8px #E94560,
+      0 0 16px rgba(233,69,96,0.5),
+      inset 0 1px 1px rgba(255,255,255,0.4);
+    animation: livePulse 1.4s ease-in-out infinite;
+  }
+  @keyframes livePulse {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.18); }
+  }
+
+  /* The big "T" key cap face — the keyboard shortcut is the label */
+  .talkback-key {
+    position: absolute;
+    top: 10px; left: 0; right: 0;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 800;
+    color: #d4d4dc;
+    font-family: 'SF Mono', 'Inter', sans-serif;
+    line-height: 1;
+    text-shadow:
+      0 1px 0 rgba(0,0,0,0.8),
+      0 -1px 0 rgba(255,255,255,0.06);
+    transition: color 0.1s ease, text-shadow 0.1s ease;
+  }
+  .talkback.live .talkback-key {
+    color: #E94560;
+    text-shadow:
+      0 0 6px #E94560,
+      0 0 12px rgba(233,69,96,0.5);
+  }
+
+  /* The "TALK" sub-engraving below the key letter */
+  .talkback::after {
+    content: 'TALK';
+    position: absolute;
+    bottom: 2px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 6px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #5a5a64;
+    text-shadow: 0 -1px 0 rgba(0,0,0,0.6);
+  }
+  .talkback.live::after {
+    color: #E94560;
+    text-shadow: 0 0 4px #E94560;
+  }
+
+  /* Filter selector — small chevron to the right of talkback */
+  .filter-selector {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 6px 0 4px;
+    height: 38px;
+    background: #18181f;
+    border: 1px solid #0a0a0f;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 9px;
+    color: #888899;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.4);
+    transition: color 0.15s ease;
+  }
+  .filter-selector:hover { color: #F0F0F5; }
+  .filter-selector .icon {
+    width: 14px; height: 14px;
+    display: flex; align-items: center; justify-content: center;
+    color: #6B5CE7;
+    font-size: 11px;
+  }
+  .filter-selector .chevron {
+    font-size: 8px;
+    transition: transform 0.15s ease;
+  }
+  .filter-selector.open .chevron { transform: rotate(180deg); }
+
+  /* Filter popover */
+  .filter-popover {
+    position: absolute;
+    top: 48px;
+    left: 64px;
+    width: 200px;
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(0,0,0,0.3);
+    z-index: 20;
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0s 0.18s;
+  }
+  .filter-popover.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.12s ease, transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15), visibility 0s;
+  }
+  .filter-popover-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid #1E1E28;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #555567;
+  }
+  .filter-row {
+    padding: 6px 12px;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #B8B8C2;
+    transition: background 0.1s ease;
+  }
+  .filter-row:hover { background: rgba(255,255,255,0.04); color: #F0F0F5; }
+  .filter-row.active { background: rgba(107,92,231,0.14); color: #6B5CE7; }
+  .filter-row .name { flex: 1; }
+  .filter-row .preview-icon {
+    font-size: 14px;
+    width: 16px;
+    text-align: center;
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────
+   *  COMPONENT 2 — Peer presence rail
+   * ──────────────────────────────────────────────────────────────────────── */
+  .peer-rail {
+    display: flex; align-items: center; gap: 6px;
+    margin-left: auto;
+  }
+
+  .peer-pill {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px;
+    padding: 0 9px 0 3px;
+    border-radius: 14px;
+    background: var(--p-tint);
+    border: 1px solid var(--p-color);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow 0.08s ease, transform 0.08s ease;
+  }
+  .peer-pill:hover { transform: translateY(-1px); }
+  .peer-pill.speaking {
+    box-shadow:
+      0 0 0 var(--ring-w, 2px) var(--p-color),
+      0 0 var(--glow-r, 12px) var(--p-glow);
+  }
+  .peer-pill .avatar {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--p-color);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: white;
+    flex-shrink: 0;
+  }
+  .peer-pill .name {
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.04em;
+  }
+  /* Mic state — tiny dot in corner of avatar */
+  .peer-pill .mic-state {
+    position: absolute;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    bottom: -1px;
+    left: 18px;
+    border: 1.5px solid #111118;
+  }
+  .peer-pill .mic-state.on  { background: #1D9E75; }
+  .peer-pill .mic-state.off { background: #888899; }
+
+  /* Overflow / +N indicator */
+  .peer-overflow {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: #2A2A38;
+    color: #888899;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex; align-items: center;
+    cursor: pointer;
+    transition: color 0.1s ease, background 0.1s ease;
+  }
+  .peer-overflow:hover { color: #F0F0F5; background: #34344a; }
+
+  /* ────────────────────────────────────────────────────────────────────────
+   *  Status bar / interaction hints area below the transport
+   * ──────────────────────────────────────────────────────────────────────── */
+  .hints {
+    background: #0a0a0f;
+    padding: 8px 18px;
+    display: flex; align-items: center; gap: 18px;
+    font-size: 10px;
+    color: #555567;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid #1E1E28;
+  }
+  .hints kbd {
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin: 0 2px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    color: #888899;
+  }
+
+  /* Live indicator that appears when actively talking */
+  .live-indicator {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: #888899;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .live-indicator.on { opacity: 1; color: #E94560; }
+  .live-indicator .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+    animation: livePulse 1.4s ease-in-out infinite;
+  }
+
+  /* Simulated arranger area to provide context */
+  .arranger-mock {
+    height: 280px;
+    background: #0A0A0F;
+    background-image:
+      linear-gradient(#111118 1px, transparent 1px),
+      linear-gradient(90deg, #111118 1px, transparent 1px);
+    background-size: 72px 64px;
+    position: relative;
+    padding: 16px;
+  }
+  .arranger-mock::before {
+    content: 'ARRANGER (placeholder — comms layer above should not obstruct this area)';
+    position: absolute;
+    top: 12px; left: 14px;
+    font-size: 9px; letter-spacing: 0.14em; color: #555567; font-weight: 700;
+  }
+  .clip {
+    position: absolute;
+    height: 44px;
+    border-radius: 3px;
+    border-left: 2px solid;
+    padding: 6px 8px;
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────
+   *  Annotations
+   * ──────────────────────────────────────────────────────────────────────── */
+  .annotations {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 18px;
+  }
+  .annotation {
+    padding: 16px 18px;
+    background: #111118;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+  }
+  .annotation h3 {
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #6B5CE7; margin-bottom: 10px; font-weight: 700;
+  }
+  .annotation p {
+    font-size: 12px; color: #888899; line-height: 1.55; margin-bottom: 8px;
+  }
+  .annotation strong { color: #F0F0F5; }
+  .annotation code {
+    font-family: 'SF Mono', monospace; font-size: 11px;
+    background: #1A1A24; color: #F0F0F5; padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* Active speaker section heading */
+  .section-heading {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555567;
+    margin: 32px 0 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Peer-to-Peer Communications — Round 1: Foundation</h1>
+<div class="subtitle">
+  The always-visible foundation. Talkback button, voice filter selector, and peer presence rail in the transport bar. Push-to-talk via <kbd style="font-size:11px;background:#1A1A24;border:1px solid #2A2A38;border-radius:3px;padding:1px 5px;font-family:'SF Mono',monospace;color:#888899;">T</kbd>. Designed to obey "easy to use, easy to find, not in the way."
+</div>
+
+<div class="pull-quote">
+  <strong>Where everything lives.</strong> The talkback button sits in the transport bar — always visible, one key press away, but only ~46px wide. Peer presence is a horizontal rail on the right side of the transport bar — compact pills that pulse with each speaker's voice. The voice filter selector is a small chevron tucked next to the talkback button, opening a popover when needed. <strong>Total horizontal footprint added to the transport bar: ~280px on a 1280px viewport.</strong> Less than the existing collaborator avatar stack.
+</div>
+
+<!-- ── The integrated transport bar mockup ────────────────────────────── -->
+<div class="stage">
+  <div class="transport">
+    <span class="logo">DAWIN</span>
+    <div class="divider"></div>
+
+    <!-- Existing transport controls (sketched) -->
+    <div class="transport-controls">
+      <button class="t-btn" title="Return to zero">⏮</button>
+      <button class="t-btn play" title="Play">▶</button>
+      <button class="t-btn" title="Stop">⏹</button>
+      <button class="t-btn rec" title="Record">●</button>
+    </div>
+
+    <div class="bpm-bay">
+      <span class="label">BPM</span>
+      <span class="val">128</span>
+    </div>
+    <div class="bpm-bay">
+      <span class="label">POS</span>
+      <span class="val" style="color:#F0F0F5;">001.1.000</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- THE NEW COMMS BAY -->
+    <div class="comms-bay">
+      <button class="talkback" id="talkback" title="Push to talk · Hold T">
+        <span class="talkback-key">T</span>
+      </button>
+      <div class="filter-selector" id="filter-selector" title="Voice filter">
+        <span class="icon">∿</span>
+        <span class="current-filter">Clean</span>
+        <span class="chevron">▾</span>
+      </div>
+
+      <!-- Filter popover -->
+      <div class="filter-popover" id="filter-popover">
+        <div class="filter-popover-header">Voice Filter</div>
+        <div class="filter-row active" data-filter="Clean">
+          <span class="preview-icon">○</span>
+          <span class="name">Clean</span>
+        </div>
+        <div class="filter-row" data-filter="Vocoder">
+          <span class="preview-icon">⟱</span>
+          <span class="name">Vocoder</span>
+        </div>
+        <div class="filter-row" data-filter="Robot">
+          <span class="preview-icon">▦</span>
+          <span class="name">Robot</span>
+        </div>
+        <div class="filter-row" data-filter="Telephone">
+          <span class="preview-icon">☎</span>
+          <span class="name">Telephone</span>
+        </div>
+        <div class="filter-row" data-filter="Megaphone">
+          <span class="preview-icon">📢</span>
+          <span class="name">Megaphone</span>
+        </div>
+        <div class="filter-row" data-filter="Pitch −1 oct">
+          <span class="preview-icon">↓</span>
+          <span class="name">Pitch −1 oct</span>
+        </div>
+        <div class="filter-row" data-filter="Pitch +1 oct">
+          <span class="preview-icon">↑</span>
+          <span class="name">Pitch +1 oct</span>
+        </div>
+        <div class="filter-row" data-filter="God Mode">
+          <span class="preview-icon">✦</span>
+          <span class="name">God Mode (producer reverb)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Peer presence rail -->
+    <div class="peer-rail" id="peer-rail">
+      <!-- Peer pills injected by JS -->
+    </div>
+  </div>
+
+  <!-- Hint bar -->
+  <div class="hints">
+    <span>Hold <kbd>T</kbd> to talk · Click a peer to focus · Click <kbd>∿</kbd> to change filter</span>
+    <div class="live-indicator" id="live-indicator">
+      <span class="dot"></span>
+      <span>ON AIR</span>
+    </div>
+  </div>
+
+  <!-- Mock arranger to show comms is not in the way -->
+  <div class="arranger-mock">
+    <div class="clip" style="background: rgba(107,92,231,0.14); border-color: #6B5CE7; color: #6B5CE7; top: 50px; left: 20px; width: 180px;">Guitar A</div>
+    <div class="clip" style="background: rgba(233,69,96,0.14); border-color: #E94560; color: #E94560; top: 110px; left: 90px; width: 220px;">Vocals</div>
+    <div class="clip" style="background: rgba(29,158,117,0.14); border-color: #1D9E75; color: #1D9E75; top: 170px; left: 40px; width: 140px;">Keys</div>
+    <div class="clip" style="background: rgba(232,126,62,0.14); border-color: #E87E3E; color: #E87E3E; top: 230px; left: 160px; width: 200px;">Drums</div>
+  </div>
+</div>
+
+<!-- ─── Annotations ───────────────────────────────────────────────────── -->
+<div class="annotations">
+  <div class="annotation">
+    <h3>1. Talkback button</h3>
+    <p>Round LED dome on a brushed-metal housing. <strong>Off</strong> = dark red recessed dome. <strong>Live</strong> = bright red core with halo glow + subtle pulse animation. Studio talkback convention.</p>
+    <p><strong>Hold</strong> <code>T</code> <strong>or click + hold</strong> the button to talk. Release to mute. The button face shows <code>T</code> as the keyboard label, so the shortcut is taught visually on the hardware itself.</p>
+    <p>"ON AIR" label appears in the hint bar below the transport when actively transmitting — secondary confirmation that doesn't intrude on focus.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>2. Voice filter selector</h3>
+    <p>A small chevron pill (<code>∿ Clean ▾</code>) next to the talkback. Click to open the filter popover — 8 presets including Clean, Vocoder, Robot, Telephone, Megaphone, Pitch ±1 oct, and "God Mode" (producer reverb for talking down to the band from on high).</p>
+    <p>Selected filter is shown in the pill label so the user can see at a glance what they sound like to others. <strong>Try it</strong> — click the pill.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>3. Peer presence rail</h3>
+    <p>Compact horizontal pills, one per active collaborator (3–5 typical). Each pill = owner color tint + initial avatar + display name.</p>
+    <p><strong>Audio-reactive:</strong> when a peer is speaking, their pill gets a glowing ring that intensifies with their voice level. Watch <strong>Anna</strong> and <strong>Miguel</strong> in the demo — they cycle through speaking states with simulated audio levels.</p>
+    <p><strong>Scales:</strong> at 6+ peers, the rail collapses to "+N more" overflow. Clicking opens the gallery view (Round 3).</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Push-to-talk physics</h3>
+    <p>Key choice: <code>T</code>. Reasoning:</p>
+    <p>• Mnemonic — <strong>T = Talk</strong>. The button itself displays the letter, so the shortcut teaches itself<br>
+       • Doesn't collide with <code>Space</code> (play/pause), <code>V</code> (Select), or <code>C</code> (Cut)<br>
+       • Single-key hold-to-talk — no awkward modifier combos<br>
+       • Skipped in text inputs (same protection <code>Space</code> gets)<br>
+       • Intentional friction during recording — release to mute</p>
+    <p>Click + hold the button works identically — mouse and keyboard paths produce the same behavior. See <code>docs/specs/keyboard-shortcuts.md</code> for the full system shortcut map.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Mic state indicator</h3>
+    <p>A small dot at the bottom-corner of each peer's avatar:</p>
+    <p>• <span style="color:#1D9E75;">●</span> Green = mic enabled (the peer CAN talk if they hold their key)<br>
+       • <span style="color:#888899;">●</span> Grey = mic muted at hardware level<br>
+       • <strong>Glowing owner-color ring</strong> = currently transmitting</p>
+    <p>This separates "mic available" from "actively talking" — both matter in a studio context.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Footprint</h3>
+    <p>The whole comms bay (talkback + filter selector) adds <code>~120px</code> to the transport bar. The peer presence rail floats right with <code>~26px</code> per peer.</p>
+    <p>At 5 peers, the total comms footprint is roughly <code>250px</code>. The transport bar is ~1280px wide, so <strong>20% of the bar</strong> is comms. Nothing dropped from the existing layout. Everything else is the same.</p>
+    <p>At 20+ peers, the rail collapses to overflow — never spills.</p>
+  </div>
+</div>
+
+<div class="section-heading">Next rounds (preview)</div>
+
+<div class="annotations">
+  <div class="annotation">
+    <h3>Round 2 — Fun layer</h3>
+    <p>Soundboard (4×4 hot pad grid, user-loadable + built-in classics), floating reactions across the canvas, avatar effects (spotlight on the active speaker).</p>
+    <p>All on-demand. Soundboard summons via icon in transport. Reactions trigger from emoji picker.</p>
+  </div>
+  <div class="annotation">
+    <h3>Round 3 — Expanded views</h3>
+    <p>Gallery view (FaceTime-style grid that slides up from below). Producer Interrupt mode (full-screen 1:1 video that intentionally breaks "not in the way").</p>
+    <p>Both summoned on-demand, both dismissible with one keystroke.</p>
+  </div>
+  <div class="annotation">
+    <h3>Round 4 — System integration</h3>
+    <p>Music-context behaviors: voice ducks during loud playback, reactions snap to bar grid, spatial audio panning matches mixer position, comms heartbeat ties to the startup heartbeat.</p>
+    <p>This is where the "feels like part of the studio gear" promise is delivered.</p>
+  </div>
+</div>
+
+<script>
+  // ── Peer data ────────────────────────────────────────────────────────
+  const peers = [
+    { id: 'anna',   name: 'Anna',   color: '#6B5CE7', initial: 'A', micOn: true,  speakingPattern: 'frequent' },
+    { id: 'miguel', name: 'Miguel', color: '#E94560', initial: 'M', micOn: true,  speakingPattern: 'frequent' },
+    { id: 'jules',  name: 'Jules',  color: '#1D9E75', initial: 'J', micOn: true,  speakingPattern: 'occasional' },
+    { id: 'sam',    name: 'Sam',    color: '#F5A623', initial: 'S', micOn: false, speakingPattern: 'none' },
+  ];
+
+  const rail = document.getElementById('peer-rail');
+
+  function hexToRgba(hex, a) {
+    const r = parseInt(hex.slice(1,3),16),
+          g = parseInt(hex.slice(3,5),16),
+          b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // Build the pills
+  peers.forEach(p => {
+    const pill = document.createElement('button');
+    pill.className = 'peer-pill';
+    pill.style.setProperty('--p-color', p.color);
+    pill.style.setProperty('--p-tint',  hexToRgba(p.color, 0.18));
+    pill.style.setProperty('--p-glow',  hexToRgba(p.color, 0.55));
+    pill.title = `${p.name} — ${p.micOn ? 'mic on' : 'mic muted'}`;
+    pill.innerHTML = `
+      <span class="avatar">${p.initial}</span>
+      <span class="name">${p.name}</span>
+      <span class="mic-state ${p.micOn ? 'on' : 'off'}"></span>
+    `;
+    rail.appendChild(pill);
+    p.el = pill;
+  });
+
+  // Overflow indicator (mocked — pretend 3 more peers off-screen)
+  const overflow = document.createElement('button');
+  overflow.className = 'peer-overflow';
+  overflow.textContent = '+3';
+  overflow.title = '3 more collaborators in session';
+  rail.appendChild(overflow);
+
+  // ── Simulated audio levels for peers ────────────────────────────────
+  // Each peer cycles through speaking states based on their pattern
+  function tickPeer(p, now) {
+    if (p.speakingPattern === 'none') {
+      p.level = 0;
+      return;
+    }
+    // Anna and Miguel speak periodically; Jules occasionally
+    const period = p.speakingPattern === 'frequent' ? 6000 : 14000;
+    const burstLen = p.speakingPattern === 'frequent' ? 2200 : 1400;
+    const offset = p.id === 'miguel' ? 3000 : (p.id === 'jules' ? 6000 : 0);
+    const phase = ((now + offset) % period) / period;
+    const burstPhase = (now + offset) % period;
+    if (burstPhase < burstLen) {
+      // In a speaking burst — oscillate level
+      const innerT = burstPhase / burstLen;
+      const envelope = Math.sin(innerT * Math.PI); // 0 → 1 → 0
+      const wobble = 0.6 + Math.sin(now * 0.02 + (p.id.charCodeAt(0))) * 0.4;
+      p.level = envelope * wobble;
+    } else {
+      p.level = Math.max(0, (p.level || 0) - 0.05); // decay
+    }
+  }
+
+  function renderPeer(p) {
+    if (p.level > 0.1) {
+      p.el.classList.add('speaking');
+      // ring width scales with level
+      const ringW = 1 + p.level * 2;          // 1..3 px
+      const glowR = 6 + p.level * 18;         // 6..24 px
+      p.el.style.setProperty('--ring-w', ringW + 'px');
+      p.el.style.setProperty('--glow-r', glowR + 'px');
+    } else {
+      p.el.classList.remove('speaking');
+    }
+  }
+
+  function loop(now) {
+    peers.forEach(p => {
+      tickPeer(p, now);
+      renderPeer(p);
+    });
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ── Talkback push-to-talk ────────────────────────────────────────────
+  const talkback = document.getElementById('talkback');
+  const liveIndicator = document.getElementById('live-indicator');
+  let talking = false;
+
+  function startTalk() {
+    if (talking) return;
+    talking = true;
+    talkback.classList.add('live');
+    liveIndicator.classList.add('on');
+  }
+  function stopTalk() {
+    if (!talking) return;
+    talking = false;
+    talkback.classList.remove('live');
+    liveIndicator.classList.remove('on');
+  }
+
+  // Mouse hold
+  talkback.addEventListener('mousedown', startTalk);
+  document.addEventListener('mouseup', stopTalk);
+
+  // Keyboard hold — T key (skip when focus is in a text input, same as Space convention)
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return; // ignore key-repeat — only react to initial press
+    const tag = (e.target).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (e.key === 't' || e.key === 'T') {
+      e.preventDefault();
+      startTalk();
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 't' || e.key === 'T') {
+      stopTalk();
+    }
+  });
+
+  // Lose focus → stop talking (safety)
+  window.addEventListener('blur', stopTalk);
+
+  // ── Filter selector popover ─────────────────────────────────────────
+  const filterSelector = document.getElementById('filter-selector');
+  const filterPopover = document.getElementById('filter-popover');
+  const currentFilter = filterSelector.querySelector('.current-filter');
+
+  filterSelector.addEventListener('click', (e) => {
+    e.stopPropagation();
+    filterPopover.classList.toggle('open');
+    filterSelector.classList.toggle('open');
+  });
+
+  document.querySelectorAll('.filter-row').forEach(row => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.filter-row').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      currentFilter.textContent = row.dataset.filter;
+      filterPopover.classList.remove('open');
+      filterSelector.classList.remove('open');
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!filterPopover.contains(e.target) && !filterSelector.contains(e.target)) {
+      filterPopover.classList.remove('open');
+      filterSelector.classList.remove('open');
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      filterPopover.classList.remove('open');
+      filterSelector.classList.remove('open');
+    }
+  });
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,1805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DAWin · Peer-to-Peer · Round 2 (Fun Layer)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F0F0F5;
+    padding: 32px 48px 80px;
+    min-width: 1280px;
+  }
+
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888899; margin-bottom: 20px; max-width: 760px; line-height: 1.5; }
+
+  .pull-quote {
+    font-size: 12px; line-height: 1.6; color: #888899; max-width: 820px;
+    padding: 14px 18px; background: #111118; border-left: 2px solid #6B5CE7;
+    border-radius: 4px; margin-bottom: 28px;
+  }
+  .pull-quote strong { color: #F0F0F5; }
+
+  /* ── Stage ────────────────────────────────────────────────────────────── */
+  .stage {
+    background: #0A0A0F;
+    border: 1px solid #1E1E28;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 24px;
+    position: relative;
+  }
+
+  /* Transport bar (carries forward from Round 1) */
+  .transport {
+    height: 52px;
+    background: #111118;
+    border-bottom: 1px solid #1E1E28;
+    display: flex; align-items: center;
+    padding: 0 16px;
+    gap: 18px;
+  }
+  .logo { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; color: #6B5CE7; }
+  .divider { width: 1px; height: 28px; background: #1E1E28; flex-shrink: 0; }
+
+  .transport-controls { display: flex; gap: 6px; }
+  .t-btn {
+    width: 28px; height: 28px;
+    background: #2A2A38; color: #888899; border: none;
+    border-radius: 4px; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .t-btn.play { background: #6B5CE7; color: white; }
+  .t-btn.rec { color: #E94560; font-size: 14px; }
+
+  .bpm-bay {
+    background: #0D0D14; border: 1px solid #1E1E28; border-radius: 4px;
+    padding: 4px 10px; display: flex; align-items: center; gap: 6px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .bpm-bay .label { font-size: 9px; color: #888899; letter-spacing: 0.12em; }
+  .bpm-bay .val { font-family: 'SF Mono', monospace; font-size: 13px; font-weight: 700; color: #1D9E75; }
+
+  /* ── Comms bay (from Round 1 + 2 new buttons) ─────────────────────────── */
+  .comms-bay {
+    display: flex; align-items: center; gap: 8px;
+    margin-left: 6px;
+    padding: 6px 8px;
+    background: linear-gradient(180deg, #15151c 0%, #0d0d12 100%);
+    border: 1px solid #1E1E28;
+    border-radius: 5px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.3);
+    position: relative;
+  }
+
+  .talkback {
+    position: relative;
+    width: 42px; height: 38px;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #34343f 0%, #1d1d24 50%, #15151c 100%);
+    border: 1px solid #0a0a0f;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      inset 0 -1px 0 rgba(0,0,0,0.4),
+      0 1px 2px rgba(0,0,0,0.5);
+    cursor: pointer;
+    transition: transform 0.04s ease, box-shadow 0.04s ease;
+  }
+  .talkback::before {
+    content: '';
+    position: absolute;
+    top: 3px; left: 50%;
+    transform: translateX(-50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #3a1820 0%, #0e0608 80%);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+    transition: all 0.1s ease;
+  }
+  .talkback.live::before {
+    background: radial-gradient(circle at 50% 25%, #ffb0b0 0%, #ff5050 35%, #e94560 65%, #8a1a30 100%);
+    box-shadow: 0 0 8px #E94560, 0 0 16px rgba(233,69,96,0.5), inset 0 1px 1px rgba(255,255,255,0.4);
+  }
+  .talkback-key {
+    position: absolute;
+    top: 10px; left: 0; right: 0;
+    text-align: center;
+    font-size: 12px; font-weight: 800;
+    color: #d4d4dc;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.8);
+  }
+  .talkback.live .talkback-key { color: #E94560; text-shadow: 0 0 6px #E94560; }
+  .talkback::after {
+    content: 'TALK';
+    position: absolute;
+    bottom: 2px; left: 50%; transform: translateX(-50%);
+    font-size: 6px; font-weight: 700; letter-spacing: 0.14em;
+    color: #5a5a64;
+  }
+  .talkback.live::after { color: #E94560; text-shadow: 0 0 4px #E94560; }
+
+  /* Filter selector pill (from Round 1) */
+  .filter-pill {
+    display: flex; align-items: center; gap: 4px;
+    height: 38px;
+    padding: 0 6px 0 4px;
+    background: #18181f;
+    border: 1px solid #0a0a0f;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 9px;
+    color: #888899;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.4);
+  }
+  .filter-pill .icon { color: #6B5CE7; font-size: 11px; padding: 0 3px; }
+
+  /* Soundboard + Emoji launch buttons */
+  .launch-btn {
+    width: 38px; height: 38px;
+    background:
+      linear-gradient(180deg, #34343f 0%, #1d1d24 50%, #15151c 100%);
+    border: 1px solid #0a0a0f;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.06),
+      inset 0 -1px 0 rgba(0,0,0,0.4),
+      0 1px 2px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: transform 0.06s ease;
+    position: relative;
+  }
+  .launch-btn:hover { background: linear-gradient(180deg, #3c3c47 0%, #25252c 50%, #1a1a22 100%); }
+  .launch-btn:active, .launch-btn.active { transform: translateY(1px); }
+  .launch-btn.active {
+    box-shadow:
+      inset 0 0 0 1px #6B5CE7,
+      inset 0 0 12px rgba(107,92,231,0.3),
+      0 0 12px rgba(107,92,231,0.4);
+  }
+  .launch-btn .symbol {
+    font-size: 16px;
+    color: #d4d4dc;
+    line-height: 1;
+    margin-top: 2px;
+  }
+  .launch-btn.active .symbol { color: #6B5CE7; }
+  .launch-btn .label {
+    position: absolute;
+    bottom: 2px;
+    font-size: 6px; font-weight: 700; letter-spacing: 0.14em;
+    color: #5a5a64;
+    text-transform: uppercase;
+  }
+
+  /* Peer rail */
+  .peer-rail { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .peer-pill {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px;
+    padding: 0 9px 0 3px;
+    border-radius: 14px;
+    background: var(--p-tint);
+    border: 1px solid var(--p-color);
+    color: white;
+    font-size: 10px; font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow 0.08s ease, transform 0.12s ease, filter 0.2s ease;
+  }
+  .peer-pill .avatar {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--p-color);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: white;
+    flex-shrink: 0;
+  }
+  .peer-pill .name { font-size: 10px; line-height: 1; letter-spacing: 0.04em; }
+  .peer-pill .mic-state {
+    position: absolute;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    bottom: -1px; left: 18px;
+    border: 1.5px solid #111118;
+  }
+  .peer-pill .mic-state.on  { background: #1D9E75; }
+  .peer-pill .mic-state.off { background: #888899; }
+
+  /* Speaking ring */
+  .peer-pill.speaking {
+    box-shadow:
+      0 0 0 var(--ring-w, 2px) var(--p-color),
+      0 0 var(--glow-r, 12px) var(--p-glow);
+  }
+  /* Spotlight — extended speaking (>2s) */
+  .peer-pill.spotlight {
+    transform: scale(1.08);
+    box-shadow:
+      0 0 0 2px var(--p-color),
+      0 0 28px var(--p-glow),
+      0 0 56px var(--p-glow);
+  }
+  /* Dimmed when someone else has the floor */
+  .peer-pill.dimmed { filter: brightness(0.55) saturate(0.7); }
+
+  /* Hint bar */
+  .hints {
+    background: #0a0a0f;
+    padding: 8px 18px;
+    display: flex; align-items: center; gap: 18px;
+    font-size: 10px;
+    color: #555567;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid #1E1E28;
+  }
+  .hints kbd {
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin: 0 2px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    color: #888899;
+  }
+
+  /* Arranger mock — also the canvas where reactions float */
+  .arranger-mock {
+    height: 360px;
+    background: #0A0A0F;
+    background-image:
+      linear-gradient(#111118 1px, transparent 1px),
+      linear-gradient(90deg, #111118 1px, transparent 1px);
+    background-size: 72px 64px;
+    position: relative;
+    padding: 16px;
+    overflow: hidden;
+  }
+  .arranger-mock::before {
+    content: 'ARRANGER (reactions float here when triggered)';
+    position: absolute;
+    top: 12px; left: 14px;
+    font-size: 9px; letter-spacing: 0.14em; color: #555567; font-weight: 700;
+  }
+  .clip {
+    position: absolute;
+    height: 44px;
+    border-radius: 3px;
+    border-left: 2px solid;
+    padding: 6px 8px;
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* ── Floating reaction emojis ────────────────────────────────────────── */
+  .reaction {
+    position: absolute;
+    pointer-events: none;
+    font-size: 28px;
+    line-height: 1;
+    z-index: 50;
+    animation: reaction-float 3000ms ease-out forwards;
+    will-change: transform, opacity;
+  }
+  .reaction .ring {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid var(--r-color);
+    box-shadow: 0 0 12px var(--r-color), inset 0 0 6px var(--r-color);
+    opacity: 0.6;
+  }
+  @keyframes reaction-float {
+    0%   { transform: translate(0, 0) scale(0.4); opacity: 0; }
+    12%  { transform: translate(var(--dx-1), -10px) scale(1.15); opacity: 1; }
+    100% { transform: translate(var(--dx-end), -260px) scale(0.85); opacity: 0; }
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────
+   *  SOUNDBOARD PANEL — floating, draggable, 4x4 hot pads
+   * ──────────────────────────────────────────────────────────────────────── */
+  .soundboard {
+    position: fixed;
+    width: 320px;
+    background: linear-gradient(180deg, #1f1f27 0%, #15151c 100%);
+    border: 1px solid #0a0a0f;
+    border-radius: 8px;
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    z-index: 100;
+    overflow: hidden;
+    display: none;
+    user-select: none;
+  }
+  .soundboard.open { display: block; }
+
+  .sb-header {
+    height: 32px;
+    background: linear-gradient(180deg, #2a2a32 0%, #18181f 100%);
+    border-bottom: 1px solid #0a0a0f;
+    display: flex; align-items: center;
+    padding: 0 12px;
+    gap: 10px;
+    cursor: grab;
+  }
+  .sb-header:active { cursor: grabbing; }
+  .sb-header .title {
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #888899;
+    flex: 1;
+  }
+  .sb-header .vol-knob {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #4a4a54 0%, #2a2a32 70%, #15151c 100%);
+    border: 1px solid #0a0a0f;
+    position: relative;
+    cursor: ns-resize;
+  }
+  .sb-header .vol-knob::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 50%;
+    transform: translateX(-50%);
+    width: 1px; height: 6px;
+    background: #6B5CE7;
+  }
+  .sb-header .close {
+    width: 18px; height: 18px;
+    background: transparent;
+    border: 0;
+    color: #888899;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sb-header .close:hover { color: #F0F0F5; }
+
+  .sb-grid {
+    padding: 12px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  /* Each pad — MPC style backlit rubber */
+  .pad {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 5px;
+    background:
+      radial-gradient(circle at 50% 25%, #2a2a32 0%, #18181f 60%, #0e0e12 100%);
+    border: 1px solid #050507;
+    cursor: pointer;
+    transition: transform 0.04s ease, box-shadow 0.06s ease;
+    overflow: hidden;
+    box-shadow:
+      inset 0 1px 1px rgba(255,255,255,0.05),
+      inset 0 -1px 1px rgba(0,0,0,0.4),
+      0 1px 2px rgba(0,0,0,0.5);
+  }
+  .pad:hover {
+    background:
+      radial-gradient(circle at 50% 25%, #32323a 0%, #1d1d24 60%, #14141a 100%);
+  }
+  .pad:active, .pad.triggered {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 2px 3px rgba(0,0,0,0.7),
+      0 0 16px var(--pad-glow, rgba(107,92,231,0.6));
+    background:
+      radial-gradient(circle at 50% 30%,
+        var(--pad-color, #6B5CE7) 0%,
+        rgba(107,92,231,0.3) 50%,
+        #14141a 90%
+      );
+  }
+  .pad .pad-name {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #d4d4dc;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+  }
+  .pad.triggered .pad-name { color: white; text-shadow: 0 0 4px white; }
+  .pad .shortcut {
+    position: absolute;
+    bottom: 6px; right: 6px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'SF Mono', monospace;
+    color: #555567;
+    background: rgba(0,0,0,0.4);
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+  .pad.triggered .shortcut { color: white; background: rgba(0,0,0,0.4); }
+  .pad .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--pad-color, #6B5CE7);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .pad.triggered .ripple {
+    animation: pad-ripple 600ms ease-out;
+  }
+  @keyframes pad-ripple {
+    0%   { transform: scale(0); opacity: 0.4; }
+    100% { transform: scale(2.5); opacity: 0; }
+  }
+
+  /* Special "load" pad */
+  .pad.load-slot {
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 4px, transparent 4px, transparent 8px),
+      #0e0e12;
+    border: 1.5px dashed rgba(255,255,255,0.18);
+    display: flex; align-items: center; justify-content: center;
+    color: #888899;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .pad.load-slot .plus { font-size: 18px; margin-bottom: 2px; }
+  .pad.load-slot:hover {
+    border-color: #6B5CE7;
+    color: #6B5CE7;
+  }
+
+  /* Pad in loading state */
+  .pad.loading {
+    background:
+      radial-gradient(circle at 50% 25%, var(--pad-color, #6B5CE7) 0%, rgba(107,92,231,0.15) 50%, #14141a 90%) !important;
+    animation: pad-load-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pad-load-pulse {
+    0%, 100% { filter: brightness(0.85); }
+    50%      { filter: brightness(1.15); }
+  }
+  .pad.loading .pad-name { color: rgba(255,255,255,0.5); }
+  .pad .scan-line {
+    position: absolute;
+    top: 50%; left: 0;
+    height: 2px; width: 0%;
+    background: white;
+    box-shadow: 0 0 4px white;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-50%);
+  }
+  .pad.loading .scan-line {
+    animation: scan-line 1.2s ease-out forwards;
+  }
+  @keyframes scan-line {
+    0%   { width: 0%;  opacity: 0; }
+    20%  { opacity: 0.9; }
+    100% { width: 100%; opacity: 0.4; }
+  }
+
+  /* Pad confirmation flash (just loaded) */
+  .pad.just-loaded {
+    box-shadow:
+      inset 0 0 0 2px white,
+      0 0 24px var(--pad-glow, rgba(107,92,231,0.7));
+    animation: just-loaded 600ms ease-out;
+  }
+  @keyframes just-loaded {
+    0%   { transform: scale(0.92); }
+    50%  { transform: scale(1.06); }
+    100% { transform: scale(1); }
+  }
+
+  /* Drag-over state on the soundboard / pad */
+  .soundboard.drag-over {
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.7),
+      0 0 0 2px #6B5CE7,
+      0 0 32px rgba(107,92,231,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .pad.drop-target {
+    background:
+      radial-gradient(circle at 50% 25%, rgba(107,92,231,0.5) 0%, rgba(107,92,231,0.2) 60%, #14141a 100%) !important;
+    border-color: #6B5CE7 !important;
+    box-shadow: 0 0 16px rgba(107,92,231,0.6) !important;
+  }
+
+  /* ── Soundboard LOAD VIEW (replaces grid temporarily) ─────────────────── */
+  .sb-load-view {
+    display: none;
+    padding: 14px;
+    max-height: 380px;
+    overflow-y: auto;
+  }
+  .soundboard.load-mode .sb-grid { display: none; }
+  .soundboard.load-mode .sb-load-view { display: block; }
+
+  .load-back {
+    display: flex; align-items: center; gap: 6px;
+    background: transparent;
+    border: 0;
+    color: #888899;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0 0 12px;
+    transition: color 0.1s ease;
+  }
+  .load-back:hover { color: #F0F0F5; }
+  .load-back .arrow { font-size: 13px; }
+
+  .load-target-info {
+    font-size: 10px;
+    color: #555567;
+    margin-bottom: 12px;
+    letter-spacing: 0.04em;
+  }
+  .load-target-info strong { color: #6B5CE7; font-weight: 700; }
+
+  /* Drop zone */
+  .drop-zone {
+    border: 2px dashed rgba(255,255,255,0.18);
+    border-radius: 6px;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 6px, transparent 6px, transparent 12px),
+      #0d0d12;
+    padding: 22px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: 14px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: #6B5CE7;
+    background:
+      repeating-linear-gradient(45deg, rgba(107,92,231,0.06) 0px, rgba(107,92,231,0.06) 6px, transparent 6px, transparent 12px),
+      rgba(107,92,231,0.04);
+  }
+  .drop-zone .icon {
+    font-size: 24px;
+    color: #6B5CE7;
+    margin-bottom: 6px;
+    line-height: 1;
+  }
+  .drop-zone .primary {
+    font-size: 12px;
+    font-weight: 700;
+    color: #F0F0F5;
+    margin-bottom: 4px;
+  }
+  .drop-zone .secondary {
+    font-size: 10px;
+    color: #888899;
+  }
+  .drop-zone .secondary a {
+    color: #6B5CE7;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .drop-zone .formats {
+    font-size: 9px;
+    color: #555567;
+    margin-top: 8px;
+    letter-spacing: 0.06em;
+  }
+
+  /* Section dividers in load view */
+  .load-divider {
+    display: flex; align-items: center;
+    margin: 14px 0 10px;
+    gap: 8px;
+  }
+  .load-divider::before, .load-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+  }
+  .load-divider span {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555567;
+    font-weight: 700;
+  }
+
+  /* Session clips horizontal list */
+  .session-clips {
+    display: flex; gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .session-clip {
+    flex-shrink: 0;
+    width: 60px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    padding: 6px 6px 4px;
+    cursor: grab;
+    transition: transform 0.08s ease, border-color 0.1s ease;
+  }
+  .session-clip:hover {
+    border-color: var(--c-color);
+    transform: translateY(-2px);
+  }
+  .session-clip:active { cursor: grabbing; }
+  .session-clip .clip-mini-wave {
+    height: 22px;
+    background:
+      linear-gradient(to right,
+        var(--c-color) 0%, var(--c-color) 5%,
+        transparent 5%, transparent 8%,
+        var(--c-color) 8%, var(--c-color) 13%,
+        transparent 13%, transparent 18%,
+        var(--c-color) 18%, var(--c-color) 30%,
+        transparent 30%, transparent 35%,
+        var(--c-color) 35%, var(--c-color) 50%,
+        transparent 50%, transparent 53%,
+        var(--c-color) 53%, var(--c-color) 70%,
+        transparent 70%, transparent 75%,
+        var(--c-color) 75%, var(--c-color) 95%);
+    border-radius: 2px;
+    margin-bottom: 4px;
+    opacity: 0.6;
+  }
+  .session-clip .clip-mini-name {
+    font-size: 8px;
+    color: #888899;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Library categories */
+  .library-list {
+    display: flex; flex-direction: column;
+    gap: 2px;
+  }
+  .library-row {
+    display: flex; align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    color: #B8B8C2;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .library-row:hover {
+    background: rgba(255,255,255,0.04);
+    color: #F0F0F5;
+  }
+  .library-row .lib-icon {
+    width: 18px; height: 18px;
+    background: rgba(107,92,231,0.16);
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    color: #6B5CE7;
+  }
+  .library-row .lib-count {
+    font-size: 9px;
+    color: #555567;
+    font-family: 'SF Mono', monospace;
+  }
+
+  /* ── Pad context menu (right-click an existing pad) ─────────────────── */
+  .pad-menu {
+    position: fixed;
+    width: 180px;
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+    z-index: 200;
+    padding: 4px 0;
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+    pointer-events: none;
+    visibility: hidden;
+    transform-origin: top left;
+    transition: opacity 0.12s ease, transform 0.14s cubic-bezier(0.2,0.9,0.3,1.1), visibility 0s 0.14s;
+  }
+  .pad-menu.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.1s ease, transform 0.14s cubic-bezier(0.2,0.9,0.3,1.15), visibility 0s;
+  }
+  .pad-menu .menu-row {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: #B8B8C2;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.08s ease, color 0.08s ease;
+  }
+  .pad-menu .menu-row:hover { background: rgba(255,255,255,0.05); color: #F0F0F5; }
+  .pad-menu .menu-row.danger:hover { background: rgba(233,69,96,0.12); color: #E94560; }
+  .pad-menu .menu-row .menu-icon {
+    width: 14px; height: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    color: #888899;
+  }
+  .pad-menu .menu-row:hover .menu-icon { color: inherit; }
+  .pad-menu .menu-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 4px 0;
+  }
+  .pad-menu .menu-row .shortcut-hint {
+    margin-left: auto;
+    font-size: 10px;
+    color: #555567;
+    font-family: 'SF Mono', monospace;
+  }
+
+  .sb-footer {
+    padding: 8px 12px;
+    border-top: 1px solid #0a0a0f;
+    font-size: 9px;
+    color: #555567;
+    text-align: center;
+    letter-spacing: 0.06em;
+    background: #15151c;
+  }
+  .sb-footer kbd {
+    background: #1A1A24; border: 1px solid #2A2A38; border-radius: 2px;
+    padding: 1px 4px; font-family: 'SF Mono', monospace;
+    font-size: 9px; color: #888899; margin: 0 2px;
+  }
+
+  /* ── Emoji picker popover ────────────────────────────────────────────── */
+  .emoji-picker {
+    position: absolute;
+    top: 54px;
+    width: 240px;
+    background: #1A1A24;
+    border: 1px solid #2A2A38;
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.7);
+    z-index: 50;
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.2,0.9,0.3,1.1), visibility 0s 0.18s;
+  }
+  .emoji-picker.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.12s ease, transform 0.18s cubic-bezier(0.2,0.9,0.3,1.15), visibility 0s;
+  }
+  .emoji-picker-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid #1E1E28;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #555567;
+    font-weight: 700;
+    display: flex; justify-content: space-between;
+  }
+  .emoji-grid {
+    padding: 8px;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 2px;
+  }
+  .emoji-grid button {
+    width: 26px; height: 26px;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: background 0.08s ease, transform 0.06s ease;
+  }
+  .emoji-grid button:hover {
+    background: rgba(255,255,255,0.06);
+    transform: scale(1.2);
+  }
+
+  /* ── Annotations ────────────────────────────────────────────────────────── */
+  .annotations { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .annotation { padding: 16px 18px; background: #111118; border: 1px solid #1E1E28; border-radius: 8px; }
+  .annotation h3 {
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #6B5CE7; margin-bottom: 10px; font-weight: 700;
+  }
+  .annotation p { font-size: 12px; color: #888899; line-height: 1.55; margin-bottom: 8px; }
+  .annotation strong { color: #F0F0F5; }
+  .annotation code {
+    font-family: 'SF Mono', monospace; font-size: 11px;
+    background: #1A1A24; color: #F0F0F5; padding: 1px 5px; border-radius: 3px;
+  }
+
+  .section-heading {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: #555567; margin: 32px 0 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Peer-to-Peer Communications — Round 2: Fun Layer</h1>
+<div class="subtitle">
+  Soundboard, reactions, avatar effects. The "delightful" things layered on top of Round 1's foundation. All on-demand — none of this lives in the way unless the user summons it.
+</div>
+
+<div class="pull-quote">
+  <strong>Three components, three triggers.</strong> The soundboard is a floating MPC-style pad grid (Cmd+Shift+S). The reaction picker is a popover from the emoji button (Cmd+Shift+E). Avatar effects are automatic — peers who hold the floor get a spotlight; everyone else dims slightly. <strong>Try it:</strong> hold <kbd style="font-size:11px;background:#1A1A24;border:1px solid #2A2A38;border-radius:3px;padding:1px 5px;font-family:'SF Mono',monospace;color:#888899;">T</kbd> to talk · click the 🎵 button to open the soundboard · click 😀 to send a reaction.
+</div>
+
+<div class="stage" id="stage">
+  <div class="transport">
+    <span class="logo">DAWIN</span>
+    <div class="divider"></div>
+    <div class="transport-controls">
+      <button class="t-btn" title="Return to zero">⏮</button>
+      <button class="t-btn play" title="Play">▶</button>
+      <button class="t-btn" title="Stop">⏹</button>
+      <button class="t-btn rec" title="Record">●</button>
+    </div>
+    <div class="bpm-bay"><span class="label">BPM</span><span class="val">128</span></div>
+    <div class="bpm-bay"><span class="label">POS</span><span class="val" style="color:#F0F0F5;">001.1.000</span></div>
+    <div class="divider"></div>
+
+    <!-- Comms bay (extended for Round 2) -->
+    <div class="comms-bay">
+      <button class="talkback" id="talkback" title="Push to talk · Hold T">
+        <span class="talkback-key">T</span>
+      </button>
+      <div class="filter-pill" title="Voice filter"><span class="icon">∿</span> Clean</div>
+      <button class="launch-btn" id="sb-btn" title="Soundboard · Cmd+Shift+S">
+        <span class="symbol">▦</span>
+        <span class="label">SB</span>
+      </button>
+      <button class="launch-btn" id="emoji-btn" title="Reactions · Cmd+Shift+E">
+        <span class="symbol">😀</span>
+        <span class="label">RX</span>
+      </button>
+    </div>
+
+    <!-- Emoji picker popover (anchored under emoji-btn) -->
+    <div class="emoji-picker" id="emoji-picker" style="right: 16px;">
+      <div class="emoji-picker-header">
+        <span>Reactions</span>
+        <span>Snap to bar</span>
+      </div>
+      <div class="emoji-grid" id="emoji-grid">
+        <!-- emojis injected by JS -->
+      </div>
+    </div>
+
+    <div class="peer-rail" id="peer-rail"></div>
+  </div>
+
+  <div class="hints">
+    <span>
+      Hold <kbd>T</kbd> to talk ·
+      <kbd>⌘⇧S</kbd> Soundboard ·
+      <kbd>⌘⇧E</kbd> Reactions ·
+      <kbd>Esc</kbd> Close
+    </span>
+  </div>
+
+  <div class="arranger-mock" id="arranger">
+    <div class="clip" style="background: rgba(107,92,231,0.14); border-color: #6B5CE7; color: #6B5CE7; top: 60px; left: 20px; width: 180px;">Guitar A</div>
+    <div class="clip" style="background: rgba(233,69,96,0.14); border-color: #E94560; color: #E94560; top: 130px; left: 90px; width: 220px;">Vocals</div>
+    <div class="clip" style="background: rgba(29,158,117,0.14); border-color: #1D9E75; color: #1D9E75; top: 200px; left: 40px; width: 140px;">Keys</div>
+    <div class="clip" style="background: rgba(232,126,62,0.14); border-color: #E87E3E; color: #E87E3E; top: 270px; left: 160px; width: 200px;">Drums</div>
+  </div>
+</div>
+
+<!-- ── Soundboard panel (floating) ────────────────────────────────────────── -->
+<div class="soundboard" id="soundboard" style="top: 200px; right: 80px;">
+  <div class="sb-header" id="sb-header">
+    <span class="title">Soundboard</span>
+    <span class="vol-knob" title="Master volume"></span>
+    <button class="close" id="sb-close" title="Close · Esc">×</button>
+  </div>
+  <div class="sb-grid" id="sb-grid">
+    <!-- 16 pads injected by JS -->
+  </div>
+
+  <!-- Load view (hidden by default, toggles when "+ Load" is clicked) -->
+  <div class="sb-load-view" id="sb-load-view">
+    <button class="load-back" id="load-back">
+      <span class="arrow">←</span>
+      <span>Back to pads</span>
+    </button>
+    <div class="load-target-info">
+      Loading sound for pad <strong id="load-target-name">V</strong>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="drop-zone" id="drop-zone">
+      <div class="icon">⤓</div>
+      <div class="primary">Drop audio file here</div>
+      <div class="secondary">or <a id="browse-files">browse files</a></div>
+      <div class="formats">WAV · MP3 · OGG · AIFF — max 5 MB</div>
+    </div>
+    <input type="file" id="file-input" accept=".wav,.mp3,.ogg,.aiff" style="display:none;">
+
+    <!-- Session clips -->
+    <div class="load-divider"><span>From session</span></div>
+    <div class="session-clips" id="session-clips">
+      <!-- injected by JS -->
+    </div>
+
+    <!-- Sound library -->
+    <div class="load-divider"><span>Library</span></div>
+    <div class="library-list">
+      <div class="library-row" data-lib="drumkits">
+        <span class="lib-icon">▦</span>
+        <span class="lib-name">Drum kits</span>
+        <span class="lib-count">128</span>
+      </div>
+      <div class="library-row" data-lib="voicetags">
+        <span class="lib-icon">♪</span>
+        <span class="lib-name">Voice tags</span>
+        <span class="lib-count">54</span>
+      </div>
+      <div class="library-row" data-lib="stings">
+        <span class="lib-icon">✦</span>
+        <span class="lib-name">Stings & risers</span>
+        <span class="lib-count">76</span>
+      </div>
+      <div class="library-row" data-lib="impacts">
+        <span class="lib-icon">●</span>
+        <span class="lib-name">Impacts & FX</span>
+        <span class="lib-count">92</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-footer">
+    Pads <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> · <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> · <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> · <kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd>
+  </div>
+</div>
+
+<!-- Pad context menu (right-click on any pad) -->
+<div class="pad-menu" id="pad-menu">
+  <div class="menu-row" data-action="play">
+    <span class="menu-icon">▶</span>
+    <span>Play</span>
+    <span class="shortcut-hint" id="menu-shortcut"></span>
+  </div>
+  <div class="menu-divider"></div>
+  <div class="menu-row" data-action="replace">
+    <span class="menu-icon">⤓</span>
+    <span>Replace sound…</span>
+  </div>
+  <div class="menu-row" data-action="rename">
+    <span class="menu-icon">✎</span>
+    <span>Rename…</span>
+  </div>
+  <div class="menu-row" data-action="color">
+    <span class="menu-icon">◉</span>
+    <span>Set color…</span>
+  </div>
+  <div class="menu-row" data-action="volume">
+    <span class="menu-icon">⇅</span>
+    <span>Adjust volume…</span>
+  </div>
+  <div class="menu-row" data-action="mode">
+    <span class="menu-icon">↻</span>
+    <span>Playback mode…</span>
+  </div>
+  <div class="menu-divider"></div>
+  <div class="menu-row danger" data-action="remove">
+    <span class="menu-icon">×</span>
+    <span>Remove sound</span>
+  </div>
+</div>
+
+<!-- ── Annotations ────────────────────────────────────────────────────────── -->
+<div class="annotations">
+  <div class="annotation">
+    <h3>1. Soundboard (hardware-style)</h3>
+    <p><strong>Floating panel, draggable header.</strong> 4×4 MPC-style backlit rubber pads. Each pad shows the sound name + keyboard shortcut. Press a pad → it depresses, the LED flashes in your owner color, a ripple radiates outward, and the sound broadcasts to everyone in the session.</p>
+    <p><strong>Keyboard layout</strong> mirrors a hardware sample-pad controller (Splice, Ableton Push, NI Maschine): bottom-left 4×4 keyboard region — <code>1234 QWER ASDF ZXCV</code>. Active only when the soundboard is open (modal scope), so V/C don't conflict with tool shortcuts.</p>
+    <p><strong>Right-click any pad</strong> to open the context menu — play, replace, rename, set color, adjust volume, change playback mode, or remove.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>2. Reactions (emoji)</h3>
+    <p>Click the 😀 button or press <code>⌘⇧E</code> to open the reaction picker. Click any emoji → it floats from your peer pill upward across the arranger canvas, owner-color ring around it, fading after ~3 seconds.</p>
+    <p><strong>Music-context magic:</strong> when playback is active, reactions snap their arrival point to the bar grid. A high-five during the chorus actually lands on a downbeat. Subtle, but reinforces "this is part of the studio."</p>
+    <p>Reactions are non-modal — emit one and keep working. Multiple peers can react simultaneously; each gets their own color-tinted ring so you can see who said what.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>3. Avatar effects (automatic)</h3>
+    <p>Building on Round 1's audio-reactive pulses, Round 2 adds <strong>spotlight</strong> when a peer holds the floor for &gt;1.5 sec:</p>
+    <p>• The active speaker's pill <strong>scales 1.08×</strong> with an extended owner-color glow halo<br>
+       • All other peer pills <strong>dim to 55% brightness / 70% saturation</strong> for the duration<br>
+       • When the speaker stops, all pills return to baseline over <code>240ms</code></p>
+    <p>Effect: the active speaker visually steps forward, others step back. <strong>Watch Anna or Miguel</strong> in the demo when they're speaking longer than usual.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Placement decisions</h3>
+    <p><strong>Soundboard launch button</strong> lives in the comms bay next to the talkback. The "▦" icon and "SB" label make it findable. Active state has owner-color glow + inner ring.</p>
+    <p><strong>Emoji button</strong> sits to the right of the soundboard button. Same hardware aesthetic. The picker drops down from the button position.</p>
+    <p><strong>Soundboard panel</strong> is initially anchored top-right, draggable by the header. The user can move it wherever's convenient. Closes via × or Esc. <strong>Open the soundboard and drag it</strong> — try it now.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Keyboard shortcuts added in Round 2</h3>
+    <p><strong>Panel triggers (global):</strong><br>
+       • <code>⌘⇧S</code> — Open / close soundboard<br>
+       • <code>⌘⇧E</code> — Open / close emoji picker<br>
+       • <code>Esc</code> — Close whatever's open</p>
+    <p><strong>Soundboard pads (when open):</strong><br>
+       Bottom-left 4×4 keyboard region — <code>1234 / QWER / ASDF / ZXCV</code>. Standard production-controller layout.</p>
+    <p><strong>Note:</strong> Z, X, C, V conflict with future-reserved tool keys (Zoom, Trim, Cut, Select) at the global level, but the soundboard <strong>captures focus when open</strong> — these conflict-by-design and resolve to soundboard pads while in modal scope. All documented in <code>docs/specs/keyboard-shortcuts.md</code>.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>What this round honors</h3>
+    <p><strong>Easy to find</strong> — both new buttons live next to the talkback button. Same comms bay, same hardware aesthetic.</p>
+    <p><strong>Easy to use</strong> — every interaction has a keyboard shortcut and a clickable visual. Pads light up. Emojis float. Spotlight is automatic.</p>
+    <p><strong>Not in the way</strong> — soundboard only appears when summoned; emoji picker only opens when clicked; reactions auto-fade; avatar spotlight is subtle, not modal. The arranger is fully visible behind everything except the soundboard, which is repositionable.</p>
+  </div>
+</div>
+
+<div class="section-heading">Loading flow — how custom sounds get onto pads</div>
+
+<div class="annotations">
+  <div class="annotation">
+    <h3>Entry points (three paths)</h3>
+    <p><strong>1. Click "+ Load" pad</strong> → soundboard transforms in place from grid view to load view. Target pad is whatever empty slot you clicked.</p>
+    <p><strong>2. Right-click any existing pad</strong> → "Replace sound…" — same load view, but the target is the pad you right-clicked.</p>
+    <p><strong>3. Drag a file from Finder/Explorer</strong> directly onto any pad — skip the load view entirely. The pad you drop on gets the sound. Watch for the purple highlight as you hover.</p>
+    <p><strong>Try it</strong> — open the soundboard, click the "+ Load" pad in the bottom-right corner.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Load view contents</h3>
+    <p>The grid is replaced (same 320px panel, same header) with three sections:</p>
+    <p><strong>1. Drop zone</strong> — Big dashed area at the top. Drop a file or click to browse. Supported: WAV, MP3, OGG, AIFF. Max 5 MB.</p>
+    <p><strong>2. From session</strong> — Horizontal scroll of session clips. Each clip shows a mini-waveform tinted in its owner color. Click a clip to assign it to the pad. <strong>This is the DAWin-magic move:</strong> the same clips you're arranging are one click from becoming a soundboard hit.</p>
+    <p><strong>3. Library</strong> — Categorized presets (Drum kits, Voice tags, Stings, Impacts). Each opens a sub-browser (not built in this prototype) for deeper selection.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Loading animation</h3>
+    <p>When a file/clip is selected:</p>
+    <p><strong>0–50ms:</strong> Load view dismisses, pad becomes the target<br>
+       <strong>50–1250ms:</strong> Pad enters loading state — soft owner-color glow pulse + a horizontal scan line crosses left-to-right (simulates waveform analysis)<br>
+       <strong>1250–1900ms:</strong> Pad pulses with white ring + scales briefly (confirmation), then settles into its new loaded state</p>
+    <p>The user sees their pad transform IN PLACE. No spinner overlay, no modal. The pad itself shows the loading state — which keeps the user's eye exactly where they need to look to confirm the load.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Right-click context menu</h3>
+    <p>Right-click any pad (with a sound loaded) to open a small floating menu:</p>
+    <p>• <strong>Play</strong> — preview the sound (with keyboard shortcut shown)<br>
+       • <strong>Replace sound…</strong> — opens the load view for this pad<br>
+       • <strong>Rename…</strong> — inline rename<br>
+       • <strong>Set color…</strong> — override the owner color for this pad<br>
+       • <strong>Adjust volume…</strong> — per-pad volume<br>
+       • <strong>Playback mode…</strong> — one-shot / loop / choke group<br>
+       • <strong>Remove sound</strong> — pad returns to empty "+ Load" state</p>
+    <p>Standard right-click affordance, closes on outside click or Esc.</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Drag from Finder/Explorer</h3>
+    <p>When you drag an audio file onto the soundboard window:</p>
+    <p>• <strong>Soundboard outline glows purple</strong> — indicates the panel is a valid drop target<br>
+       • <strong>The pad you're hovering over highlights</strong> — purple background + bright border, so you can see which slot will receive the sound<br>
+       • <strong>Drop</strong> — that pad gets the sound. Same loading animation as the in-app flow.</p>
+    <p>This is the power-user path. No clicks, just drag and drop. Files keep their names by default (editable via right-click → Rename).</p>
+  </div>
+
+  <div class="annotation">
+    <h3>Errors (not in this prototype but specced)</h3>
+    <p><strong>File too large (>5 MB):</strong> Drop zone shakes briefly, shows "File over 5MB — pick a shorter clip" in danger color, returns to default state after 3s.</p>
+    <p><strong>Unsupported format:</strong> "Use .wav, .mp3, .ogg, or .aiff" inline message under the drop zone.</p>
+    <p><strong>Decode failed:</strong> Pad shows an error state (small ⚠ icon) for 2s, then returns to "+ Load".</p>
+    <p>All errors are non-modal — they appear inline in the load view or on the pad face itself. No interruption to the rest of the session.</p>
+  </div>
+</div>
+
+<div class="section-heading">Next: Round 3 — Expanded Views</div>
+<div class="annotations">
+  <div class="annotation">
+    <h3>Gallery view (preview)</h3>
+    <p>FaceTime-style grid of video tiles, summoned on-demand. Floating PiP by default (draggable, bottom-right). Pop-out to second window for multi-monitor.</p>
+  </div>
+  <div class="annotation">
+    <h3>Producer Interrupt (preview)</h3>
+    <p>Full-screen 1:1 video takeover. Intentionally breaks "not in the way" — for host calls that demand attention. Big tile + dismiss button.</p>
+  </div>
+  <div class="annotation">
+    <h3>Round 4 — System integration (preview)</h3>
+    <p>Music-context behaviors: voice ducks during loud playback, reactions snap to bar grid (partial in Round 2), spatial audio panning matches mixer position.</p>
+  </div>
+</div>
+
+<script>
+  // ── Peer data (same as Round 1) ──────────────────────────────────────
+  const peers = [
+    { id: 'me',     name: 'You',    color: '#9B6CFF', initial: 'Y', micOn: true,  speakingPattern: 'none' },
+    { id: 'anna',   name: 'Anna',   color: '#6B5CE7', initial: 'A', micOn: true,  speakingPattern: 'frequent' },
+    { id: 'miguel', name: 'Miguel', color: '#E94560', initial: 'M', micOn: true,  speakingPattern: 'long' },
+    { id: 'jules',  name: 'Jules',  color: '#1D9E75', initial: 'J', micOn: true,  speakingPattern: 'occasional' },
+    { id: 'sam',    name: 'Sam',    color: '#F5A623', initial: 'S', micOn: false, speakingPattern: 'none' },
+  ];
+
+  const ME = peers.find(p => p.id === 'me');
+
+  function hexToRgba(hex, a) {
+    const r = parseInt(hex.slice(1,3),16),
+          g = parseInt(hex.slice(3,5),16),
+          b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // Build peer pills
+  const rail = document.getElementById('peer-rail');
+  peers.forEach(p => {
+    const pill = document.createElement('button');
+    pill.className = 'peer-pill';
+    pill.style.setProperty('--p-color', p.color);
+    pill.style.setProperty('--p-tint',  hexToRgba(p.color, 0.18));
+    pill.style.setProperty('--p-glow',  hexToRgba(p.color, 0.55));
+    pill.innerHTML = `
+      <span class="avatar">${p.initial}</span>
+      <span class="name">${p.name}</span>
+      <span class="mic-state ${p.micOn ? 'on' : 'off'}"></span>
+    `;
+    rail.appendChild(pill);
+    p.el = pill;
+  });
+
+  // ── Audio: synthesize quick sounds via Web Audio API ─────────────────
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function ensureAudio() { if (audioCtx.state === 'suspended') audioCtx.resume(); }
+
+  function playSound(type) {
+    ensureAudio();
+    const now = audioCtx.currentTime;
+    const out = audioCtx.createGain();
+    out.gain.setValueAtTime(0.4, now);
+    out.connect(audioCtx.destination);
+
+    if (type === 'airhorn') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(160, now);
+      o.frequency.linearRampToValueAtTime(220, now + 0.3);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.6, now + 0.04);
+      g.gain.linearRampToValueAtTime(0, now + 0.6);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.6);
+    } else if (type === 'drumroll') {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.8, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const env = 1 - i / d.length;
+        d[i] = (Math.random() * 2 - 1) * env * 0.7;
+      }
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass'; filter.frequency.value = 200;
+      src.connect(filter).connect(out);
+      src.start(now);
+    } else if (type === 'trombone') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(330, now);
+      o.frequency.linearRampToValueAtTime(220, now + 0.3);
+      o.frequency.linearRampToValueAtTime(165, now + 0.7);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.45, now + 0.05);
+      g.gain.linearRampToValueAtTime(0, now + 0.9);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.9);
+    } else if (type === 'applause') {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 1.4, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const env = Math.exp(-i / d.length * 1.5);
+        d[i] = (Math.random() * 2 - 1) * env * 0.55;
+      }
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(out);
+      src.start(now);
+    } else if (type === 'bell') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine'; o.frequency.value = 1200;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.5, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 1.2);
+    } else if (type === 'rimshot') {
+      const o = audioCtx.createOscillator();
+      o.type = 'square'; o.frequency.value = 300;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.6, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.08);
+    } else if (type === 'crash') {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 1.6, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.exp(-i / d.length * 2.5) * 0.6;
+      }
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 4000;
+      src.connect(hp).connect(out);
+      src.start(now);
+    } else if (type === 'kick') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(120, now);
+      o.frequency.exponentialRampToValueAtTime(45, now + 0.1);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.8, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.2);
+    } else if (type === 'beep') {
+      const o = audioCtx.createOscillator();
+      o.type = 'square'; o.frequency.value = 880;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.3, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.12);
+    } else if (type === 'scratch') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(900, now);
+      o.frequency.exponentialRampToValueAtTime(120, now + 0.25);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.35, now);
+      g.gain.linearRampToValueAtTime(0, now + 0.25);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.25);
+    } else if (type === 'whoa') {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(180, now);
+      o.frequency.linearRampToValueAtTime(420, now + 0.4);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.5, now);
+      g.gain.linearRampToValueAtTime(0, now + 0.5);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.5);
+    } else {
+      // default: short click
+      const o = audioCtx.createOscillator();
+      o.type = 'triangle'; o.frequency.value = 600;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.35, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      o.connect(g).connect(out);
+      o.start(now); o.stop(now + 0.1);
+    }
+  }
+
+  // ── Soundboard data + build ──────────────────────────────────────────
+  const pads = [
+    { name: 'Air Horn',     key: '1', type: 'airhorn' },
+    { name: 'Drum Roll',    key: '2', type: 'drumroll' },
+    { name: 'Sad Trombone', key: '3', type: 'trombone' },
+    { name: 'Applause',     key: '4', type: 'applause' },
+    { name: 'Rim Shot',     key: 'q', type: 'rimshot' },
+    { name: 'Crash',        key: 'w', type: 'crash' },
+    { name: 'Bell',         key: 'e', type: 'bell' },
+    { name: 'Scratch',      key: 'r', type: 'scratch' },
+    { name: '"Whoa!"',      key: 'a', type: 'whoa' },
+    { name: '"Yo!"',        key: 's', type: 'beep' },
+    { name: 'Laugh',        key: 'd', type: 'applause' },
+    { name: 'Boo',          key: 'f', type: 'trombone' },
+    { name: '808 Kick',     key: 'z', type: 'kick' },
+    { name: 'Hat',          key: 'x', type: 'rimshot' },
+    { name: 'Cymbal',       key: 'c', type: 'crash' },
+    { name: '+ Load',       key: 'v', type: null, load: true },
+  ];
+
+  const sbGrid = document.getElementById('sb-grid');
+  pads.forEach(p => {
+    const pad = document.createElement('button');
+    pad.className = 'pad' + (p.load ? ' load-slot' : '');
+    if (p.load) {
+      pad.innerHTML = `<div><div class="plus" style="text-align:center;">+</div><div>Load</div></div>`;
+    } else {
+      pad.style.setProperty('--pad-color', ME.color);
+      pad.style.setProperty('--pad-glow', hexToRgba(ME.color, 0.7));
+      pad.innerHTML = `
+        <span class="pad-name">${p.name}</span>
+        <span class="shortcut">${p.key.toUpperCase()}</span>
+        <span class="ripple" style="left:50%; top:50%; width: 100px; height: 100px; margin-left: -50px; margin-top: -50px;"></span>
+      `;
+    }
+    pad.addEventListener('click', () => triggerPad(p, pad));
+    p.el = pad;
+    sbGrid.appendChild(pad);
+  });
+
+  function triggerPad(p, padEl) {
+    if (p.load) {
+      // Switch the soundboard to load mode and remember which pad we're targeting
+      enterLoadMode(p);
+      return;
+    }
+    padEl.classList.remove('triggered');
+    void padEl.offsetWidth; // restart animation
+    padEl.classList.add('triggered');
+    setTimeout(() => padEl.classList.remove('triggered'), 600);
+    playSound(p.type);
+  }
+
+  // ── Soundboard refs (declared early so load-mode + toggle both use them) ─
+  const soundboard = document.getElementById('soundboard');
+  const sbBtn = document.getElementById('sb-btn');
+  const sbClose = document.getElementById('sb-close');
+  const sbHeader = document.getElementById('sb-header');
+
+  // ── Load mode (replaces grid view) ────────────────────────────────────
+  const sbLoadView = document.getElementById('sb-load-view');
+  const loadBack = document.getElementById('load-back');
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const browseFiles = document.getElementById('browse-files');
+  const loadTargetName = document.getElementById('load-target-name');
+  let loadingTargetPad = null;
+
+  function enterLoadMode(pad) {
+    loadingTargetPad = pad;
+    loadTargetName.textContent = pad.key.toUpperCase();
+    soundboard.classList.add('load-mode');
+  }
+  function exitLoadMode() {
+    loadingTargetPad = null;
+    soundboard.classList.remove('load-mode');
+  }
+  loadBack.addEventListener('click', exitLoadMode);
+
+  // Simulate loading a sound into a pad
+  function loadSoundIntoPad(name, sourceLabel) {
+    const targetPad = loadingTargetPad;
+    if (!targetPad) return;
+    // Exit load mode immediately so user sees the pad transform
+    exitLoadMode();
+
+    const padEl = targetPad.el;
+    padEl.classList.add('loading');
+    padEl.classList.remove('load-slot');
+    // Replace pad face with loading state (briefly show "Loading…")
+    padEl.innerHTML = `
+      <span class="pad-name">${name}</span>
+      <span class="shortcut">${targetPad.key.toUpperCase()}</span>
+      <span class="scan-line"></span>
+      <span class="ripple" style="left:50%; top:50%; width: 100px; height: 100px; margin-left: -50px; margin-top: -50px;"></span>
+    `;
+    targetPad.style.setProperty('--pad-color', ME.color);
+    targetPad.style.setProperty('--pad-glow', hexToRgba(ME.color, 0.7));
+    padEl.style.setProperty('--pad-color', ME.color);
+    padEl.style.setProperty('--pad-glow', hexToRgba(ME.color, 0.7));
+
+    // After loading animation completes, commit the sound
+    setTimeout(() => {
+      padEl.classList.remove('loading');
+      padEl.classList.add('just-loaded');
+      // Update the pad data so it now triggers a custom sound
+      targetPad.name = name;
+      targetPad.type = 'beep'; // placeholder — real impl loads the AudioBuffer
+      targetPad.load = false;
+      targetPad.custom = true;
+      setTimeout(() => padEl.classList.remove('just-loaded'), 700);
+    }, 1300);
+  }
+
+  // Drop zone interactions
+  browseFiles.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) loadSoundIntoPad(file.name.replace(/\.[^.]+$/, ''), 'file');
+    fileInput.value = '';
+  });
+
+  // Drag-over feedback (on the load view + the entire soundboard when in any mode)
+  ['dragenter','dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+  });
+  ['dragleave','drop'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (file) loadSoundIntoPad(file.name.replace(/\.[^.]+$/, ''), 'drop');
+  });
+
+  // Drag-onto-pad from outside the soundboard (drops a file directly onto a specific pad)
+  ['dragenter','dragover'].forEach(ev => {
+    soundboard.addEventListener(ev, (e) => {
+      // Detect if it's an external file drag
+      if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+        soundboard.classList.add('drag-over');
+      }
+    });
+    document.querySelectorAll('.pad').forEach(padEl => {
+      padEl.addEventListener(ev, (e) => {
+        if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          padEl.classList.add('drop-target');
+        }
+      });
+    });
+  });
+  soundboard.addEventListener('dragleave', (e) => {
+    if (e.target === soundboard) soundboard.classList.remove('drag-over');
+  });
+  document.querySelectorAll('.pad').forEach(padEl => {
+    padEl.addEventListener('dragleave', () => padEl.classList.remove('drop-target'));
+    padEl.addEventListener('drop', (e) => {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        e.preventDefault();
+        padEl.classList.remove('drop-target');
+        soundboard.classList.remove('drag-over');
+        // Find the pad in our data
+        const pad = pads.find(p => p.el === padEl);
+        if (pad) {
+          loadingTargetPad = pad;
+          loadSoundIntoPad(e.dataTransfer.files[0].name.replace(/\.[^.]+$/, ''), 'pad-drop');
+        }
+      }
+    });
+  });
+
+  // Session clip drag-target
+  const sessionClipsContainer = document.getElementById('session-clips');
+  const sessionClipsData = [
+    { name: 'Guitar A', color: '#6B5CE7' },
+    { name: 'Vocals',   color: '#E94560' },
+    { name: 'Keys',     color: '#1D9E75' },
+    { name: 'Drums',    color: '#E87E3E' },
+    { name: 'Bass',     color: '#F5A623' },
+    { name: 'FX',       color: '#3E9EE8' },
+  ];
+  sessionClipsData.forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'session-clip';
+    el.style.setProperty('--c-color', c.color);
+    el.innerHTML = `
+      <div class="clip-mini-wave"></div>
+      <div class="clip-mini-name" style="color: ${c.color};">${c.name}</div>
+    `;
+    el.addEventListener('click', () => loadSoundIntoPad(c.name, 'session'));
+    sessionClipsContainer.appendChild(el);
+  });
+
+  // Library row clicks (just simulate — would open sub-browser in real impl)
+  document.querySelectorAll('.library-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const lib = row.dataset.lib;
+      const sampleName = {
+        drumkits: '808 Snare', voicetags: 'DJ Khaled — "Yes!"',
+        stings: 'Riser Up 4-bar', impacts: 'Boom Hit'
+      }[lib] || 'Library sound';
+      loadSoundIntoPad(sampleName, 'library');
+    });
+  });
+
+  // ── Pad context menu (right-click) ────────────────────────────────────
+  const padMenu = document.getElementById('pad-menu');
+  const menuShortcut = document.getElementById('menu-shortcut');
+  let menuTargetPad = null;
+
+  function openPadMenu(pad, x, y) {
+    if (pad.load) return; // no menu for the empty + Load slot
+    menuTargetPad = pad;
+    menuShortcut.textContent = pad.key.toUpperCase();
+    padMenu.classList.add('open');
+    // Position — snap to viewport bounds
+    const menuW = 180, menuH = 280;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const left = Math.min(x, vw - menuW - 8);
+    const top  = Math.min(y, vh - menuH - 8);
+    padMenu.style.left = left + 'px';
+    padMenu.style.top  = top + 'px';
+  }
+  function closePadMenu() {
+    padMenu.classList.remove('open');
+    menuTargetPad = null;
+  }
+
+  // Attach context-menu listeners to all pads
+  pads.forEach(p => {
+    p.el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openPadMenu(p, e.clientX, e.clientY);
+    });
+  });
+
+  // Menu actions (most are stubs — visual demo only)
+  padMenu.addEventListener('click', (e) => {
+    const action = e.target.closest('.menu-row')?.dataset.action;
+    if (!action || !menuTargetPad) return;
+    if (action === 'play') {
+      triggerPad(menuTargetPad, menuTargetPad.el);
+    } else if (action === 'replace') {
+      enterLoadMode(menuTargetPad);
+      toggleSoundboard(true);
+    } else if (action === 'remove') {
+      // Reset pad to empty load-slot
+      const pad = menuTargetPad;
+      pad.load = true;
+      pad.custom = false;
+      pad.el.classList.add('load-slot');
+      pad.el.innerHTML = `<div><div class="plus" style="text-align:center;">+</div><div>Load</div></div>`;
+    }
+    // Other actions are visual stubs for the design demo
+    closePadMenu();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!padMenu.contains(e.target)) closePadMenu();
+  });
+
+  // ── Soundboard toggle + drag (uses refs declared earlier) ───────────
+  function toggleSoundboard(open) {
+    if (open === undefined) open = !soundboard.classList.contains('open');
+    soundboard.classList.toggle('open', open);
+    sbBtn.classList.toggle('active', open);
+  }
+  sbBtn.addEventListener('click', () => toggleSoundboard());
+  sbClose.addEventListener('click', () => toggleSoundboard(false));
+
+  // Drag the soundboard
+  let drag = null;
+  sbHeader.addEventListener('mousedown', (e) => {
+    if (e.target === sbClose) return;
+    drag = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTop: soundboard.offsetTop,
+      startLeft: soundboard.offsetLeft,
+    };
+    soundboard.style.right = 'auto';
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    soundboard.style.left = (drag.startLeft + dx) + 'px';
+    soundboard.style.top = (drag.startTop + dy) + 'px';
+  });
+  document.addEventListener('mouseup', () => { drag = null; });
+
+  // ── Emoji picker ─────────────────────────────────────────────────────
+  const emojis = ['🔥','🎵','❤️','👏','😂','🎉','💯','🤘','🎸','🥁','✨','🙌','👀','💀','🎺','😍','🤯','🧠','🚀','⚡','🌊','💜','🎷','👑'];
+  const emojiGrid = document.getElementById('emoji-grid');
+  emojis.forEach(e => {
+    const btn = document.createElement('button');
+    btn.textContent = e;
+    btn.addEventListener('click', () => fireReaction(e, ME));
+    emojiGrid.appendChild(btn);
+  });
+
+  const emojiPicker = document.getElementById('emoji-picker');
+  const emojiBtn = document.getElementById('emoji-btn');
+  function toggleEmojiPicker(open) {
+    if (open === undefined) open = !emojiPicker.classList.contains('open');
+    emojiPicker.classList.toggle('open', open);
+    emojiBtn.classList.toggle('active', open);
+  }
+  emojiBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleEmojiPicker(); });
+
+  document.addEventListener('click', (e) => {
+    if (!emojiPicker.contains(e.target) && !emojiBtn.contains(e.target)) toggleEmojiPicker(false);
+  });
+
+  // ── Reactions floating across the arranger ──────────────────────────
+  const arranger = document.getElementById('arranger');
+
+  function fireReaction(emoji, fromPeer) {
+    // Anchor from the peer's pill location in screen coords; project into arranger coords
+    const fromRect = fromPeer.el ? fromPeer.el.getBoundingClientRect() : null;
+    const arrangerRect = arranger.getBoundingClientRect();
+    let startX = 200, startY = arrangerRect.height - 20;
+    if (fromRect) {
+      startX = (fromRect.left + fromRect.width / 2) - arrangerRect.left;
+      startY = arrangerRect.height - 12;
+    }
+    const r = document.createElement('div');
+    r.className = 'reaction';
+    r.style.left = startX + 'px';
+    r.style.bottom = '12px';
+    r.style.setProperty('--r-color', fromPeer.color);
+    // Horizontal drift random
+    const dxMid = (Math.random() * 80) - 40;
+    const dxEnd = dxMid + (Math.random() * 60) - 30;
+    r.style.setProperty('--dx-1', dxMid + 'px');
+    r.style.setProperty('--dx-end', dxEnd + 'px');
+    r.innerHTML = `<span style="position:relative;">${emoji}<span class="ring"></span></span>`;
+    arranger.appendChild(r);
+    setTimeout(() => r.remove(), 3050);
+  }
+
+  // ── Talkback + push-to-talk (carried from Round 1) ──────────────────
+  const talkback = document.getElementById('talkback');
+  const liveIndicator = null; // not present in this round
+  let talking = false;
+  function startTalk() { if (!talking) { talking = true; talkback.classList.add('live'); } }
+  function stopTalk()  { if (talking)  { talking = false; talkback.classList.remove('live'); } }
+  talkback.addEventListener('mousedown', startTalk);
+  document.addEventListener('mouseup', stopTalk);
+  window.addEventListener('blur', stopTalk);
+
+  // ── Audio-reactive peer simulation ──────────────────────────────────
+  let spotlightHolder = null;
+  let spotlightStart = 0;
+
+  function tickPeer(p, now) {
+    if (p.speakingPattern === 'none') { p.level = 0; return; }
+    const periods = { frequent: 6500, occasional: 14000, long: 9000 };
+    const bursts  = { frequent: 2400, occasional: 1400, long: 4200 };
+    const period = periods[p.speakingPattern];
+    const burstLen = bursts[p.speakingPattern];
+    const offset = p.id === 'miguel' ? 3500 : (p.id === 'jules' ? 6000 : 0);
+    const burstPhase = (now + offset) % period;
+    if (burstPhase < burstLen) {
+      const innerT = burstPhase / burstLen;
+      const envelope = Math.sin(innerT * Math.PI);
+      const wobble = 0.6 + Math.sin(now * 0.02 + p.id.charCodeAt(0)) * 0.4;
+      p.level = envelope * wobble;
+    } else {
+      p.level = Math.max(0, (p.level || 0) - 0.05);
+    }
+  }
+
+  function renderPeer(p, now) {
+    if (p.level > 0.1) {
+      p.el.classList.add('speaking');
+      const ringW = 1 + p.level * 2;
+      const glowR = 6 + p.level * 18;
+      p.el.style.setProperty('--ring-w', ringW + 'px');
+      p.el.style.setProperty('--glow-r', glowR + 'px');
+    } else {
+      p.el.classList.remove('speaking');
+    }
+  }
+
+  function updateSpotlight(now) {
+    // Find peer currently speaking the strongest
+    let topPeer = null;
+    let topLevel = 0;
+    peers.forEach(p => {
+      if (p.level > topLevel) { topLevel = p.level; topPeer = p; }
+    });
+
+    // Spotlight engages after >1.5 sec of continuous speech from the same peer
+    if (topPeer && topLevel > 0.15) {
+      if (spotlightHolder === topPeer) {
+        if (!spotlightHolder.spotlightActive && (now - spotlightStart) > 1500) {
+          spotlightHolder.spotlightActive = true;
+        }
+      } else {
+        if (spotlightHolder) spotlightHolder.spotlightActive = false;
+        spotlightHolder = topPeer;
+        spotlightStart = now;
+      }
+    } else {
+      if (spotlightHolder) {
+        spotlightHolder.spotlightActive = false;
+        spotlightHolder = null;
+      }
+    }
+
+    // Apply classes
+    peers.forEach(p => {
+      const isHolder = p === spotlightHolder && p.spotlightActive;
+      const someoneElseSpotlit = spotlightHolder && spotlightHolder.spotlightActive && spotlightHolder !== p;
+      p.el.classList.toggle('spotlight', isHolder);
+      p.el.classList.toggle('dimmed', someoneElseSpotlit);
+    });
+  }
+
+  function loop(now) {
+    peers.forEach(p => { tickPeer(p, now); renderPeer(p, now); });
+    updateSpotlight(now);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ── Global keyboard shortcuts ────────────────────────────────────────
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+    // Esc closes any open panel
+    if (e.key === 'Escape') {
+      toggleSoundboard(false);
+      toggleEmojiPicker(false);
+      return;
+    }
+
+    // Cmd/Ctrl + Shift + S — soundboard
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      toggleSoundboard();
+      return;
+    }
+    // Cmd/Ctrl + Shift + E — emoji picker
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+      e.preventDefault();
+      toggleEmojiPicker();
+      return;
+    }
+
+    // T — push-to-talk (carried from Round 1)
+    if (!e.repeat && (e.key === 't' || e.key === 'T')) {
+      e.preventDefault();
+      startTalk();
+      return;
+    }
+
+    // Soundboard pad shortcuts — only when soundboard is open
+    if (soundboard.classList.contains('open')) {
+      const k = e.key.toLowerCase();
+      const pad = pads.find(p => p.key === k);
+      if (pad) {
+        e.preventDefault();
+        triggerPad(pad, pad.el);
+        return;
+      }
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 't' || e.key === 'T') stopTalk();
+  });
+</script>
+<script src="/_nav/prototype-nav.js"></script>
+</body>
+</html>

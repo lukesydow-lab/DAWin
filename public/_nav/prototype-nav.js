@@ -47,6 +47,9 @@
         { label: 'Waveform · premium',        path: '/comps/waveform-premium.html',                              icon: '~' },
         { label: 'Plugin browser · inline',   path: '/comps/plugin-browser-inline.html',                         icon: '+' },
         { label: 'Plugin browser · hi-fi',    path: '/comps/plugin-browser-hifi.html',                           icon: '◆' },
+        { label: 'Plugin rack controls',      path: '/comps/plugin-rack-controls.html',                          icon: '◯' },
+        { label: 'Peer-to-peer · foundation', path: '/comps/p2p-foundation.html',                                icon: 'T' },
+        { label: 'Peer-to-peer · fun layer',  path: '/comps/p2p-fun.html',                                       icon: '▦' },
       ],
     },
   ];
