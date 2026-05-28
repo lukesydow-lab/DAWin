@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment files — never commit credentials
+.env
+.env.*
+!.env.example
+
 # Claude session transcripts — large, not useful in git history
 # Agent configs (.claude/agents/, .claude/startup/) are tracked; sessions are not
 .claude/settings.local.json

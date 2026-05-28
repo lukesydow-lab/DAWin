@@ -3,7 +3,10 @@
 **Version:** 1.0
 **Date:** 2026-05-15
 **Author:** PM (Luke)
-**Status:** Approved — Sprint 3 planning complete
+**Status:** Superseded by docs/sprints/
+**Last updated:** 2026-05-19
+
+> This file covered Sprint 3 planning only and was not maintained after Sprint 3. See [docs/sprints/](../sprints/) for all sprint plans.
 
 ---
 

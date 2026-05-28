@@ -83,6 +83,12 @@ When given a feature spec and its implementation, evaluate:
 - Are there criteria missing from the spec that a musician would obviously expect?
 - Flag any "works in isolation but breaks in a real session" risks
 
+### Designer spec compliance
+
+If a Designer spec exists in `docs/specs/` for the feature under test, verify that the implementation matches the spec for every state, token reference, and interaction defined in it. Any deviation from the spec is a P2 defect minimum — log it in `docs/defects.md` with the spec line and the observed behavior.
+
+If no spec exists in `docs/specs/` for a feature under test, log a P3 process defect noting that the feature was implemented without a Designer spec on file. This is a process violation regardless of whether the visual output looks correct.
+
 ### Edge case identification
 Think adversarially:
 - Two users recording on the same track simultaneously

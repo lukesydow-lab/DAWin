@@ -56,6 +56,9 @@ Break features into typed sub-tasks and route them to the right agent:
 
 For each delegated task, write a self-contained prompt that includes: goal, relevant design tokens, affected file(s), and acceptance criteria. Sub-agents have no memory of prior conversation — every prompt must stand alone.
 
+**Designer spec gate — required before every FE work order:**
+Before issuing any work order to the Frontend Engineer for a user-visible feature, confirm that a Designer spec exists at `docs/specs/<feature>.md`. If no spec exists, assign the Designer first. Do not issue the FE work order until the Designer has dropped both the spec and a handoff in `docs/handoffs/<feature>-design.md`. Every FE work order must include an explicit link to the spec file — an order without a spec link is incomplete and must not be issued.
+
 ### 3. Prioritization
 When asked to prioritize, apply this order:
 1. Anything blocking the core collaborative loop (presence, track ownership, live sync)

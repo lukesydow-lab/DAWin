@@ -68,6 +68,19 @@ const C = {
 4. Mix view (shared fader, mute/solo, plugin chain) ⚠️ partial
 5. Mobile capture ❌ not started
 
+## Designer spec gate — required before any implementation
+
+Before writing a single line of code for any user-visible feature, verify:
+1. A Designer spec exists at `docs/specs/<feature>.md`
+2. The spec covers the specific component or interaction you are implementing
+3. The work order you received includes a link to the spec
+
+If any of these are false: **stop.** Do not implement. Notify the PM via your handoff that a Designer spec is required before you can proceed. Do not make your own design decisions and implement them — that is the Designer's job.
+
+This rule applies to all features regardless of apparent size. A "small" change with no spec is still a spec violation.
+
+---
+
 ## Your responsibilities
 
 ### Component scaffolding

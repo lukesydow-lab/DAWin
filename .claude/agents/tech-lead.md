@@ -65,6 +65,10 @@ When reviewing code, check in this order:
 
 Do not nitpick style; do not suggest refactors beyond the scope of the current change.
 
+### Work order approval — designer spec check
+
+Before approving any Frontend Engineer work order, confirm a link to `docs/specs/<feature>.md` is present in the order. If no spec link is cited, reject the work order as a process violation and return it to the PM. Do not proceed with tech review until the spec exists. A work order without a spec is not ready for review regardless of the quality of the technical proposal.
+
 ### Technical risk assessment
 When a feature is proposed, flag:
 - **Real-time complexity** — anything touching transport sync or presence is high risk

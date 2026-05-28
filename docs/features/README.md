@@ -1,26 +1,36 @@
 # DAWin Feature Request Intake
 
+**Status: Current**  
+**Last updated:** 2026-05-19
+
 Feature requests captured from product workshopping conversations. This folder is intentionally separate from `docs/specs/`: these are prioritizable work orders for PM + Tech Lead review before they are promoted into implementation specs, GitHub issues, milestones, or sprint tickets.
 
 **Created:** 2026-05-14  
 **Owner:** Luke / PM  
 **Recommended next owner:** Tech Lead  
-**Current sprint context:** Sprint 2 is focused on real-time collaboration; these requests should be groomed against the remaining Sprint 2 work and future Sprint 3+ scope.
+
+## How Feature Requests Enter This List
+
+After a ChatGPT or external feature discovery conversation, the PM writes a new FR file using the naming format `FR-YYYY-MM-DD-NN-short-name.md`. Set `Status: Pending triage`. Tag the Tech Lead for architecture review within one business day before the FR is accepted into sprint planning. No FR may enter a sprint without: (1) Tech Lead architecture review, (2) a Designer spec in `docs/specs/`, and (3) PM sprint scheduling approval. See `CLAUDE.md` § Designer review gate.
+
+---
+
+**Current sprint:** Sprint 6 — File Storage (Backend Engineer). See [docs/sprints/sprint-06.md](../sprints/sprint-06.md) for the active sprint plan.
 
 ---
 
 ## Intake List
 
-| ID | Feature | Recommended Priority | Complexity | Suggested Track |
-|---|---|---:|---:|---|
-| FR-2026-05-14-01 | Resizable Workspace Panels | High | M | Core UX / Layout |
-| FR-2026-05-14-02 | Multitrack Horizontal + Vertical Zoom | High | M | Arranger Editing |
-| FR-2026-05-14-03 | File Browser + Local Sample Import | High | L | Media / Assets |
-| FR-2026-05-14-04 | Plugin Availability + Freeze/Bounce Fallback | High | L | Collaboration / Audio |
-| FR-2026-05-14-05 | Bounce Link + Detach Workflow | Medium-High | M/L | Audio Editing |
-| FR-2026-05-14-06 | Session Communication + Inline Comments | High | L | Collaboration |
-| FR-2026-05-14-07 | Timeline Deep Links | Medium-High | M | Collaboration / Navigation |
-| FR-2026-05-14-08 | Standalone macOS Beta Build | High | M/L | QA / Distribution |
+| ID | Feature | Recommended Priority | Complexity | Suggested Track | Status |
+|---|---|---:|---:|---|---|
+| FR-2026-05-14-01 | Resizable Workspace Panels | High | M | Core UX / Layout | Deferred |
+| FR-2026-05-14-02 | Multitrack Horizontal + Vertical Zoom | High | M | Arranger Editing | Deferred |
+| FR-2026-05-14-03 | File Browser + Local Sample Import | High | L | Media / Assets | Pending triage |
+| FR-2026-05-14-04 | Plugin Availability + Freeze/Bounce Fallback | High | L | Collaboration / Audio | Pending triage |
+| FR-2026-05-14-05 | Bounce Link + Detach Workflow | Medium-High | M/L | Audio Editing | Pending triage |
+| FR-2026-05-14-06 | Session Communication + Inline Comments | High | L | Collaboration | Accepted |
+| FR-2026-05-14-07 | Timeline Deep Links | Medium-High | M | Collaboration / Navigation | Accepted |
+| FR-2026-05-14-08 | Standalone macOS Beta Build | High | M/L | QA / Distribution | Pending triage |
 
 ---
 
