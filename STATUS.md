@@ -1,10 +1,10 @@
 # Project DAWin — Status Board
 
 **Status: Current**
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-28
 
-> **Last updated:** 2026-05-19 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · **Sprint 8 PLANNING**
-> **Sprint:** 7 CLOSED · Sprint 8 PLANNING
+> **Last updated:** 2026-05-28 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · **Sprint 9 PLANNING**
+> **Sprint:** 8 CLOSED · Sprint 9 PLANNING
 > **Owner:** Luke (PM)
 
 > **⚠️ Agent instruction — keep this file current:**  
@@ -16,17 +16,52 @@
 
 ---
 
-## Sprint 8 Active Work
+## Sprint 9 Active Work
 
 | ID | Agent | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| — | — | Sprint 8 not yet planned — PM to define scope | — | Not started |
+| — | — | Sprint 9 in Planning — scope not yet defined by PM | — | Planning |
 
-## Sprint 8 Exit Criteria
+## Sprint 9 Goal
 
-> Sprint 8 scope not yet defined. PM will fill in exit criteria when sprint is planned.
+**Theme: TBD** — Sprint 9 scope has not been set. PM to define before work orders are issued.
 
-- [ ] Sprint 8 scope TBD by PM
+Candidates (not committed):
+- In-browser audio recording (`getUserMedia` → R2)
+- Plugin parameter editing UI (PM decision on UX pattern required first)
+- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
+- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
+
+---
+
+## Sprint 8 Exit Criteria — ALL CLOSED ✅
+
+> Sprint 8 CLOSED 2026-05-28. Zero P0/P1 defects at UAT sign-off.
+
+- [x] Opening the app with no `?session=` param shows the session lobby, not a blank arranger
+- [x] User can create a new named session from the lobby and land in the session room
+- [x] User can join an existing session by ID from the lobby
+- [x] Recent sessions (up to 3) shown in lobby from localStorage
+- [x] Invalid session ID shows a friendly error, not a crash or blank screen
+- [x] An imported clip with `audioFileId` plays real audio when transport plays
+- [x] Procedural synthesis tracks still play (no regression)
+- [x] Audio loading state visible on clip while AudioBuffer is being fetched and decoded
+- [x] Menu bar visible at top of app in all session states
+- [x] All non-stub menu items functional and match existing keyboard shortcuts
+- [x] Stub items visually dimmed and non-interactive
+- [x] Keyboard Shortcuts modal opens via Help menu and `?` key
+- [x] `tsc --noEmit` passes
+- [x] Sprint 8 UAT signed off with zero P0/P1 defects
+
+## Done ✓ — Sprint 8 (closed 2026-05-28)
+
+| Task | Completed by | Date |
+|------|--------------|------|
+| 8-A: Session lobby — full-screen create/join/recent-sessions; localStorage recent sessions (max 3); inline error on invalid session ID | Frontend Engineer | 2026-05-28 |
+| 8-B: Real audio playback — `AudioBufferSourceNode` from R2 presigned URLs; `AudioBuffer` in-memory cache; TTL handling; clip loading indicator | Frontend Engineer | 2026-05-28 |
+| 8-C: Application menu bar — File/Edit/Session/View/Transport/Help; `KeyboardShortcutsModal` (`?` key + Help menu); `AboutModal` (Sprint 8, v0.8.0-beta); stub items dimmed | Frontend Engineer | 2026-05-28 |
+| 8-D: Defect fixes — WS handler on lobby entry (SPRINT-8-001), Space guard in menus (SPRINT-8-002), Return to Lobby label (SPRINT-8-003), true stereo VU via `ChannelSplitterNode` (5-I/R3), configurable `API_BASE` via `VITE_API_URL` | Frontend Engineer | 2026-05-28 |
+| 8-K: Sprint 8 UAT re-verification — PASS, zero P0/P1; all 5 defects confirmed fixed | UAT | 2026-05-28 |
 
 ---
 

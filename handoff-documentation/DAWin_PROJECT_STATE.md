@@ -1,13 +1,13 @@
 # DAWin — Project State Snapshot
 
 **Status: Current**
-**Last updated:** 2026-05-19
-**Sprint:** 8 — Planning
+**Last updated:** 2026-05-28
+**Sprint:** 9 — Planning
 **Repo:** https://github.com/lukesydow-lab/DAWin
 **Raw handoff:** https://raw.githubusercontent.com/lukesydow-lab/DAWin/main/handoff-documentation/DAWin_PROJECT_STATE.md
 
-> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 is PLANNING (scope not yet defined).
-> Do not treat any prior sprint items as open. Sprint 7 shipped: audio file drag-and-drop import, server-side peak generation (200 RMS values), WS `audio.uploaded` fan-out, all clip import states, snapshot peak hydration, `ClipData.importStatus`, live BPM duration calc, ADR-006.
+> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 is PLANNING (scope not yet defined).
+> Do not treat any prior sprint items as open. Sprint 8 shipped: session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode`.
 
 ---
 
@@ -43,17 +43,22 @@
 | Icon rail | Fixed 28px right edge — FX toggle + chat toggle with unread count | ✅ |
 | `WaveformPlaceholder` | Renders shimmer/empty state when clip has no peaks yet | ✅ Sprint 7 |
 | `PeakGenerator` | Client-side `OfflineAudioContext` peak extraction — preview-only while upload is in flight | ✅ Sprint 7 |
+| `SessionLobby` | Full-screen create/join/recent-sessions screen; renders when `sessionId` is null | ✅ Sprint 8 |
+| `MenuBar` | 24px app menu bar — File/Edit/Session/View/Transport/Help dropdowns; stub items dimmed | ✅ Sprint 8 |
+| `KeyboardShortcutsModal` | `?` key + Help menu; all shortcuts grouped by category | ✅ Sprint 8 |
+| `AboutModal` | Sprint 8, v0.8.0-beta | ✅ Sprint 8 |
 
 ---
 
 ## Audio graph (per track)
 
 ```
-OscillatorNode/BufferSource
+OscillatorNode / AudioBufferSourceNode (from R2 for clips with audioFileId)
   → plugin chain (DynamicsCompressorNode → ConvolverNode → DelayNode+GainNode → BiquadFilterNode → Limiter)
   → GainNode (fader, logarithmic)
   → AnalyserNode (VU tap — post-fader, IEC 60268-17)
   → StereoPannerNode
+      ├─► ChannelSplitterNode → analyserL (ch 0), analyserR (ch 1)  ← true stereo VU (Sprint 8)
   → _masterGain
   → _masterPanner (StereoPannerNode)
   → _masterAnalyser
@@ -61,6 +66,8 @@ OscillatorNode/BufferSource
 ```
 
 `rewirePluginChain` reconciler manages node lifecycle. Bypass removes/reinserts a node without rebuilding the full graph.
+
+`AudioBuffer` cache: `Map<audioFileId, { buffer: AudioBuffer; fetchedAt: number }>` — 1hr TTL; URL re-fetched on expiry; buffer never re-decoded if cache hit.
 
 ---
 
@@ -125,19 +132,36 @@ What shipped:
 
 **Mid-sprint architecture decision:** Server generates peaks during upload (not client-only). See ADR-006.
 
-## Sprint 8 — PLANNING
+## Sprint 8 — CLOSED ✅ (2026-05-28)
+
+**Goal:** Playable Beta — session lobby, real audio playback from R2, application menu bar.
+
+**UAT:** PASS — zero P0/P1 defects.
+
+What shipped:
+- `SessionLobby` component — full-screen create/join/recent-sessions; `localStorage` recent sessions (max 3); inline error on invalid session ID
+- Real audio playback — `AudioBufferSourceNode` from R2 presigned URLs; decoded `AudioBuffer` in-memory cache with 1hr TTL; clip loading indicator; procedural synthesis preserved for non-imported tracks
+- `MenuBar` component — 24px `C.elevated` bar; File/Edit/Session/View/Transport/Help; all non-stub items wired; stub items dimmed
+- `KeyboardShortcutsModal` — `?` key + Help menu; grouped by category
+- `AboutModal` — Sprint 8, v0.8.0-beta
+- `API_BASE` constant at module scope — reads `VITE_API_URL` env var; hardcoded `localhost:3000` removed from all call sites
+- True stereo VU — `ChannelSplitterNode` added after `StereoPannerNode`; independent L/R `AnalyserNode`s
+- WS handler registered reactively on session entry via `useEffect([sessionId, handleWsMessage])`
+- Space key guard in global `onKeyDown` prevents double-fire when menu item has focus
+
+## Sprint 9 — PLANNING
 
 **Goal:** TBD — PM to define scope.
 
-Sprint 8 scope has not been set. Candidates:
-- Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API)
-- Resizable panels (FR-01)
-- Timeline zoom (FR-02)
-- Plugin parameter editing
+Sprint 9 scope has not been set. Candidates:
+- In-browser audio recording (`getUserMedia` → R2)
+- Plugin parameter editing UI
+- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
+- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
 
 ---
 
-## Key state in App component (as of Sprint 7 close)
+## Key state in App component (as of Sprint 8 close)
 
 ```typescript
 // Tracks

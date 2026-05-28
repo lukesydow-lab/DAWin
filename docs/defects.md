@@ -1,9 +1,9 @@
 # UAT Defect Register
 
 **Status: Current**
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-28
 
-> Covers Sprints 1–7. All P0/P1 defects resolved or explicitly deferred. Sprint 7 UAT: CONDITIONAL PASS, zero P0/P1 defects; 4 P2/P3 defects (SPRINT-7-001 through SPRINT-7-004) found during UAT and fixed before close (backend commit `24792ce`, frontend commit `30bbae4`).
+> Covers Sprints 1–8. All P0/P1 defects resolved or explicitly deferred. Sprint 8 UAT: PASS, zero P0/P1 defects; 5 defects (SPRINT-8-001 through 003, 5-I/R3, hardcoded API URL) confirmed fixed before close (frontend commit `ebbbb4d`).
 
 ---
 
@@ -289,3 +289,159 @@ Given that the ThreadPopover renders and functions correctly when reachable (P1-
 **Actual:** `isFailed` only covers `importStatus === 'failed-upload'`. `failed-decode` clips show the same untinted WaveformPlaceholder as clips with no peaks. No badge is rendered. The toast fires, but the clip itself gives no persistent failure signal. A collaborator who missed the toast has no way to know the waveform is unavailable vs. simply still loading.
 **Sprint:** 7
 **Resolution:** Frontend fix in commit `30bbae4` — `isFailed` logic extended to include `importStatus === 'failed-decode'`; failed-decode clips receive `C.warn` tint (distinct from `C.danger` for failed-upload) so persistent visual state is available after the toast clears.
+
+---
+
+## Sprint 7 UAT Re-verification — 2026-05-19
+
+> **Scope:** Targeted re-verification of SPRINT-7-001 through SPRINT-7-004 only (backend commit `24792ce`, frontend commit `30bbae4`)
+> **UAT agent:** Claude Sonnet 4.6
+> **TSC status:** PASS — both `npx tsc --noEmit` (frontend) and `cd server && npx tsc --noEmit` (backend) exit clean with zero errors
+
+### SPRINT-7-001 — UAT re-verification: PASS
+
+**Code reviewed:** `server/storage/prisma-adapter.ts` `mapAudioFileRow` (lines 115–144), `server/prisma/migrations/20260520_fix_audio_file_peaks_default/migration.sql`
+
+- `mapAudioFileRow` at line 142: `peaks: row.peaks ?? []` — null guard confirmed present. Comment explicitly documents protection against replica lag.
+- Migration file confirms both required steps: `UPDATE "AudioFile" SET "peaks" = '{}' WHERE "peaks" IS NULL;` (backfill) and `ALTER TABLE "AudioFile" ALTER COLUMN "peaks" SET DEFAULT '{}';` (default).
+- `broadcastAudioUploaded` at `server/ws/handler.ts:410–421` receives `AudioUploadedPayload` whose `peaks` field comes from `audioFile.peaks` (`server/routes/audio.ts:325`). Because `mapAudioFileRow` now guarantees `peaks` is always `number[]` (never null), no crash path is reachable via null peaks at this call site.
+
+### SPRINT-7-002 — UAT re-verification: PASS
+
+**Code reviewed:** `server/storage/adapter.ts` `ClipRow`, `server/storage/prisma-adapter.ts` `getClips`/`mapClipRow`, `server/storage/memory-adapter.ts` `createClip`, `src/App.tsx` `case 'session.snapshot'`
+
+- `ClipRow` in `adapter.ts` lines 40–52: `audioFileId: string | null` and `peaks: number[]` confirmed.
+- `getClips` at `prisma-adapter.ts:267–279`: `include: { audioFile: { select: { id: true, peaks: true } } }` — join confirmed. `mapClipRow` at lines 92–113: `audioFileId: row.audioFile?.id ?? null` and `peaks: row.audioFile?.peaks ?? []` — both fields populated.
+- `memory-adapter.ts` `createClip` at lines 94–103: `audioFileId: data.audioFileId ?? null` and `peaks: data.peaks ?? []` — safe defaults confirmed.
+- `src/App.tsx` snapshot handler at lines 4785, 4829–4833: `ClipRow` type includes both `audioFileId: string | null` and `peaks: number[]`. Hydrated clips set `audioFileId: cl.audioFileId ?? null` and conditionally spread `{ importPeaks: new Float32Array(cl.peaks), importStatus: 'complete' as const }` when `cl.peaks && cl.peaks.length > 0` — all four parts of the fix confirmed.
+
+### SPRINT-7-003 — UAT re-verification: PASS
+
+**Code reviewed:** `src/App.tsx` `runImportPipeline` / XHR `onload` handler, lines 2710–2713
+
+- Line 2711 comment: `// bpm is the live session state variable — correct bar width for any tempo`
+- Line 2712–2713: `const durationBars = durationSec > 0 ? Math.max(1, Math.ceil(durationSec / (60 / bpm / 4))) : 1` — references the `bpm` state variable from App component closure, not a hardcoded literal.
+- `const bpm = 128` does NOT appear in `src/App.tsx`. The only occurrence of `128` in BPM context is `useState(128)` at line 4696 (the initial state default, which is correct and intentional).
+
+### SPRINT-7-004 — UAT re-verification: PASS
+
+**Code reviewed:** `src/App.tsx` `Clip` component border/ring logic, lines 1742–1747
+
+- Line 1742: `const isFailed = clip.importStatus === 'failed-upload'`
+- Line 1743: `const isFailedDecode = clip.importStatus === 'failed-decode'`
+- Line 1746: `const borderColor = isFailed ? C.danger : isFailedDecode ? C.warn : track.owner.color`
+- Line 1747: `const ringColor = isFailed ? \`${C.danger}88\` : isFailedDecode ? \`${C.warn}44\` : \`${track.owner.color}44\``
+- Three distinct visual treatments confirmed: `failed-upload` → `C.danger`; `failed-decode` → `C.warn` with `44` alpha ring (per spec: `2px solid ${C.warn}` border and `${C.warn}44` inset ring); neutral/loading → track owner color.
+- No regression on `failed-upload` danger treatment.
+
+### Overall verdict
+
+**PASS. All four defects confirmed fixed. Sprint 7 is cleared to close.**
+
+TypeScript: zero errors on both frontend and backend.
+
+---
+
+# UAT Defect Register — Sprint 8
+
+> **Source:** UAT Agent sign-off run, 2026-05-20
+> **Features tested:** Session lobby (EC 1–5), audio buffer playback (EC 6–10), application menu bar (EC 11–15)
+> **Commits reviewed:** `f1b8ea6` (audio playback), `f69659e` (session lobby), `4a0ecd5` (menu bar)
+> **Status key:** `open` · `in progress` · `fixed` · `deferred`
+
+## [SPRINT-8-001] WS message handler is an empty stub when session is entered via lobby
+**Priority:** P1 | **Status:** fixed (commit `ebbbb4d`)
+**File:line:** `src/App.tsx:6372`
+**Steps to reproduce:**
+1. Open app with no `?session=` URL param — lobby appears.
+2. Create or join a session from the lobby.
+3. Session room opens. Server sends `session.snapshot`, `presence.joined`, `track.*` WS messages.
+**Expected:** Session hydrates from snapshot; tracks and presence appear; all real-time collaboration WS messages are processed.
+**Actual:** `handleEnterSession` calls `getWsClient(id, () => {/* ... */}, setWsStatus)` with an empty `onMessage` stub. All WS messages — including `session.snapshot` — are silently dropped. The arranger stays empty and no real-time sync occurs. The full `handleWsMessage` closure is only registered in the initial `useEffect([])` which ran at mount time when `urlSessionId` was null, so it was never registered with the WS client.
+**Root cause:** `handleWsMessage` is defined inside `useEffect([])` and only passed to `getWsClient` when `urlSessionId` is truthy on mount. The lobby path bypasses this effect. The fix is to either: (a) lift `handleWsMessage` outside the effect and pass it in `handleEnterSession`, or (b) re-call `getWsClient` with the full handler after session entry (e.g. via a `useEffect([sessionId])` dependency).
+**Sprint:** 8
+
+## [SPRINT-8-002] Space keypress on a focused menu item double-fires transport play/pause
+**Priority:** P2 | **Status:** fixed (commit `ebbbb4d`)
+**File:line:** `src/App.tsx:6172–6175` (global Space handler), `src/App.tsx:5143–5162` (menu Item component)
+**Steps to reproduce:**
+1. Open a session. Press Tab until focus is on a menu label (e.g. Transport). Press Enter or Space to open the menu.
+2. Tab to the "Play" item. Press Space to activate it.
+**Expected:** Transport toggles once (Space activates the button, play state changes once).
+**Actual:** Two events fire: (1) the button's native click handler (`onClick: () => { closeMenu(); setPlaying(p => !p) }`), and (2) the global `keydown` handler's `Space` branch (`setPlaying(p => !p)`). The two calls cancel each other out — play state changes then immediately reverts. Any non-Play menu item (e.g. "Return to Zero") activated by Space would also trigger play/pause as a side effect.
+**Note:** The `closest('[role="menubar"]')` guard protects the `?` shortcut but is not applied to the Space handler. The dropdown panel is `position: fixed; role="menu"` — it is NOT a descendant of `[role="menubar"]`, so the guard would not help even if added to Space. The correct fix is `if ((e.target as HTMLElement).closest('[role="menu"]')) return` in the Space guard.
+**Sprint:** 8
+
+## [SPRINT-8-003] File > New Session is wired to onLeaveSession, not a new-session creation flow
+**Priority:** P3 | **Status:** fixed (commit `ebbbb4d`) — item relabeled "Return to Lobby"
+**File:line:** `src/App.tsx:5170`
+**Steps to reproduce:** Open a session. File > New Session.
+**Expected (DAW convention):** Opens a "New Session" dialog or creates a blank session, leaving the current one. The label implies creating new work, not leaving.
+**Actual:** Both "New Session" and "Leave Session" in the File menu call `onLeaveSession` — they return the user to the lobby. A musician reading "New Session" would expect a creation flow, not navigation back to the lobby. This is a labeling issue — either the label should be changed to "Return to Lobby" or the item should be wired to a new-session creation flow.
+**Sprint:** 8
+
+---
+
+## Sprint 8 UAT Re-verification — 2026-05-28
+
+> **Scope:** Targeted re-verification of SPRINT-8-001, SPRINT-8-002, SPRINT-8-003, 5-I/R3 (VU stereo meters), and Pre-existing P3 (hardcoded API base URL)
+> **Fix commit reviewed:** `ebbbb4d` (`src/App.tsx`)
+> **UAT agent:** Claude Sonnet 4.6
+> **TSC status:** PASS — `tsc --noEmit` (frontend) and `cd server && tsc --noEmit` (backend) both exit with zero errors
+
+### [SPRINT-8-001] WS handler dead on lobby entry — PASS
+
+**Status:** fixed
+
+- `handleWsMessage` is defined as `useCallback` at component scope (line 5818) — NOT inside any `useEffect` body. Dependency array is `[]` with a comment explaining state setters are stable.
+- A `useEffect` with `[sessionId, handleWsMessage]` dependency array exists at line 6005–6020. It guards on `if (!sessionId) return`, calls `getWsClient(sessionId, handleWsMessage, setWsStatus)`, and explicitly sets `client.onmessage` to a JSON-parsing wrapper that calls `handleWsMessage`. The comment at line 6009–6010 explicitly documents the intent: "Explicitly update onmessage in case the socket was created with an empty stub."
+- `handleEnterSession` (line 6401–6408) calls only `setSessionId(id)` and pushes URL state. It does NOT call `getWsClient` at all, and contains no `() => {}` empty stub. A comment at line 6406 reads: "WS registration is handled reactively by useEffect([sessionId, handleWsMessage])."
+- The `session.snapshot` case in `handleWsMessage` (line 5840+) is structurally reachable when a session is entered via the lobby — `setSessionId` triggers the `useEffect([sessionId])` which registers the handler before the server has had time to send snapshot.
+
+### [SPRINT-8-002] Space key double-fires in menu — PASS
+
+**Status:** fixed
+
+- Global `onKeyDown` Space case at line 6206–6211.
+- Guard at line 6208: `if ((e.target as HTMLElement).closest('[role="menu"]')) return` — present, correctly typed as `HTMLElement` (no `any`), placed before `setPlaying(p => !p)`.
+- The dropdown panel has `role="menu"` at line 5359, confirmed as a descendant target when a menu item has focus, so the guard correctly intercepts the event.
+
+### [SPRINT-8-003] "New Session" label — PASS
+
+**Status:** fixed
+
+- `grep '"New Session"'` on `src/App.tsx` returns zero results in the File menu item context.
+- Line 5184: `<Item label="Return to Lobby" onClick={onLeaveSession} />` — label is "Return to Lobby"; handler is `onLeaveSession` (unchanged from original wiring).
+- The string "New Session" appears only as a heading inside the `SessionLobby` component (`h2` at line 5605), which is unrelated to the File menu.
+
+### [5-I / R3] VU meters not true stereo — PASS
+
+**Status:** fixed
+
+Audio graph path verified in two call sites (lines 905–932 in `startClipPlayback`, lines 6120–6153 in the playback `useEffect`):
+
+- `ctx.createChannelSplitter(2)` called at lines 908 and 6127 — one splitter per active source.
+- `splitter.connect(analyserL, 0)` at lines 928 and 6149 — left channel tap confirmed.
+- `splitter.connect(analyserR, 1)` at lines 929 and 6150 — right channel tap confirmed.
+- `panner.connect(_masterGain)` (falling back to `ctx.destination`) at lines 923–926 and 6143–6146 — audio output path through `StereoPannerNode` to `_masterGain` is intact; the splitter is an additional side-tap, not a replacement of the output path. No audio regression.
+- rAF loop at lines 4000–4001: `readRMS(active.analyserL)` for `levelL`, `readRMS(active.analyserR)` for `levelR` — two distinct analysers read independently.
+- `stopAllSources` / cleanup at line 847–848: `analyserL.disconnect(); analyserR.disconnect()` — both analysers disconnected on stop.
+- Only one `AudioContext` in use — `getAudioCtx()` utility pattern (line 1+). No second context created.
+
+### Pre-existing P3 — Hardcoded API base URL — PASS
+
+**Status:** fixed
+
+- Line 155: `const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'` — constant present, typed correctly without `any`, reads from `VITE_API_URL` env var with fallback.
+- All `fetch` and XHR call sites use `${API_BASE}` — verified at lines 600, 2846, 5023, 5454, 5477, 5501, 5807, 6291, 6297, 6312, 6335.
+- `grep 'http://localhost:3000'` inside call sites: zero results. The only occurrence of the literal string is inside the `API_BASE` constant definition on line 155.
+- WS URL at line 251: `ws://localhost:3001/ws?sessionId=${sessionId}` — untouched, as required.
+
+### TypeScript
+
+`tsc --noEmit` (frontend): **PASS — zero errors**
+`cd server && tsc --noEmit` (backend): **PASS — zero errors**
+
+### Overall verdict
+
+**PASS. All 5 defects confirmed fixed. Sprint 8 is cleared to close.**

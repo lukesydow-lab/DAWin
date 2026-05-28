@@ -1,7 +1,7 @@
 # DAWin — Current Project Context
 
 **Status: Current**
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-28
 **Maintained by:** Tech Lead
 **Read this file first.** It is the single entry point for outside collaborators and new agents.
 
@@ -9,15 +9,34 @@
 
 ## Current Sprint
 
-**Sprint 8 — TBD**
+**Sprint 9 — TBD**
 **Status:** Planning
-**Sprint plan:** Not yet written — PM to define scope
+**Sprint plan:** Not yet created — PM to define scope.
 
-Sprint 7 is CLOSED. Sprint 8 scope has not been defined. The PM will assign the next sprint goal.
+Sprint 8 is CLOSED. Sprint 9 scope is not yet defined. No work orders have been issued. PM must define the sprint goal before any agent begins work.
 
 ---
 
 ## Recently Completed Sprint
+
+**Sprint 8 — Playable Beta**
+**Closed:** 2026-05-28
+**UAT:** PASS — zero P0/P1 defects; all 5 defects confirmed fixed before close
+
+What shipped in Sprint 8:
+- **Session lobby** — full-screen create/join/recent-sessions screen when no `?session=` URL param is present; `localStorage` recent sessions (max 3); inline error on invalid session ID
+- **Real audio playback** — `AudioBufferSourceNode` from R2 presigned URLs; decoded `AudioBuffer` cached in memory (1hr TTL awareness); clip loading indicator during fetch/decode; procedural synthesis preserved for non-imported tracks
+- **Application menu bar** — 24px bar at top of app; File/Edit/Session/View/Transport/Help menus; stub items dimmed (`opacity: 0.4`, non-interactive); all non-stub items wired to existing handlers
+- **`KeyboardShortcutsModal`** — opened by `?` key and Help menu; all Sprint 8 shortcuts grouped by category
+- **`AboutModal`** — Sprint 8, v0.8.0-beta
+- **`API_BASE` constant** — configurable via `VITE_API_URL` env var; removes hardcoded `localhost:3000`
+- **True stereo VU metering** — `ChannelSplitterNode` after `StereoPannerNode`; independent L/R `AnalyserNode`s; fixes 5-I carried from Sprint 5
+- WS handler correctly registered on lobby entry via reactive `useEffect([sessionId, handleWsMessage])` (SPRINT-8-001 fix)
+- Space key guard prevents double-fire when focused on a menu item (SPRINT-8-002 fix)
+
+---
+
+## Previously Completed Sprint
 
 **Sprint 7 — Audio to Timeline**
 **Closed:** 2026-05-19
@@ -29,37 +48,10 @@ What shipped in Sprint 7:
 - Server-side peak generation (200 RMS values) in upload handler; `AudioFile.peaks` JSONB persisted
 - Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
 - Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
-- All clip import states render correctly: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
-- `WaveformPlaceholder` for null/empty peaks
-- `PeakGenerator` abstraction (client-side preview-only path — runs while upload is in flight)
-- `ClipData.importStatus` field added and typed
-- Live BPM used for clip duration calculation (was hardcoded 128)
-- ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md` — server-authoritative peak generation
-
-### Mid-Sprint Architectural Decision — Peak Generation (2026-05-19)
-
-A mid-sprint decision shifted peak generation from client-only to server-authoritative. The PM raised: *"Is it quicker to render peaks from the compressed version? And if we delivered those streaming-quality peaks to all devices while the full-quality peaks render on the host's computer, would it feel more seamless? Should we cache those streaming quality peak files on the server?"*
-
-Tech analysis confirmed: for a 200-sample overview, compressed and lossless peaks are visually identical; the server already has the file in R2; storing 800 bytes of JSONB per clip is negligible. Decision: server generates peaks during upload, returns them in the response, fans them out via WS to all collaborators, and persists them in `AudioFile.peaks`. The client-side `PeakGenerator` is retained as a local preview path only (renders while upload is in flight; replaced by server peaks on upload complete).
-
-ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md` (Tech Lead)
-
----
-
-## Previously Completed Sprint
-
-**Sprint 6 — File Storage + Audio Upload**
-**Closed:** 2026-05-19
-**UAT:** Not formally run — all exit criteria verified manually
-
-What shipped in Sprint 6:
-- First Prisma migration run — all database tables created from `server/prisma/schema.prisma`
-- Server now boots with `PrismaStorageAdapter (PostgreSQL)` — data persists across restarts
-- `POST /api/v1/sessions/:sessionId/audio` — multipart audio upload to Cloudflare R2; metadata extracted via `music-metadata`; `AudioFile` DB row created
-- `GET /api/v1/audio/:audioFileId/stream-url` — presigned R2 URL (1hr TTL); session membership enforced
-- `docs/guides/local-setup.md` — first-time dev setup runbook
-- Infrastructure live: Docker PostgreSQL + Cloudflare R2 bucket `dawin-audio-dev` connected
-- `tsx` replaces `ts-node`; `.env` added to `.gitignore`
+- All clip import states: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
+- `WaveformPlaceholder` for null/empty peaks; `PeakGenerator` abstraction (client-side preview-only)
+- `ClipData.importStatus` field; live BPM for clip duration calculation
+- ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md`
 
 ---
 
@@ -67,17 +59,30 @@ What shipped in Sprint 6:
 
 The following is fully interactive in the running prototype (`npm run dev`):
 
+**Session entry:**
+- Session lobby — create a new named session or join an existing session by ID
+- Recent sessions (last 3) shown from `localStorage`; click to rejoin
+- Inline error if session ID does not exist
+
 **Session room:**
 - 7-track arranger: clip drag/resize/cut, bezier fade curves with draggable midpoints, crossfade symmetry lock
 - Playhead seek (click ruler), spacebar play/pause, stop (hold position), return-to-zero
 - Right-click clip context menu: Delete, Duplicate, Bounce-to-clip, Loop region, Rename
 - BPM input with 40–300 validation
+- Real audio playback for imported clips (from R2 presigned URL via `AudioBufferSourceNode`)
+- Procedural synthesis playback for non-imported tracks (no regression)
 
 **Mixer:**
 - Neve-inspired mixer with logarithmic faders, pan knobs with center detent, mute/solo
-- VU meters: true stereo (L/R via SplitterNode), post-fader, 60fps rAF, peak-hold, heartbeat startup
+- VU meters: true stereo (L/R via `ChannelSplitterNode`), post-fader, 60fps rAF, peak-hold, heartbeat startup
 - Plugin chain per track: DynamicsCompressor, Reverb, Delay, EQ, Limiter — bypass without graph rebuild
 - Master panner (StereoPannerNode)
+
+**Application menu bar:**
+- File/Edit/Session/View/Transport/Help menus; all non-stub items wired to existing handlers
+- Stub items dimmed and non-interactive
+- Keyboard Shortcuts modal (`?` key or Help menu)
+- About DAWin modal
 
 **Collaboration:**
 - JWT auth: `POST /auth/login`, `POST /auth/guest`, `GET /auth/me`
@@ -87,16 +92,15 @@ The following is fully interactive in the running prototype (`npm run dev`):
 
 **Comments + deep links:**
 - Inline comment anchor pins on ruler (SVG chevrons, author-colored, count badges)
-- Track header comment pins
-- ThreadPopover: body, replies, resolve/reopen, reply input
+- Track header comment pins; ThreadPopover: body, replies, resolve/reopen, reply input
 - Session chat panel (flat list, compose input, unread badge)
 - Deep links: `?t=&track=&clip=&range=` URL format; playhead seek + highlight on navigate (1500ms auto-clear)
 
 **What is NOT yet implemented:**
+- In-browser audio recording (`getUserMedia`) — Sprint 9+ candidate
 - Resizable panels (FR-01) — deferred from Sprint 4; spec at `docs/specs/resizable-workspace-panels.md`
 - Timeline zoom (FR-02) — deferred from Sprint 4; spec at `docs/specs/arranger-zoom.md`
 - Plugin parameter editing — no spec finalized; PM decision required on UX pattern
-- Audio playback from uploaded files — clips play via procedural synthesis; real `AudioBuffer` playback from R2 not yet wired
 - Mobile capture screen — not started; desktop-first mandate
 
 ---
@@ -128,12 +132,13 @@ The following is fully interactive in the running prototype (`npm run dev`):
 | Sprint 5 | 2026-05-18 | Full persistence layer, session hydration, JWT WS role, VU stereo, loop region, clip rename, Sprint 5 UAT pass |
 | Sprint 6 | 2026-05-19 | Docker PostgreSQL live, Cloudflare R2 connected, audio upload + presigned streaming endpoints, local setup guide |
 | Sprint 7 | 2026-05-19 | Audio file drag-and-drop + file picker, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, ADR-006 |
+| Sprint 8 | 2026-05-28 | Session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode` |
 
 ---
 
 ## Active Blockers
 
-No blockers. No P0/P1 defects are currently open. Sprint 8 scope not yet defined.
+No blockers. No P0/P1 defects are currently open. Sprint 9 scope not yet defined.
 
 ---
 
@@ -141,25 +146,12 @@ No blockers. No P0/P1 defects are currently open. Sprint 8 scope not yet defined
 
 | Decision | Blocks |
 |---|---|
-| Sprint 8 scope — what is the next sprint goal? | All Sprint 8 work |
+| Sprint 9 scope — what is the next sprint goal? | All Sprint 9 work |
 | Plugin parameter editing UX (expanding card vs. side panel vs. popover) | Feature spec + sprint scheduling |
 | Resizable panels + timeline zoom sprint scheduling (FR-01, FR-02 deferred from Sprint 4) | Frontend can't start until PM schedules |
 | Desktop framework choice (Electron vs. Tauri vs. native) | Desktop app Sprint 1 |
 | Mobile framework choice | Mobile Sprint 1 |
-| Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API) | First time clips are heard, not just seen |
-
----
-
-## Next Sprint Priorities (Sprint 8 — Planning)
-
-Sprint 8 scope is not yet defined. PM will define the next sprint goal. Candidates (not committed):
-
-1. **Audio playback from uploaded files** — wire `AudioBuffer` from R2 presigned URL into the Web Audio graph per clip (replaces procedural synthesis for imported clips)
-2. **Resizable panels (FR-01)** — deferred from Sprint 4; spec exists at `docs/specs/resizable-workspace-panels.md`
-3. **Timeline zoom (FR-02)** — deferred from Sprint 4; spec exists at `docs/specs/arranger-zoom.md`
-4. **Plugin parameter editing** — PM decision on UX pattern required before spec can be written
-
-PM must define scope before any Sprint 8 work order is issued.
+| In-browser audio recording (`getUserMedia`) scope and UI | Sprint 9 candidate — PM to confirm |
 
 ---
 
@@ -181,7 +173,7 @@ Read in this order:
 | 10 | `docs/handoffs/active/` | Active work orders for the current sprint |
 | 11 | `docs/defects.md` | UAT defect history |
 
-**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-07.md`
+**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-08.md`
 **Active work orders:** `docs/handoffs/active/` — work orders for sprints currently in progress
 **Sprint close protocol:** `docs/process/sprint-close-protocol.md`
 
@@ -193,7 +185,7 @@ These documents contain accurate historical information but should NOT be treate
 
 - `docs/handoffs/archive/` — completed handoff records from Sprints 1–5; historical work records only, not current instructions
 - `docs/handoffs/active/sprint-06-backend-workorder.md` — Sprint 6 work order; sprint is closed, this is a historical reference
-- `docs/handoffs/` Sprint 7 handoff files — Sprint 7 is now closed; these are historical work records
+- `docs/handoffs/` Sprint 7 and Sprint 8 handoff files — those sprints are now closed; these are historical work records
 - `docs/specs/sprint6-plan.md` — superseded by `docs/sprints/sprint-06.md`; also contains a stale provider recommendation (Minio/S3 — the chosen provider is Cloudflare R2)
 - `docs/features/SPRINT-PLAN.md` — superseded by `docs/sprints/`; covered Sprint 3 only and was never updated
 - Sprint goal sections in `STATUS.md` marked HISTORICAL ARCHIVE — do not treat as active scope

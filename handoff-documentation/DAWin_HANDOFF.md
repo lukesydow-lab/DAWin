@@ -1,14 +1,14 @@
 # DAWin — Project Handoff Document
 
 **Status: Current**
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-28
 
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 8 — Planning
+> **Sprint:** 9 — Planning
 
-> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 is PLANNING — scope not yet defined by PM.
-> **Do not treat any prior sprint items as open.** Sprint 7 shipped: audio file drag-and-drop import, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, `ClipData.importStatus`, live BPM for duration calc, ADR-006.
+> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 is PLANNING — scope not yet defined by PM.
+> **Do not treat any prior sprint items as open.** Sprint 8 shipped: session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode`.
 
 ---
 
@@ -410,14 +410,14 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - Deep links: `copyDeepLink()`, `?t=&track=&clip=` URL parsing on mount, playhead seek + highlight states, 1500ms auto-clear, chain-link icon in TransportBar, right-click on track header
 - Comment UI: Ruler anchor pins (SVG chevrons, author-colored, count badges, timeRange bars), track header pins, `ThreadPopover`, chat panel, unread count badge on icon rail, WS-driven state updates
 
-### What is not yet implemented (Sprint 8+ targets)
+### What is not yet implemented (Sprint 9+ targets)
 
-- **Audio playback from real `AudioBuffer`:** Clips render waveforms from server peaks (Sprint 7 complete), but audio playback still uses procedural synthesis. Wiring `AudioBuffer` from R2 presigned URL into the Web Audio graph per clip is the next audio milestone.
+- **In-browser audio recording (`getUserMedia`):** Sprint 9 candidate. Requires backend blob storage + recording pipeline. No spec written.
 - **Resizable panels (FR-01):** Arranger/mixer height splitter + FX panel width splitter. Spec at `docs/specs/resizable-workspace-panels.md`. Deferred from Sprint 4; not yet implemented.
 - **Horizontal timeline zoom (FR-02):** `zoomX` state, `barW = BAR_W * zoomX`. `BAR_W` is still hardcoded at ~13 arranger sites. Spec at `docs/specs/arranger-zoom.md`. Deferred from Sprint 4; not yet implemented.
 - **Per-track vertical zoom:** `trackZoomY` record, `getTrackH()` derived value. Not yet implemented.
 - **Plugin parameter editing:** Plugin cards display params as read-only amber LCD text; no inline editing. PM decision on UX pattern required.
-- **Session snapshot peak hydration (P2):** SPRINT-7-002 — hydrated clips from `session.snapshot` do not populate `audioFileId`/`importPeaks`; waveforms absent on session reopen. Fixed before close per Sprint 7 UAT. Verify fix is complete via commit `30bbae4`.
+- **Undo/redo:** Stub items in Edit menu are non-interactive. Requires operational transforms. Sprint 9+ at earliest.
 
 ### What is a stub or not started
 
@@ -467,15 +467,40 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - **7-D (Frontend):** ✅ Server peaks wired; `audio.uploaded` WS handler; snapshot peak hydration; live BPM; failed-decode warn tint (commit `e25f506`)
 - **7-K (UAT):** ✅ Sprint 7 UAT — CONDITIONAL PASS, zero P0/P1, 4 P2/P3 fixed (commit `30bbae4` backend, `30bbae4` frontend)
 
-## 11c. Sprint 8 — PLANNING
+## 11c. Sprint 8 — CLOSED ✅ (2026-05-28)
+
+**Goal:** Playable Beta — session lobby, real audio playback from R2, application menu bar.
+
+**UAT:** PASS — zero P0/P1 defects; all 5 defects confirmed fixed before close.
+
+**What shipped:**
+- **Session lobby** — full-screen create/join/recent-sessions screen when no `?session=` URL param is present; `localStorage` recent sessions (max 3); inline error on invalid session ID
+- **Real audio playback** — `AudioBufferSourceNode` from R2 presigned URLs; decoded `AudioBuffer` in-memory cache with 1hr TTL awareness; clip loading indicator during fetch/decode; procedural synthesis preserved for non-imported tracks
+- **Application menu bar** — 24px `C.elevated` bar at top of app; File/Edit/Session/View/Transport/Help menus; stub items dimmed (`opacity: 0.4`, non-interactive); all non-stub items wired to existing handlers
+- **`KeyboardShortcutsModal`** — opened by `?` key and Help → Keyboard Shortcuts; all Sprint 8 shortcuts grouped by category (Transport, Editing, Import, Navigation, Panels)
+- **`AboutModal`** — Sprint 8, v0.8.0-beta
+- **`API_BASE` constant** — configurable via `VITE_API_URL` env var; removes hardcoded `localhost:3000` from all fetch/XHR call sites
+- **True stereo VU metering** — `ChannelSplitterNode` after `StereoPannerNode`; independent L/R `AnalyserNode`s; closes 5-I carried from Sprint 5
+- WS handler correctly registered on lobby entry via reactive `useEffect([sessionId, handleWsMessage])` — SPRINT-8-001 fix
+- Space key guard prevents double-fire transport toggle when menu item has focus — SPRINT-8-002 fix
+- "New Session" File menu item relabeled "Return to Lobby" — SPRINT-8-003 fix
+
+**Ticket sequence (all complete):**
+- **8-A (Frontend):** Session lobby
+- **8-B (Frontend):** Real audio playback
+- **8-C (Frontend):** Application menu bar + modals
+- **8-D (Frontend):** Defect fixes (SPRINT-8-001 through 003, 5-I/R3, hardcoded API URL)
+- **8-K (UAT):** Sprint 8 UAT re-verification — PASS (commit `ebbbb4d`)
+
+## 11d. Sprint 9 — PLANNING
 
 **Goal:** TBD — PM to define scope.
 
-Sprint 8 scope has not been set. No work orders have been issued. Candidates (not committed):
-- Audio playback from real `AudioBuffer` (R2 presigned URL → Web Audio API)
+Sprint 9 scope has not been set. No work orders have been issued. Candidates (not committed):
+- In-browser audio recording (`getUserMedia` → R2)
+- Plugin parameter editing UI (PM decision on UX pattern required first)
 - Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
 - Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
-- Plugin parameter editing — PM UX decision required first
 
 ---
 
@@ -483,10 +508,9 @@ Sprint 8 scope has not been set. No work orders have been issued. Candidates (no
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| Sprint 8 scope not defined | All Sprint 8 agents | PM defines sprint goal and issues work orders |
+| Sprint 9 scope not defined | All Sprint 9 agents | PM defines sprint goal and issues work orders |
 | §Interaction Model empty in `docs/specs/arranger-zoom.md` | Frontend (zoom feature, deferred) | Designer fills keyboard shortcuts + scroll-to-zoom behavior when zoom sprint is scheduled |
 | `BAR_W` hardcoded in ~13 arranger sites | FR-02 zoom work (deferred) | Must be abstracted to `barW = BAR_W * zoomX` — not blocking until FR-02 is scheduled |
-| Audio playback from real `AudioBuffer` not yet wired | Musicians who upload files cannot hear them back | Sprint 8 target if PM schedules it; requires R2 presigned URL → `fetch` → `decodeAudioData` → `AudioBufferSourceNode` per clip |
 
 ---
 
@@ -494,7 +518,7 @@ Sprint 8 scope has not been set. No work orders have been issued. Candidates (no
 
 ### For PM
 
-1. **Sprint 8 scope** — What is the next sprint goal? Candidates: audio playback, resizable panels, timeline zoom, plugin param editing. PM must define before any Sprint 8 work order is issued.
+1. **Sprint 9 scope** — What is the next sprint goal? Candidates: in-browser recording, plugin param editing, resizable panels, timeline zoom. PM must define before any Sprint 9 work order is issued.
 2. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
 3. **Resizable panels + zoom sprint scheduling** — FR-01 and FR-02 were deferred from Sprint 4. Which sprint do they land? Must be scheduled before Frontend can pick them up.
 
@@ -644,16 +668,16 @@ So that [specific outcome].
 
 ---
 
-## 18. Recommended Next Steps (Sprint 8 — Planning)
+## 18. Recommended Next Steps (Sprint 9 — Planning)
 
-Sprint 7 is closed. Sprint 8 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
+Sprint 8 is closed. Sprint 9 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
 
-1. **PM: Define Sprint 8 scope** — Required before any work order can be issued. Candidates: audio playback from real `AudioBuffer`, resizable panels (FR-01), timeline zoom (FR-02), plugin parameter editing UX.
+1. **PM: Define Sprint 9 scope** — Required before any work order can be issued. Candidates: in-browser audio recording (`getUserMedia`), plugin parameter editing UI, resizable panels (FR-01), timeline zoom (FR-02).
 
-2. **Frontend Engineer: Audio playback from real `AudioBuffer`** — R2 presigned URL → `fetch` → `decodeAudioData` → `AudioBufferSourceNode` per clip. Replaces procedural synthesis for imported clips. Requires PM to schedule and a Designer spec on playback UI states (loading, playing, error).
+2. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded now that `PrismaStorageAdapter` is live. Low effort; clean up before Sprint 9 begins.
 
-3. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded now that `PrismaStorageAdapter` is live. Low effort; clean up before Sprint 8 begins.
+3. **Tech Lead: ADR for panels/zoom** — Write ADR covering panel persistence (localStorage key shape), zoom state scope, and `BAR_W → barW = BAR_W * zoomX` abstraction before Frontend picks up FR-01 or FR-02. Required before those tickets can be issued.
 
-4. **Tech Lead: ADR for panels/zoom** — Write ADR covering panel persistence (localStorage key shape), zoom state scope, and `BAR_W → barW = BAR_W * zoomX` abstraction before Frontend picks up FR-01 or FR-02. Required before those tickets can be issued.
+4. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.
 
-5. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.
+5. **Backend Engineer: Recording pipeline pre-work** — If Sprint 9 includes in-browser recording, ADR and Backend work order required first: `getUserMedia` → WAV/WebM → multipart upload to existing R2 endpoint; track `isRecording` state; WS broadcast of recording state to collaborators.
