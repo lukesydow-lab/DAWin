@@ -150,6 +150,10 @@ interface PresenceEntry {
   activeTrackId: string | null
 }
 
+// ─── API base URL ─────────────────────────────────────────────────────────────
+// Override via VITE_API_URL env var (e.g. in .env: VITE_API_URL=https://api.dawin.app)
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BAR_W        = 72
 const BARS         = 32
@@ -593,7 +597,7 @@ async function resolveRealBuffer(audioFileId: string): Promise<AudioBuffer | nul
         const jwt = getJwt()
         const headers: Record<string, string> = {}
         if (jwt) headers['Authorization'] = `Bearer ${jwt}`
-        const resp = await fetch(`http://localhost:3000/api/v1/audio/${audioFileId}/stream-url`, { headers })
+        const resp = await fetch(`${API_BASE}/api/v1/audio/${audioFileId}/stream-url`, { headers })
         if (!resp.ok) throw new Error(`stream-url fetch failed: ${resp.status}`)
         const { url } = (await resp.json()) as { url: string }
         presigned = { url, fetchedAt: Date.now() }
@@ -685,7 +689,8 @@ function getPeakGenerator(): PeakGenerator | null {
 interface ActiveSource {
   source: AudioBufferSourceNode
   gain: GainNode
-  analyser: AnalyserNode
+  analyserL: AnalyserNode   // left channel — post-panner splitter tap
+  analyserR: AnalyserNode   // right channel — post-panner splitter tap
   panner: StereoPannerNode
 }
 const _activeSources = new Map<string, ActiveSource>()  // trackId → nodes
@@ -839,8 +844,8 @@ function rewirePluginChain(
 }
 
 function stopAllSources() {
-  for (const { source, gain, analyser, panner } of _activeSources.values()) {
-    try { source.stop(); source.disconnect(); gain.disconnect(); analyser.disconnect(); panner.disconnect() } catch { /* already stopped */ }
+  for (const { source, gain, analyserL, analyserR, panner } of _activeSources.values()) {
+    try { source.stop(); source.disconnect(); gain.disconnect(); analyserL.disconnect(); analyserR.disconnect(); panner.disconnect() } catch { /* already stopped */ }
   }
   _activeSources.clear()
   // Also clear all plugin nodes when transport stops
@@ -896,26 +901,35 @@ async function startRealBufferSources(
     const gain = ctx.createGain()
     gain.gain.value = track.volume / 100
 
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 256
-    analyser.smoothingTimeConstant = 0
-
     const panner = ctx.createStereoPanner()
     panner.pan.value = track.pan / 100
+
+    // Post-panner stereo splitter — feeds two separate analysers for true L/R metering
+    const splitter = ctx.createChannelSplitter(2)
+    const analyserL = ctx.createAnalyser()
+    analyserL.fftSize = 256
+    analyserL.smoothingTimeConstant = 0
+    const analyserR = ctx.createAnalyser()
+    analyserR.fftSize = 256
+    analyserR.smoothingTimeConstant = 0
 
     const trackPlugins = pluginChains[track.id] ?? []
     rewirePluginChain(ctx, track.id, trackPlugins, source, gain)
 
-    gain.connect(analyser)
-    analyser.connect(panner)
+    // gain → panner → _masterGain (audio output)
+    //              ↘ splitter → analyserL (ch 0), analyserR (ch 1) (metering taps)
+    gain.connect(panner)
     if (_masterGain) {
       panner.connect(_masterGain)
     } else {
       panner.connect(ctx.destination)
     }
+    panner.connect(splitter)
+    splitter.connect(analyserL, 0)
+    splitter.connect(analyserR, 1)
 
     source.start(ctx.currentTime, offsetIntoClip)
-    _activeSources.set(track.id, { source, gain, analyser, panner })
+    _activeSources.set(track.id, { source, gain, analyserL, analyserR, panner })
 
     updateClip(track.id, clip.id, { audioLoading: false })
   }
@@ -2829,7 +2843,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     formData.append('file', file)
 
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `http://localhost:3000/api/v1/sessions/${sessionId}/audio`)
+    xhr.open('POST', `${API_BASE}/api/v1/sessions/${sessionId}/audio`)
     xhr.setRequestHeader('X-Filename', file.name)
 
     xhr.upload.addEventListener('progress', (e) => {
@@ -3983,11 +3997,11 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
         const effectiveMute = track.muted || (anySoloed && !track.soloed)
 
         // Target RMS: heartbeat override during startup, otherwise live RMS when playing
-        const rawRMS  = active ? readRMS(active.analyser) : 0
+        const rawRMSL = active ? readRMS(active.analyserL) : 0
+        const rawRMSR = active ? readRMS(active.analyserR) : 0
         const heartbeatOverride = heartbeatSignalRef.current
-        const effectiveRMS = heartbeatOverride !== null ? heartbeatOverride : rawRMS
-        const targetL = effectiveMute ? 0 : clamp(effectiveRMS, 0, 1)
-        const targetR = effectiveMute ? 0 : clamp(effectiveRMS, 0, 1)
+        const targetL = effectiveMute ? 0 : clamp(heartbeatOverride !== null ? heartbeatOverride : rawRMSL, 0, 1)
+        const targetR = effectiveMute ? 0 : clamp(heartbeatOverride !== null ? heartbeatOverride : rawRMSR, 0, 1)
 
         // Detect transient jump before updating level
         const prevL = ph.levelL, prevR = ph.levelR
@@ -5006,7 +5020,7 @@ function OpenSessionModal({ onClose, onEnterSession }: { onClose: () => void; on
     setJoinLoading(true)
     setJoinError('')
     try {
-      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${id}`)
+      const resp = await fetch(`${API_BASE}/api/v1/sessions/${id}`)
       if (resp.status === 404) { setJoinError('Session not found — check the ID and try again.'); return }
       if (!resp.ok) throw new Error(`status ${resp.status}`)
       const data = (await resp.json()) as { id: string; name: string }
@@ -5167,7 +5181,7 @@ const MenuBar = ({
       case 'File':
         return (
           <>
-            <Item label="New Session" onClick={onLeaveSession} />
+            <Item label="Return to Lobby" onClick={onLeaveSession} />
             <Item label="Open Session…" onClick={() => setShowOpenSession(true)} />
             <Sep />
             <Item label="Import Audio" shortcut="I" onClick={onImportAudio} />
@@ -5437,7 +5451,7 @@ function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: s
     setCreateError('')
     const name = createName.trim() || 'Untitled Session'
     try {
-      const resp = await fetch('http://localhost:3000/api/v1/sessions', {
+      const resp = await fetch(`${API_BASE}/api/v1/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -5460,7 +5474,7 @@ function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: s
     setJoinLoading(true)
     setJoinError('')
     try {
-      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${id}`)
+      const resp = await fetch(`${API_BASE}/api/v1/sessions/${id}`)
       if (resp.status === 404) {
         setJoinError('Session not found — check the ID and try again.')
         return
@@ -5484,7 +5498,7 @@ function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: s
     setRecentLoading(prev => ({ ...prev, [session.id]: true }))
     setRecentErrors(prev => ({ ...prev, [session.id]: '' }))
     try {
-      const resp = await fetch(`http://localhost:3000/api/v1/sessions/${session.id}`)
+      const resp = await fetch(`${API_BASE}/api/v1/sessions/${session.id}`)
       if (resp.status === 404) {
         setRecentErrors(prev => ({ ...prev, [session.id]: 'Session not found — check the ID and try again.' }))
         // Remove from localStorage on 404
@@ -5790,7 +5804,7 @@ export default function App() {
   const pendingServerPeaksRef = useRef<Map<string, Float32Array>>(new Map())
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/v1/auth/me')
+    fetch(`${API_BASE}/api/v1/auth/me`)
       .then(r => r.json())
       .then((body: { data: { role: 'owner' | 'collaborator' | 'viewer' } }) => {
         setUserRole(body.data.role)
@@ -5800,10 +5814,8 @@ export default function App() {
       })
   }, [])
 
-  // ── WS client + deep link init ────────────────────────────────────────────
-  useEffect(() => {
-    // WebSocket singleton — fails silently if server is not running
-    function handleWsMessage(frame: WsFrame) {
+  // ── WS message handler — stable callback so it can be registered from multiple effects ──
+  const handleWsMessage = useCallback((frame: WsFrame) => {
       switch (frame.type) {
         case 'transport.state_sync': {
           const p = frame.payload as Partial<{ bpm: number; isRecording: boolean }>
@@ -5985,28 +5997,42 @@ export default function App() {
         default:
           console.debug('ws:', frame.type, frame)
       }
-    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // state setters are stable; no runtime deps needed
 
-    // sessionId comes from the URL — no fallback to a hardcoded value.
-    // Without a sessionId the WS is not opened; the arranger renders empty state.
+  // Re-register WS handler whenever sessionId becomes non-null (lobby entry or direct URL load).
+  // This ensures sessions entered via handleEnterSession get a live message handler.
+  useEffect(() => {
+    if (!sessionId) return
+    try {
+      const client = getWsClient(sessionId, handleWsMessage, setWsStatus)
+      // getWsClient returns the existing socket if already open for this sessionId.
+      // Explicitly update onmessage in case the socket was created with an empty stub.
+      client.onmessage = (e: MessageEvent) => {
+        try {
+          const frame = JSON.parse(e.data as string) as WsFrame
+          handleWsMessage(frame)
+        } catch { /* non-JSON frame — ignore */ }
+      }
+    } catch {
+      // WebSocket constructor failure — non-fatal in dev without a backend
+    }
+  }, [sessionId, handleWsMessage])
+
+  // ── Deep link URL param init (runs once on mount) ────────────────────────
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const urlSessionId = params.get('session')
 
     if (urlSessionId) {
       setSessionId(urlSessionId)
-      try {
-        getWsClient(urlSessionId, handleWsMessage, setWsStatus)
-      } catch {
-        // WebSocket constructor throws if URL is invalid — should not happen in practice
-      }
+      // WS registration is handled by the useEffect([sessionId]) above
     }
 
     // Deep link URL param parsing
     const tParam      = params.get('t')
     const trackParam  = params.get('track')
     const clipParam   = params.get('clip')
-    // threadParam is a no-op until comment UI ticket
-    // const threadParam = params.get('thread')
 
     let didApplyHighlights = false
 
@@ -6094,29 +6120,37 @@ export default function App() {
       const gain    = ctx.createGain()
       gain.gain.value = track.volume / 100
 
-      // Post-fader tap — AnalyserNode reads signal after the fader GainNode
-      const analyser = ctx.createAnalyser()
-      analyser.fftSize = 256
-      analyser.smoothingTimeConstant = 0
-
       const panner  = ctx.createStereoPanner()
       panner.pan.value = track.pan / 100
+
+      // Post-panner stereo splitter — feeds two separate analysers for true L/R metering
+      const splitter = ctx.createChannelSplitter(2)
+      const analyserL = ctx.createAnalyser()
+      analyserL.fftSize = 256
+      analyserL.smoothingTimeConstant = 0
+      const analyserR = ctx.createAnalyser()
+      analyserR.fftSize = 256
+      analyserR.smoothingTimeConstant = 0
 
       // Wire plugin chain before fader: source → [plugins] → gain
       const trackPlugins = pluginChainsRef.current[track.id] ?? []
       rewirePluginChain(ctx, track.id, trackPlugins, source, gain)
 
-      gain.connect(analyser)
-      analyser.connect(panner)
+      // gain → panner → _masterGain (audio output)
+      //              ↘ splitter → analyserL (ch 0), analyserR (ch 1) (metering taps)
+      gain.connect(panner)
       // Route through master gain instead of directly to destination
       if (_masterGain) {
         panner.connect(_masterGain)
       } else {
         panner.connect(ctx.destination)
       }
+      panner.connect(splitter)
+      splitter.connect(analyserL, 0)
+      splitter.connect(analyserR, 1)
       source.start()
 
-      _activeSources.set(track.id, { source, gain, analyser, panner })
+      _activeSources.set(track.id, { source, gain, analyserL, analyserR, panner })
     })
 
     // Start real-buffer sources asynchronously — fire and forget.
@@ -6170,6 +6204,8 @@ export default function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
       if (e.code === 'Space') {
+        // Guard: skip when focus is inside a menu dropdown (e.g. activating a menu item)
+        if ((e.target as HTMLElement).closest('[role="menu"]')) return
         e.preventDefault()
         setPlaying(p => !p)
         return
@@ -6252,13 +6288,13 @@ export default function App() {
 
   function handleResolveComment(id: string) {
     setComments(prev => prev.map(c => c.id !== id ? c : { ...c, status: 'resolved' }))
-    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${id}/resolve`, { method: 'PATCH' })
+    fetch(`${API_BASE}/api/v1/sessions/dev-session-001/comments/${id}/resolve`, { method: 'PATCH' })
       .catch(() => { /* server not running in dev — local state already updated */ })
   }
 
   function handleReopenComment(id: string) {
     setComments(prev => prev.map(c => c.id !== id ? c : { ...c, status: 'open' }))
-    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${id}/reopen`, { method: 'PATCH' })
+    fetch(`${API_BASE}/api/v1/sessions/dev-session-001/comments/${id}/reopen`, { method: 'PATCH' })
       .catch(() => { /* server not running in dev */ })
   }
 
@@ -6273,7 +6309,7 @@ export default function App() {
     setComments(prev => prev.map(c =>
       c.id !== commentId ? c : { ...c, replies: [...c.replies, newReply] }
     ))
-    fetch(`http://localhost:3000/api/v1/sessions/dev-session-001/comments/${commentId}/replies`, {
+    fetch(`${API_BASE}/api/v1/sessions/dev-session-001/comments/${commentId}/replies`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),
@@ -6296,7 +6332,7 @@ export default function App() {
     }
     setComments(prev => [...prev, newComment])
     setChatInput('')
-    fetch('http://localhost:3000/api/v1/sessions/dev-session-001/comments', {
+    fetch(`${API_BASE}/api/v1/sessions/dev-session-001/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body: trimmed, anchor: newComment.anchor }),
@@ -6367,10 +6403,7 @@ export default function App() {
     const url = new URL(window.location.href)
     url.searchParams.set('session', id)
     window.history.pushState({}, '', url.toString())
-    // Open WS for the new session
-    try {
-      getWsClient(id, () => {/* WS messages handled in the main useEffect */}, setWsStatus)
-    } catch { /* WS constructor failure — non-fatal */ }
+    // WS registration is handled reactively by useEffect([sessionId, handleWsMessage])
     void name  // name is written to localStorage by the caller; kept for future use
   }
 
