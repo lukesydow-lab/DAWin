@@ -34,7 +34,7 @@ The existing `PluginChainPanel` becomes a **wooden cabinet** holding rack units.
 | Bottom rail | Mirror of top rail (gradient inverted) |
 | Owner-color trim | 2px stripe with glow, runs along the inside edge of both rails — the only place the owner color appears in the chain |
 | Rack interior | Very dark (`#060609`) with subtle 4px-wide rack rails on left + right inside edges (the simulated mounting strips) |
-| Rail content (top) | "GDAW" brand badge (left) · track name (center, bold) · "X / 8 slots" badge (right) |
+| Rail content (top) | "DAWin" brand badge (left) · track name (center, bold) · "X / 8 slots" badge (right) |
 | Rail content (bottom) | Drag hint text in caps |
 
 ### The Rack Unit (plugin card)

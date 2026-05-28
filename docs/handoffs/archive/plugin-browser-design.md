@@ -82,7 +82,7 @@ The complete design for the plugin browser interaction and the FX chain panel:
 - 4 annotation cards below explaining anchor/placement, hierarchy, interaction, power button + drag, hi-fi direction, and escape hatch
 
 ### Hi-fi (`/comps/plugin-browser-hifi.html`)
-- Wooden cabinet with GDAW brand on the top rail, track name center, slot count right
+- Wooden cabinet with DAWin brand on the top rail, track name center, slot count right
 - Owner-color trim stripes glowing inside the rails
 - 3 rack units (Parametric EQ active, Compressor active, Plate Reverb bypassed)
 - Each with: 2 screws on each bracket, embossed plugin name, manufacturer subtitle, amber LCD parameter readout, glowing power LED in owner color

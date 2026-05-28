@@ -89,7 +89,7 @@
 
 - `docs/adr/ADR-001` through `ADR-005` — all have correct `Status: Accepted` markers; no stale content
 - `docs/specs/<feature>.md` specs — content is correct for their scope; Status markers are not yet added to individual specs (deferred to the responsible agent when each spec is next edited — adding them to all specs was out of scope for this pass)
-- `docs/handoffs/sprint6-backend-workorder.md` — written by PM, correct, not modified
+- `docs/handoffs/active/sprint-06-backend-workorder.md` — written by PM, correct, not modified
 
 ---
 

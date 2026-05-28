@@ -25,7 +25,7 @@ The task brief references a `use_figma` tool that executes Plugin API JavaScript
 
 The spec contains a complete, copy-paste-ready Plugin API script. To run it:
 
-1. Open the Figma file: https://www.figma.com/design/o4IccZFYzEvsHe3dVcco7X/GDAW---Design-System-
+1. Open the Figma file: https://www.figma.com/design/o4IccZFYzEvsHe3dVcco7X/DAWin---Design-System-
 2. Go to Plugins → Development → Open Console (or use a plugin runner like "Scripter")
 3. Paste the script from the "Figma Plugin API — Implementation Script" section of `docs/specs/design-tokens.md`
 4. Fix the expected count in the `console.log` from 28 to 31 before running
