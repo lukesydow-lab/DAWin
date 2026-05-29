@@ -977,8 +977,9 @@ function stripExtension(filename: string): string {
 
 // Snaps a client-x pixel offset to the nearest whole bar within the arranger grid.
 // `scrollLeft` corrects for any horizontal scroll position.
-function snapToWholeBars(clientX: number, gridLeft: number, scrollLeft: number): number {
-  const raw = (clientX - gridLeft + scrollLeft) / BAR_W
+// `barW` is the current zoomed bar width (BAR_W * zoomX).
+function snapToWholeBars(clientX: number, gridLeft: number, scrollLeft: number, barW: number): number {
+  const raw = (clientX - gridLeft + scrollLeft) / barW
   return Math.min(Math.max(0, Math.round(raw)), BARS - 1)
 }
 
@@ -1475,6 +1476,8 @@ interface TrackHeaderProps {
   selected?: boolean
   isViewer: boolean
   highlighted?: boolean
+  trackH: number
+  trackZoomY: number
   onSelect?: () => void
   onToggleMute?: () => void
   onToggleSolo?: () => void
@@ -1485,8 +1488,11 @@ interface TrackHeaderProps {
   firstCommentId?: string
   firstCommentColor?: string
   onOpenThread?: (commentId: string) => void
+  onExpand?: () => void
+  onCollapse?: () => void
+  onResetVerticalZoom?: () => void
 }
-function TrackHeader({ track, selected = false, isViewer, highlighted = false, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange, onCopyLink, commentCount = 0, firstCommentId, firstCommentColor, onOpenThread }: TrackHeaderProps) {
+function TrackHeader({ track, selected = false, isViewer, highlighted = false, trackH, trackZoomY, onSelect, onToggleMute, onToggleSolo, onToggleArm, onPanChange, onCopyLink, commentCount = 0, firstCommentId, firstCommentColor, onOpenThread, onExpand, onCollapse, onResetVerticalZoom }: TrackHeaderProps) {
   const lockingCollab = track.lockedBy !== null && track.lockedBy !== CURRENT_USER.id
     ? COLLABORATORS.find(c => c.id === track.lockedBy) ?? null
     : null
@@ -1497,7 +1503,7 @@ function TrackHeader({ track, selected = false, isViewer, highlighted = false, o
       onClick={onSelect}
       onContextMenu={e => { e.preventDefault(); onCopyLink?.(track.id) }}
       style={{
-        height: TRACK_H,
+        height: trackH,
         background: selected
           ? `linear-gradient(90deg, ${track.owner.color}30 0%, ${C.elevated} 48px)`
           : `linear-gradient(90deg, ${track.owner.color}18 0%, ${C.surface} 48px)`,
@@ -1558,6 +1564,52 @@ function TrackHeader({ track, selected = false, isViewer, highlighted = false, o
           </span>
         </div>
       )}
+
+      {/* Vertical zoom chevrons — bottom-right quadrant of track header */}
+      <div
+        className="absolute flex flex-col"
+        style={{ right: track.audioInput !== null ? 32 : 4, bottom: 2, gap: 1 }}
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          aria-label="Collapse track"
+          title="Double-click to reset"
+          onDoubleClick={e => { e.stopPropagation(); onResetVerticalZoom?.() }}
+          onClick={() => onCollapse?.()}
+          style={{
+            width: 16, height: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+            color: C.textSec,
+            opacity: trackZoomY <= 0.5 ? 0.3 : 0.6,
+            pointerEvents: trackZoomY <= 0.5 ? 'none' : 'auto',
+          }}
+          tabIndex={-1}
+        >
+          <svg width="8" height="6" viewBox="0 0 8 6" style={{ display: 'block' }}>
+            <polygon points="0,6 8,6 4,0" fill="currentColor" />
+          </svg>
+        </button>
+        <button
+          aria-label="Expand track"
+          title="Double-click to reset"
+          onDoubleClick={e => { e.stopPropagation(); onResetVerticalZoom?.() }}
+          onClick={() => onExpand?.()}
+          style={{
+            width: 16, height: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+            color: C.textSec,
+            opacity: trackZoomY >= 3.0 ? 0.3 : 0.6,
+            pointerEvents: trackZoomY >= 3.0 ? 'none' : 'auto',
+          }}
+          tabIndex={-1}
+        >
+          <svg width="8" height="6" viewBox="0 0 8 6" style={{ display: 'block' }}>
+            <polygon points="0,0 8,0 4,6" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }
@@ -1689,6 +1741,8 @@ interface ClipProps {
   isGhost: boolean
   selected: boolean
   highlighted: boolean
+  barW: number
+  trackH: number
   onDragStart: (clipId: string, trackId: string, mode: DragState['mode'], e: React.MouseEvent, barOffset?: number) => void
   onContextMenu: (e: React.MouseEvent, clipId: string, trackId: string) => void
   onCut: (clipId: string, trackId: string, bar: number) => void
@@ -1707,15 +1761,15 @@ interface FadeHandleDrag {
   clipH: number
 }
 
-function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady, isRenaming, onCommitRename, onCancelRename }: ClipProps) {
+function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, barW, trackH, onDragStart, onContextMenu, onCut, onUpdate, onSelect, audioCtxReady, isRenaming, onCommitRename, onCancelRename }: ClipProps) {
   const [hovered, setHovered] = useState(false)
   const [fadeDrag, setFadeDrag] = useState<FadeHandleDrag | null>(null)
   const [renameValue, setRenameValue] = useState(clip.label)
   const [renameFocused, setRenameFocused] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const clipW = clip.len * BAR_W - 4
-  const clipH = TRACK_H - 12 // top-1.5 + bottom-1.5 = 12px total
+  const clipW = clip.len * barW - 4
+  const clipH = trackH - 12 // top-1.5 + bottom-1.5 = 12px total
 
   // Sync rename input value when rename activates for this clip
   useEffect(() => {
@@ -1777,7 +1831,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
           ctx2d.fillStyle = `${track.owner.color}14`  // 8% opacity background tint
           ctx2d.fillRect(0, 0, w, h)
           const BAR_COUNT = 24
-          const barW = Math.max(1, Math.floor(w / BAR_COUNT) - 1)
+          const ghostBarPx = Math.max(1, Math.floor(w / BAR_COUNT) - 1)
           const midY = h / 2
           ctx2d.fillStyle = `${track.owner.color}2E`  // 18% opacity bars
           // Deterministic seed from clip id: sum char codes then mix with a prime
@@ -1787,7 +1841,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
             const hash = Math.abs(Math.sin((seed + i * 127) * 0.31731))
             const barH = (0.15 + hash * 0.7) * midY
             const x = Math.round((i / BAR_COUNT) * w)
-            ctx2d.fillRect(x, midY - barH, barW, barH * 2)
+            ctx2d.fillRect(x, midY - barH, ghostBarPx, barH * 2)
           }
           return
         }
@@ -1833,8 +1887,8 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     ? `repeating-linear-gradient(180deg, ${track.owner.color}22 0px, ${track.owner.color}22 1px, ${track.owner.color}0A 1px, ${track.owner.color}0A 4px)`
     : `repeating-linear-gradient(90deg, ${track.owner.color}18 0px, ${track.owner.color}18 1px, ${track.owner.color}08 1px, ${track.owner.color}08 12px)`
 
-  const fadeInPx  = clip.fadeIn  * BAR_W
-  const fadeOutPx = clip.fadeOut * BAR_W
+  const fadeInPx  = clip.fadeIn  * barW
+  const fadeOutPx = clip.fadeOut * barW
   const showHandles = (hovered || fadeDrag !== null) && tool === 'select'
 
   // Fade curve handle drag — attached to window to capture mouse outside the SVG
@@ -1883,7 +1937,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     e.stopPropagation()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const clickXInClip = e.clientX - rect.left
-    const barOffset = clickXInClip / BAR_W
+    const barOffset = clickXInClip / barW
     onSelect(clip.id)
     onDragStart(clip.id, track.id, 'move', e, barOffset)
   }
@@ -1893,7 +1947,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     e.stopPropagation()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const clickX = e.clientX - rect.left
-    const barInClip = clickX / BAR_W
+    const barInClip = clickX / barW
     const cutBar = clip.bar + barInClip
     onCut(clip.id, track.id, cutBar)
   }
@@ -1916,7 +1970,7 @@ function Clip({ clip, track, tool, isDragging, isGhost, selected, highlighted, o
     <div
       className="absolute top-1.5 bottom-1.5 rounded overflow-hidden select-none"
       style={{
-        left: clip.bar * BAR_W + 2,
+        left: clip.bar * barW + 2,
         width: clipW,
         background: texture,
         borderLeft: `2px solid ${borderColor}`,
@@ -2315,18 +2369,19 @@ interface ThreadPopoverProps {
   comment: SessionComment
   tracks: Track[]
   isViewer: boolean
+  barW: number
   onClose: () => void
   onResolve: (id: string) => void
   onReopen: (id: string) => void
   onReply: (id: string, body: string) => void
 }
 
-const ThreadPopover = ({ comment, tracks, isViewer, onClose, onResolve, onReopen, onReply }: ThreadPopoverProps) => {
+const ThreadPopover = ({ comment, tracks, isViewer, barW, onClose, onResolve, onReopen, onReply }: ThreadPopoverProps) => {
   const [replyText, setReplyText] = React.useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const author = COLLABORATORS.find(c => c.id === comment.authorId)
-  const pinLeft = (comment.anchor.startBar ?? 0) * BAR_W
+  const pinLeft = (comment.anchor.startBar ?? 0) * barW
   const rawLeft = pinLeft - 100
   const clampedLeft = Math.min(Math.max(8, rawLeft), window.innerWidth - 336)
   // Position above the combined chrome (menu bar + transport bar)
@@ -2532,6 +2587,14 @@ interface ArrangeViewProps {
   sessionId: string | null
   height?: number
   transition?: boolean
+  barW: number
+  onZoom: (nextZoom: number) => void
+  zoomX: number
+  trackZoomY: Record<string, number>
+  onExpandTrack: (trackId: string) => void
+  onCollapseTrack: (trackId: string) => void
+  onResetTrackZoom: (trackId: string) => void
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>
 }
 
 // State for arranger drag-over from OS file system
@@ -2542,7 +2605,7 @@ interface FileDragState {
   ghostBar: number
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId, height, transition }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId, height, transition, barW, onZoom, zoomX, trackZoomY, onExpandTrack, onCollapseTrack, onResetTrackZoom, scrollContainerRef }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -2578,16 +2641,22 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     if (!drag || !gridRef.current) return
     const deltaX   = e.clientX - drag.startClientX
     const deltaY   = e.clientY - drag.startClientY
-    const deltaBars = deltaX / BAR_W
+    const deltaBars = deltaX / barW
 
     if (drag.mode === 'move') {
       // Subtract barOffset so the clip stays anchored to the grab point, not its leading edge
       const previewBar = Math.max(0, snapBar(drag.startBar + deltaBars - drag.barOffset))
 
-      // Which track is the mouse over?
+      // Which track is the mouse over? Accumulate variable-height track rows.
       const gridRect   = gridRef.current.getBoundingClientRect()
       const relY       = e.clientY - gridRect.top - RULER_H + gridRef.current.scrollTop
-      const rowIdx     = Math.floor(relY / TRACK_H)
+      let accumulated  = 0
+      let rowIdx       = tracks.length - 1
+      for (let ri = 0; ri < tracks.length; ri++) {
+        const tH = TRACK_H * (trackZoomY[tracks[ri].id] ?? 1.0)
+        if (relY < accumulated + tH) { rowIdx = ri; break }
+        accumulated += tH
+      }
       const targetTrack = tracks[clamp(rowIdx, 0, tracks.length - 1)]
       const sourceTrack = tracks.find(t => t.id === drag.sourceTrackId)!
       const valid       = targetTrack ? (targetTrack.type === sourceTrack.type || targetTrack.id === drag.sourceTrackId) : false
@@ -2942,14 +3011,19 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
   }
 
   // Determines which track row a clientY falls on within the arranger grid.
-  // Returns null if outside all track rows (e.g., ruler area, below last track).
+  // Accounts for per-track variable heights from trackZoomY.
   function trackAtClientY(clientY: number): Track | null {
     if (!gridRef.current) return null
     const rect = gridRef.current.getBoundingClientRect()
     const relY = clientY - rect.top - RULER_H + gridRef.current.scrollTop
     if (relY < 0) return null  // in the ruler
-    const idx = Math.floor(relY / TRACK_H)
-    return tracks[idx] ?? null
+    let accumulated = 0
+    for (const track of tracks) {
+      const tH = TRACK_H * (trackZoomY[track.id] ?? 1.0)
+      if (relY < accumulated + tH) return track
+      accumulated += tH
+    }
+    return null
   }
 
   // ── File drag-over handlers ───────────────────────────────────────────────────
@@ -3001,7 +3075,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     const targetTrack = trackAtClientY(e.clientY)
     const gridRect    = gridRef.current?.getBoundingClientRect()
     const scrollLeft  = gridRef.current?.scrollLeft ?? 0
-    const ghostBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft) : 0
+    const ghostBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft, barW) : 0
 
     setFileDrag({ variant, ghostTrackId: targetTrack?.id ?? null, ghostBar })
   }
@@ -3050,7 +3124,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
 
     const gridRect   = gridRef.current?.getBoundingClientRect()
     const scrollLeft = gridRef.current?.scrollLeft ?? 0
-    const dropBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft) : 0
+    const dropBar    = gridRect ? snapToWholeBars(e.clientX, gridRect.left, scrollLeft, barW) : 0
 
     startAudioImport(file, targetTrack.id, dropBar)
   }
@@ -3141,6 +3215,25 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     ? `${C.danger}55`
     : `${C.accent}55`
 
+  // Ctrl/Cmd + scroll wheel = horizontal zoom; must be { passive: false } to call preventDefault
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent) {
+      const isMod = e.metaKey || e.ctrlKey
+      if (!isMod) return
+      e.preventDefault()
+      const delta = e.deltaY < 0 ? 0.25 : -0.25
+      // Anchor to cursor x position within arranger (spec §3 scroll-wheel anchor)
+      const rect    = el!.getBoundingClientRect()
+      const cursorX = e.clientX - rect.left + el!.scrollLeft
+      const anchorBar = cursorX / barW
+      onZoom(zoomX + delta, anchorBar)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [barW, zoomX, onZoom])
+
   return (
     <div
       className="flex flex-col overflow-hidden"
@@ -3186,6 +3279,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
             <div className="flex-shrink-0 border-b" style={{ height: RULER_H, background: C.surface, borderColor: C.border }} />
             <div className="overflow-y-auto overflow-x-hidden flex-1">
               {tracks.map(t => {
+                const tH = TRACK_H * (trackZoomY[t.id] ?? 1.0)
+                const tZoom = trackZoomY[t.id] ?? 1.0
                 const trackComments = comments.filter(c => c.anchor.anchorType === 'track' && c.anchor.trackId === t.id && c.status === 'open')
                 const firstTrackComment = trackComments[0]
                 const firstTrackCommentColor = firstTrackComment
@@ -3198,6 +3293,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                     selected={selectedTrackId === t.id}
                     isViewer={isViewer}
                     highlighted={highlightTrackId === t.id}
+                    trackH={tH}
+                    trackZoomY={tZoom}
                     onSelect={() => onSelectTrack?.(t.id)}
                     onToggleMute={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, muted: !tr.muted }))}
                     onToggleSolo={() => setTracks(prev => prev.map(tr => tr.id !== t.id ? tr : { ...tr, soloed: !tr.soloed }))}
@@ -3208,6 +3305,9 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                     firstCommentId={firstTrackComment?.id}
                     firstCommentColor={firstTrackCommentColor}
                     onOpenThread={onOpenThread}
+                    onExpand={() => onExpandTrack(t.id)}
+                    onCollapse={() => onCollapseTrack(t.id)}
+                    onResetVerticalZoom={() => onResetTrackZoom(t.id)}
                   />
                 )
               })}
@@ -3245,9 +3345,9 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
             message={importToast?.message ?? ''}
             variant={importToast?.variant ?? 'error'}
           />
-        <div ref={gridRef} className="flex-1 overflow-auto" style={{ background: C.bg, cursor: gridCursor, height: '100%' }}
+        <div ref={el => { (gridRef as React.MutableRefObject<HTMLDivElement | null>).current = el; if (scrollContainerRef) (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el }} className="flex-1 overflow-auto" style={{ background: C.bg, cursor: gridCursor, height: '100%' }}
           onMouseDown={() => setCtxMenu(null)}>
-          <div style={{ minWidth: BARS * BAR_W, position: 'relative' }}>
+          <div style={{ minWidth: BARS * barW, position: 'relative' }}>
             {/* Loop region overlay — spans full scroll height (ruler + all tracks).
                 zIndex: 1 keeps it below comment anchor pins (zIndex: 10) and playhead (zIndex: 30) */}
             {loopStart !== null && loopEnd !== null && (
@@ -3256,8 +3356,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                 style={{
                   position: 'absolute',
                   top: 0,
-                  left: loopStart * BAR_W,
-                  width: (loopEnd - loopStart) * BAR_W,
+                  left: loopStart * barW,
+                  width: (loopEnd - loopStart) * barW,
                   height: '100%',
                   background: `${C.accent}2E`,
                   borderTop: `1px solid ${C.accent}`,
@@ -3269,25 +3369,62 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
               />
             )}
             {/* Ruler — click to seek */}
-            <div className="flex sticky top-0 z-10 border-b select-none" style={{ height: RULER_H, background: C.surface, borderColor: C.border, cursor: 'pointer' }}
+            <div className="flex sticky top-0 z-10 border-b select-none" style={{ height: RULER_H, background: C.surface, borderColor: C.border, cursor: 'pointer', position: 'relative' }}
               onMouseDown={e => {
                 if (!gridRef.current) return
                 const rect = gridRef.current.getBoundingClientRect()
-                const seek = (e.clientX - rect.left + gridRef.current.scrollLeft) / BAR_W
+                const seek = (e.clientX - rect.left + gridRef.current.scrollLeft) / barW
                 setPlayheadBar(clamp(seek, 0, BARS))
-                const onMove = (me: MouseEvent) => setPlayheadBar(clamp((me.clientX - rect.left + gridRef.current!.scrollLeft) / BAR_W, 0, BARS))
+                const onMove = (me: MouseEvent) => setPlayheadBar(clamp((me.clientX - rect.left + gridRef.current!.scrollLeft) / barW, 0, BARS))
                 const onUp   = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
                 window.addEventListener('mousemove', onMove)
                 window.addEventListener('mouseup', onUp)
               }}>
-              {Array.from({ length: BARS }).map((_, i) => (
-                <div key={i} className="flex-shrink-0 flex items-center border-r" style={{ width: BAR_W, borderColor: C.border }}>
-                  <span className="text-xs pl-1.5"
-                    style={{ color: i % 4 === 0 ? C.textSec : C.metalMid, fontWeight: i % 4 === 0 ? 600 : 400 }}>
-                    {i + 1}
-                  </span>
-                </div>
-              ))}
+              {Array.from({ length: BARS }).map((_, i) => {
+                // Label suppression: when barW < 36px, only show even-numbered bars (0-indexed: i % 2 === 0)
+                const showLabel = barW >= 36 || i % 2 === 0
+                return (
+                  <div key={i} className="flex-shrink-0 flex items-center border-r" style={{ width: barW, borderColor: C.border, position: 'relative', overflow: 'visible' }}>
+                    {showLabel && (
+                      <span className="text-xs pl-1.5"
+                        style={{ color: i % 4 === 0 ? C.textSec : C.metalMid, fontWeight: i % 4 === 0 ? 600 : 400, pointerEvents: 'none' }}>
+                        {i + 1}
+                      </span>
+                    )}
+                    {/* Quarter-note subdivision ticks — only when barW >= 144px (zoomX >= 2.0) */}
+                    {barW >= 144 && [1, 2, 3].map(beat => (
+                      <div key={beat} className="absolute pointer-events-none"
+                        style={{
+                          left: (beat / 4) * barW,
+                          top: '30%',
+                          bottom: 0,
+                          width: 1,
+                          background: C.textSec,
+                          opacity: 0.4,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
+              {/* Zoom level indicator — absolutely positioned right side of ruler */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: C.textSec,
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  zIndex: 5,
+                }}
+              >
+                {Math.round(zoomX * 100)}%
+              </div>
               {/* Deep link bar highlight flash — positioned absolute within the flex ruler */}
               {highlightBar !== null && (
                 <div
@@ -3295,8 +3432,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   style={{
                     position: 'absolute',
                     top: 0,
-                    left: highlightBar * BAR_W,
-                    width: BAR_W,
+                    left: highlightBar * barW,
+                    width: barW,
                     height: RULER_H,
                     background: C.accent,
                     opacity: 0.6,
@@ -3336,8 +3473,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                           style={{
                             position: 'absolute',
                             bottom: 0,
-                            left: (c.anchor.startBar ?? 0) * BAR_W,
-                            width: ((c.anchor.endBar ?? 0) - (c.anchor.startBar ?? 0)) * BAR_W,
+                            left: (c.anchor.startBar ?? 0) * barW,
+                            width: ((c.anchor.endBar ?? 0) - (c.anchor.startBar ?? 0)) * barW,
                             height: 2,
                             background: rangeColor,
                             opacity: 0.4,
@@ -3362,7 +3499,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                       style={{
                         position: 'absolute',
                         bottom: 0,
-                        left: bar * BAR_W,
+                        left: bar * barW,
                         width: 8,
                         height: 10,
                         cursor: 'pointer',
@@ -3407,6 +3544,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
 
             {/* Track rows */}
             {tracks.map((track, rowIdx) => {
+              const trackH       = TRACK_H * (trackZoomY[track.id] ?? 1.0)
               const dragIsHere   = drag?.mode === 'move' && drag.targetTrackId === track.id && drag.sourceTrackId !== track.id && drag.valid
               const dragClipData = dragIsHere && drag ? tracks.find(t => t.id === drag.sourceTrackId)?.clips.find(c => c.id === drag.clipId) : null
               // Find any presence entry whose activeTrackId matches this row
@@ -3415,7 +3553,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
               return (
                 <div key={track.id} className="flex relative border-b"
                   style={{
-                    height: TRACK_H, borderColor: C.well,
+                    height: trackH, borderColor: C.well,
                     background: track.armed && isRecording
                       ? `linear-gradient(90deg, ${C.danger}18 0%, ${rowIdx % 2 === 0 ? C.surface : C.bg} 200px)`
                       : rowIdx % 2 === 0 ? C.surface : C.bg,
@@ -3425,7 +3563,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   {/* Bar cells */}
                   {Array.from({ length: BARS }).map((_, i) => (
                     <div key={i} className="flex-shrink-0 border-r transition-colors relative"
-                      style={{ width: BAR_W, borderColor: i % 4 === 3 ? C.border : C.well,
+                      style={{ width: barW, borderColor: i % 4 === 3 ? C.border : C.well,
                         background: i % 4 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent',
                         cursor: tool === 'cut' ? 'crosshair' : 'default' }}>
                       {[0.25, 0.5, 0.75].map(frac => (
@@ -3448,6 +3586,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                             isGhost={isGhost}
                             selected={selectedClipId === clip.id}
                             highlighted={highlightClipId === clip.id}
+                            barW={barW}
+                            trackH={trackH}
                             onDragStart={startDrag}
                             onContextMenu={openCtxMenu}
                             onCut={cutClip}
@@ -3480,8 +3620,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                       const overlapBars = (clipA.bar + clipA.len) - clipB.bar
                       if (overlapBars <= 0) return []
                       // Center of the crossfade zone in pixels
-                      const overlapStartPx = clipB.bar * BAR_W
-                      const overlapEndPx   = (clipA.bar + clipA.len) * BAR_W
+                      const overlapStartPx = clipB.bar * barW
+                      const overlapEndPx   = (clipA.bar + clipA.len) * barW
                       const centerX = (overlapStartPx + overlapEndPx) / 2
                       const isLocked = clipA.crossfadeLocked
                       return [(
@@ -3527,7 +3667,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                   {/* Ghost clip on cross-track drag target */}
                   {dragIsHere && drag && dragClipData && (
                     <div className="absolute top-1.5 bottom-1.5 rounded pointer-events-none"
-                      style={{ left: drag.previewBar * BAR_W + 2, width: dragClipData.len * BAR_W - 4,
+                      style={{ left: drag.previewBar * barW + 2, width: dragClipData.len * barW - 4,
                         border: `2px dashed ${track.type === tracks.find(t => t.id === drag.sourceTrackId)?.type ? C.success : C.danger}`,
                         background: drag.valid ? `${C.success}12` : `${C.danger}12`, zIndex: 15 }} />
                   )}
@@ -3552,8 +3692,8 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
                       className="absolute rounded pointer-events-none"
                       style={{
                         top: 6, bottom: 6,
-                        left: fileDrag.ghostBar * BAR_W + 2,
-                        width: BAR_W - 4,
+                        left: fileDrag.ghostBar * barW + 2,
+                        width: barW - 4,
                         background: `${track.owner.color}18`,
                         border: `1.5px dashed ${track.owner.color}88`,
                         zIndex: 36,
@@ -3565,7 +3705,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
             })}
 
             {/* ── Playhead ─────────────────────────────────────────────────── */}
-            <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: playheadBar * BAR_W, zIndex: 30, width: 0 }}>
+            <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: playheadBar * barW, zIndex: 30, width: 0 }}>
               {/* Triangle head on ruler */}
               <div className="sticky top-0" style={{ height: RULER_H, width: 0 }}>
                 <svg width="13" height="11" style={{ position: 'absolute', top: 5, left: -6, filter: `drop-shadow(0 0 3px ${C.accent})` }}>
@@ -3585,7 +3725,7 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
               const initial = entry.displayName[0]?.toUpperCase() ?? '?'
               return (
                 <div key={entry.userId} className="absolute top-0 bottom-0 pointer-events-none"
-                  style={{ left: entry.playheadBar * BAR_W, zIndex: 25, width: 0 }}>
+                  style={{ left: entry.playheadBar * barW, zIndex: 25, width: 0 }}>
                   {/* Avatar chip at top */}
                   <div className="sticky top-0" style={{ height: RULER_H, width: 0 }}>
                     <div
@@ -5118,6 +5258,9 @@ interface MenuBarProps {
   onDeleteClip: () => void
   onDuplicateClip: () => void
   onCutClip: () => void
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onResetZoom: () => void
 }
 
 const MENU_NAMES = ['File', 'Edit', 'Session', 'View', 'Transport', 'Help'] as const
@@ -5133,6 +5276,7 @@ const MenuBar = ({
   onImportAudio, onLeaveSession, onCopySessionLink, onEnterSession,
   bpmInputRef,
   onDeleteClip, onDuplicateClip, onCutClip,
+  onZoomIn, onZoomOut, onResetZoom,
 }: MenuBarProps) => {
   const [openMenu, setOpenMenu]       = useState<MenuName | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -5266,9 +5410,9 @@ const MenuBar = ({
             />
             <Item label={chatLabel} onClick={() => setChatOpen(v => !v)} />
             <Sep />
-            <Item label="Zoom In" shortcut="⌘+" stub />
-            <Item label="Zoom Out" shortcut="⌘–" stub />
-            <Item label="Reset Zoom" shortcut="⌘0" stub />
+            <Item label="Zoom In" shortcut="=" onClick={onZoomIn} />
+            <Item label="Zoom Out" shortcut="–" onClick={onZoomOut} />
+            <Item label="Reset Zoom" shortcut="0" onClick={onResetZoom} />
           </>
         )
       }
@@ -5817,6 +5961,11 @@ export default function App() {
   // Whether the splitter is in its 200ms reset transition
   const [splitterTransition, setSplitterTransition] = useState(false)
   const [fxSplitterTransition, setFxSplitterTransition] = useState(false)
+  // ── Zoom state (FR-02) ────────────────────────────────────────────────────
+  const [zoomX, setZoomX]           = useState<number>(1.0)
+  const [trackZoomY, setTrackZoomY] = useState<Record<string, number>>({})
+  // Derived — never stored in state
+  const barW = BAR_W * zoomX
   const lastChatOpenedAt                = useRef<number>(Date.now())
   const bpmInputRef = useRef<HTMLInputElement>(null)
   const rafRef        = useRef<number | null>(null)
@@ -6255,6 +6404,11 @@ export default function App() {
       if (e.key === 'v' || e.key === 'V') { setTool('select'); return }
       if (e.key === 'c' || e.key === 'C') { setTool('cut'); return }
 
+      // Zoom shortcuts — unmodified (Ableton-style, browser-safe)
+      if (e.key === '=' && !e.metaKey && !e.ctrlKey && !e.altKey) { onZoom(zoomX + 0.25); return }
+      if (e.key === '-' && !e.metaKey && !e.ctrlKey && !e.altKey) { onZoom(zoomX - 0.25); return }
+      if (e.key === '0' && !e.metaKey && !e.ctrlKey && !e.altKey) { onZoom(1.0); return }
+
       // ? key — open keyboard shortcuts modal
       if (e.key === '?') {
         // Guard: skip if focus is inside menu bar (Space guard per spec §12)
@@ -6291,10 +6445,55 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [setTracks, sessionId])
+  }, [setTracks, sessionId, zoomX, onZoom])
 
   function handleSelectTrack(id: string) {
     setSelectedTrackId(prev => prev === id ? null : id)
+  }
+
+  // ── Zoom handlers (FR-02) ─────────────────────────────────────────────────
+  // arrangerScrollRef is gridRef inside ArrangeView; the scroll anchor is applied
+  // via requestAnimationFrame after state update so the DOM has time to resize.
+  const arrangerScrollRef = useRef<HTMLDivElement | null>(null)
+
+  // anchorBarOverride: when provided (scroll-wheel), keeps that bar position fixed at its
+  // current screen x. When absent (keyboard), centers on playhead (or viewport center).
+  const onZoom = useCallback((nextZoom: number, anchorBarOverride?: number) => {
+    const clamped  = clamp(nextZoom, 0.25, 4.0)
+    const nextBarW = BAR_W * clamped
+    const prevBarW = BAR_W * zoomX  // captured from closure
+    setZoomX(clamped)
+    requestAnimationFrame(() => {
+      const el = arrangerScrollRef.current
+      if (!el) return
+      const viewportW   = el.clientWidth
+      const prevScrollL = el.scrollLeft
+      if (anchorBarOverride !== undefined) {
+        // Scroll-wheel anchor: keep the cursor bar at the same screen x
+        const cursorScreenX = anchorBarOverride * prevBarW - prevScrollL
+        el.scrollLeft = Math.max(0, anchorBarOverride * nextBarW - cursorScreenX)
+      } else {
+        // Keyboard anchor: center on playhead, fall back to viewport center
+        const playheadPx = playheadBarRef.current * prevBarW
+        const isVisible  = playheadPx >= prevScrollL && playheadPx <= prevScrollL + viewportW
+        const anchorBar  = isVisible
+          ? playheadBarRef.current
+          : (prevScrollL + viewportW / 2) / prevBarW
+        el.scrollLeft = Math.max(0, anchorBar * nextBarW - viewportW / 2)
+      }
+    })
+  }, [zoomX])
+
+  function handleExpandTrack(trackId: string) {
+    setTrackZoomY(prev => ({ ...prev, [trackId]: Math.min(3.0, (prev[trackId] ?? 1.0) + 0.25) }))
+  }
+
+  function handleCollapseTrack(trackId: string) {
+    setTrackZoomY(prev => ({ ...prev, [trackId]: Math.max(0.5, (prev[trackId] ?? 1.0) - 0.25) }))
+  }
+
+  function handleResetTrackZoom(trackId: string) {
+    setTrackZoomY(prev => ({ ...prev, [trackId]: 1.0 }))
   }
 
   const selectedTrack = tracks.find(t => t.id === selectedTrackId) ?? null
@@ -6594,6 +6793,9 @@ export default function App() {
         onDeleteClip={handleDeleteSelectedClip}
         onDuplicateClip={handleDuplicateSelectedClip}
         onCutClip={handleCutSelectedClip}
+        onZoomIn={() => onZoom(zoomX + 0.25)}
+        onZoomOut={() => onZoom(zoomX - 0.25)}
+        onResetZoom={() => onZoom(1.0)}
       />
       <TransportBar
         isRecording={isRecording} setIsRecording={setIsRecording}
@@ -6628,6 +6830,14 @@ export default function App() {
             sessionId={sessionId}
             height={arrangerH}
             transition={splitterTransition}
+            barW={barW}
+            onZoom={onZoom}
+            zoomX={zoomX}
+            trackZoomY={trackZoomY}
+            onExpandTrack={handleExpandTrack}
+            onCollapseTrack={handleCollapseTrack}
+            onResetTrackZoom={handleResetTrackZoom}
+            scrollContainerRef={arrangerScrollRef}
           />
           {showMixer && (
             <>
@@ -6796,6 +7006,7 @@ export default function App() {
             comment={thread}
             tracks={tracks}
             isViewer={isViewer}
+            barW={barW}
             onClose={() => setOpenThreadId(null)}
             onResolve={handleResolveComment}
             onReopen={handleReopenComment}
