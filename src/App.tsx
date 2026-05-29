@@ -6381,6 +6381,39 @@ export default function App() {
     }
   }, [playing, pluginChains])
 
+  // ── Zoom handlers (FR-02) ─────────────────────────────────────────────────
+  // arrangerScrollRef is gridRef inside ArrangeView; the scroll anchor is applied
+  // via requestAnimationFrame after state update so the DOM has time to resize.
+  const arrangerScrollRef = useRef<HTMLDivElement | null>(null)
+
+  // anchorBarOverride: when provided (scroll-wheel), keeps that bar position fixed at its
+  // current screen x. When absent (keyboard), centers on playhead (or viewport center).
+  const onZoom = useCallback((nextZoom: number, anchorBarOverride?: number) => {
+    const clamped  = clamp(nextZoom, 0.25, 4.0)
+    const nextBarW = BAR_W * clamped
+    const prevBarW = BAR_W * zoomX  // captured from closure
+    setZoomX(clamped)
+    requestAnimationFrame(() => {
+      const el = arrangerScrollRef.current
+      if (!el) return
+      const viewportW   = el.clientWidth
+      const prevScrollL = el.scrollLeft
+      if (anchorBarOverride !== undefined) {
+        // Scroll-wheel anchor: keep the cursor bar at the same screen x
+        const cursorScreenX = anchorBarOverride * prevBarW - prevScrollL
+        el.scrollLeft = Math.max(0, anchorBarOverride * nextBarW - cursorScreenX)
+      } else {
+        // Keyboard anchor: center on playhead, fall back to viewport center
+        const playheadPx = playheadBarRef.current * prevBarW
+        const isVisible  = playheadPx >= prevScrollL && playheadPx <= prevScrollL + viewportW
+        const anchorBar  = isVisible
+          ? playheadBarRef.current
+          : (prevScrollL + viewportW / 2) / prevBarW
+        el.scrollLeft = Math.max(0, anchorBar * nextBarW - viewportW / 2)
+      }
+    })
+  }, [zoomX])
+
   // Global keyboard shortcuts — skip when focus is in a text input or lobby is showing
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -6450,39 +6483,6 @@ export default function App() {
   function handleSelectTrack(id: string) {
     setSelectedTrackId(prev => prev === id ? null : id)
   }
-
-  // ── Zoom handlers (FR-02) ─────────────────────────────────────────────────
-  // arrangerScrollRef is gridRef inside ArrangeView; the scroll anchor is applied
-  // via requestAnimationFrame after state update so the DOM has time to resize.
-  const arrangerScrollRef = useRef<HTMLDivElement | null>(null)
-
-  // anchorBarOverride: when provided (scroll-wheel), keeps that bar position fixed at its
-  // current screen x. When absent (keyboard), centers on playhead (or viewport center).
-  const onZoom = useCallback((nextZoom: number, anchorBarOverride?: number) => {
-    const clamped  = clamp(nextZoom, 0.25, 4.0)
-    const nextBarW = BAR_W * clamped
-    const prevBarW = BAR_W * zoomX  // captured from closure
-    setZoomX(clamped)
-    requestAnimationFrame(() => {
-      const el = arrangerScrollRef.current
-      if (!el) return
-      const viewportW   = el.clientWidth
-      const prevScrollL = el.scrollLeft
-      if (anchorBarOverride !== undefined) {
-        // Scroll-wheel anchor: keep the cursor bar at the same screen x
-        const cursorScreenX = anchorBarOverride * prevBarW - prevScrollL
-        el.scrollLeft = Math.max(0, anchorBarOverride * nextBarW - cursorScreenX)
-      } else {
-        // Keyboard anchor: center on playhead, fall back to viewport center
-        const playheadPx = playheadBarRef.current * prevBarW
-        const isVisible  = playheadPx >= prevScrollL && playheadPx <= prevScrollL + viewportW
-        const anchorBar  = isVisible
-          ? playheadBarRef.current
-          : (prevScrollL + viewportW / 2) / prevBarW
-        el.scrollLeft = Math.max(0, anchorBar * nextBarW - viewportW / 2)
-      }
-    })
-  }, [zoomX])
 
   function handleExpandTrack(trackId: string) {
     setTrackZoomY(prev => ({ ...prev, [trackId]: Math.min(3.0, (prev[trackId] ?? 1.0) + 0.25) }))
