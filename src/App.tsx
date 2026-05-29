@@ -5411,7 +5411,7 @@ const MenuBar = ({
             <Item label={chatLabel} onClick={() => setChatOpen(v => !v)} />
             <Sep />
             <Item label="Zoom In" shortcut="=" onClick={onZoomIn} />
-            <Item label="Zoom Out" shortcut="–" onClick={onZoomOut} />
+            <Item label="Zoom Out" shortcut="-" onClick={onZoomOut} />
             <Item label="Reset Zoom" shortcut="0" onClick={onResetZoom} />
           </>
         )
@@ -5950,14 +5950,14 @@ export default function App() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   // ── Resizable panel state (FR-01) ─────────────────────────────────────────
   const defaultArrangerH = useMemo(
-    () => Math.floor((window.innerHeight - TRANSPORT_H - STATUS_BAR_H) * 0.60),
+    () => Math.floor((window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H) * 0.60),
     [],
   )
   const [arrangerH, setArrangerH] = useState<number>(defaultArrangerH)
   const [fxPanelW,  setFxPanelW]  = useState<number>(280)
   // mixerH is always derived — never stored:
-  const mixerH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - SPLITTER_H - arrangerH
-  const maxArrangerH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
+  const mixerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H - SPLITTER_H - arrangerH
+  const maxArrangerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
   // Whether the splitter is in its 200ms reset transition
   const [splitterTransition, setSplitterTransition] = useState(false)
   const [fxSplitterTransition, setFxSplitterTransition] = useState(false)
@@ -6640,7 +6640,7 @@ export default function App() {
     e.currentTarget.setPointerCapture(e.pointerId)
     const startY = e.clientY
     const startH = arrangerH
-    const dragMaxH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
+    const dragMaxH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
 
     const onMove = (ev: PointerEvent) => {
       const next = Math.max(MIN_ARRANGER_H, Math.min(dragMaxH, startH + (ev.clientY - startY)))
