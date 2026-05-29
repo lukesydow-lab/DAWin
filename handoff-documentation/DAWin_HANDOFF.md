@@ -1,14 +1,14 @@
 # DAWin — Project Handoff Document
 
 **Status: Current**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 9 — Planning
+> **Sprint:** 10 — Planning
 
-> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 is PLANNING — scope not yet defined by PM.
-> **Do not treat any prior sprint items as open.** Sprint 8 shipped: session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode`.
+> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 is PLANNING — scope not yet defined by PM.
+> **Do not treat any prior sprint items as open.** Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008.
 
 ---
 
@@ -66,14 +66,18 @@ A desktop-first collaborative DAW where musicians share a live session in real t
 ├── docs/
 │   ├── adr/
 │   │   ├── ADR-001-dsp-locality.md      # Accepted: DSP runs in browser via Web Audio API
-│   │   ├── ADR-002-backend-scaffold.md  # Accepted: Fastify + in-memory store for prototype
-│   │   └── ADR-003-comment-anchor-model.md  # Accepted: unified CommentAnchor model (Sprint 3)
+│   │   ├── ADR-003-comment-anchor-model.md  # Accepted: unified CommentAnchor model (Sprint 3)
+│   │   ├── ADR-004-database-schema.md   # Accepted: PostgreSQL + Prisma schema (Sprint 5)
+│   │   ├── ADR-005-session-hydration.md # Accepted: session snapshot hydration strategy (Sprint 5)
+│   │   ├── ADR-006-server-side-peak-generation.md  # Accepted: server-side waveform peaks (Sprint 7)
+│   │   ├── ADR-007-audio-buffer-playback.md  # Accepted: real AudioBuffer playback (Sprint 8)
+│   │   └── ADR-008-zoom-state-architecture.md  # Accepted: barW prop drilling for zoom (Sprint 9)
 │   ├── specs/
 │   │   ├── PRD.md                       # Product Requirements Document v1.1
 │   │   ├── ROADMAP.md                   # Sprint-by-sprint roadmap v1.1
 │   │   ├── session-communication.md     # FR-06 spec (Sprint 3 — implemented)
-│   │   ├── resizable-workspace-panels.md # FR-01 spec (Sprint 4 — pending)
-│   │   ├── arranger-zoom.md             # FR-02 spec (Sprint 4 — pending; §Interaction Model TBD)
+│   │   ├── resizable-workspace-panels.md # FR-01 spec (Sprint 9 — implemented)
+│   │   ├── arranger-zoom.md             # FR-02 spec (Sprint 9 — implemented)
 │   │   └── [other specs...]
 │   ├── handoffs/                        # Agent → Tech Lead review requests
 │   └── defects.md                       # UAT defect register
@@ -146,7 +150,7 @@ TRANSPORT_H  = 52    // transport bar height
 STATUS_BAR_H = 28    // status bar height
 ```
 
-Sprint 4 will add: `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`, `SPLITTER_H=4`, `SPLITTER_W=4`. Zoom will derive `barW = BAR_W * zoomX`.
+Sprint 9 added: `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`, `SPLITTER_H=4`, `SPLITTER_W=4`. Zoom derives `barW = BAR_W * zoomX` — `BAR_W` constant declaration is the only remaining reference to `BAR_W` in `src/App.tsx`.
 
 ### Design tokens (the `C` object — never hardcode hex values)
 
@@ -200,8 +204,8 @@ Each collaborator's hex color appears on: track header accent bar + background t
 | Deep links | ✅ Complete | `?t=&track=&clip=&range=` URL format, highlight-on-navigate (Sprint 3) |
 | Invite flow modal | ✅ Complete | Role picker, email input |
 | Mix view (shared fader, mute/solo, plugin chain) | ⚠️ Partial | Plugin chain audibly wired; plugin parameter editing not implemented |
-| Resizable panels | ❌ Not started | Sprint 4 FR-01 — spec at `docs/specs/resizable-workspace-panels.md` |
-| Timeline zoom | ❌ Not started | Sprint 4 FR-02 — spec at `docs/specs/arranger-zoom.md` |
+| Resizable panels | ✅ Complete | Sprint 9 FR-01 — arranger/mixer + FX panel splitters, full ARIA, keyboard nav |
+| Timeline zoom | ✅ Complete | Sprint 9 FR-02 — `barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom |
 | Mobile capture | ❌ Not started | Intentionally deferred — desktop-first |
 
 ### Session room capabilities (what works today)
@@ -380,7 +384,7 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 **Remote:** https://github.com/lukesydow-lab/DAWin  
 **CI:** GitHub Actions — typecheck + Vite build on push/PR to `main`  
-**Milestones:** Sprint 1 (closed), Sprint 2 (closed), Sprint 3 (closed), Sprint 4 (open)  
+**Milestones:** Sprint 1 (closed), Sprint 2 (closed), Sprint 3 (closed), Sprint 4 (closed), Sprint 5 (closed), Sprint 6 (closed), Sprint 7 (closed), Sprint 8 (closed), Sprint 9 (closed), Sprint 10 (open — planning)  
 **Labels:** `type:feature-request`, `status:triage`, `sprint:1–4`, `type:open-decision`, `priority:p0–p3`, `component:frontend/backend/design`, `type:bug/chore`
 
 ---
@@ -410,14 +414,12 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - Deep links: `copyDeepLink()`, `?t=&track=&clip=` URL parsing on mount, playhead seek + highlight states, 1500ms auto-clear, chain-link icon in TransportBar, right-click on track header
 - Comment UI: Ruler anchor pins (SVG chevrons, author-colored, count badges, timeRange bars), track header pins, `ThreadPopover`, chat panel, unread count badge on icon rail, WS-driven state updates
 
-### What is not yet implemented (Sprint 9+ targets)
+### What is not yet implemented (Sprint 10+ targets)
 
-- **In-browser audio recording (`getUserMedia`):** Sprint 9 candidate. Requires backend blob storage + recording pipeline. No spec written.
-- **Resizable panels (FR-01):** Arranger/mixer height splitter + FX panel width splitter. Spec at `docs/specs/resizable-workspace-panels.md`. Deferred from Sprint 4; not yet implemented.
-- **Horizontal timeline zoom (FR-02):** `zoomX` state, `barW = BAR_W * zoomX`. `BAR_W` is still hardcoded at ~13 arranger sites. Spec at `docs/specs/arranger-zoom.md`. Deferred from Sprint 4; not yet implemented.
-- **Per-track vertical zoom:** `trackZoomY` record, `getTrackH()` derived value. Not yet implemented.
+- **In-browser audio recording (`getUserMedia`):** Sprint 10 candidate. Requires backend blob storage + recording pipeline. No spec written.
+- **localStorage persistence for panel sizes:** Explicitly deferred from Sprint 9 per FR-01 spec; requires a Tech Lead ADR before implementation.
 - **Plugin parameter editing:** Plugin cards display params as read-only amber LCD text; no inline editing. PM decision on UX pattern required.
-- **Undo/redo:** Stub items in Edit menu are non-interactive. Requires operational transforms. Sprint 9+ at earliest.
+- **Undo/redo:** Stub items in Edit menu are non-interactive. Requires operational transforms. Sprint 10+ at earliest.
 
 ### What is a stub or not started
 
@@ -492,15 +494,28 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - **8-D (Frontend):** Defect fixes (SPRINT-8-001 through 003, 5-I/R3, hardcoded API URL)
 - **8-K (UAT):** Sprint 8 UAT re-verification — PASS (commit `ebbbb4d`)
 
-## 11d. Sprint 9 — PLANNING
+## 11d. Sprint 9 — CLOSED ✅ (2026-05-29)
+
+**Goal:** Workspace Control — give engineers control over screen real estate and timeline density.
+
+**UAT:** PASS — zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close.
+
+**What shipped:**
+- **FR-01 Resizable workspace panels** — arranger/mixer vertical splitter + FX panel horizontal splitter; pointer-event drag with `setPointerCapture`; double-click reset (200ms ease); keyboard navigation (Arrow ±8px, Home/End, Enter/Space); full ARIA; constants `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`
+- **FR-02 Arranger timeline zoom** — `barW = BAR_W * zoomX` prop drilling throughout arranger; keyboard shortcuts `=`/`-`/`0`; Ctrl/Cmd+scroll wheel zoom; playhead-anchor (keyboard) and cursor-anchor (scroll wheel); zoom level `%` indicator in ruler; ruler tick density at zoom thresholds; per-track vertical zoom (`trackZoomY`) via chevron buttons `[0.5×, 3.0×]`; View menu Zoom In/Out/Reset now active
+- **ADR-008** — Zoom state architecture (prop drilling decision for `barW`)
+- SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px)
+- SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus
+
+## 11e. Sprint 10 — PLANNING
 
 **Goal:** TBD — PM to define scope.
 
-Sprint 9 scope has not been set. No work orders have been issued. Candidates (not committed):
+Sprint 10 scope has not been set. No work orders have been issued. Candidates (not committed):
 - In-browser audio recording (`getUserMedia` → R2)
 - Plugin parameter editing UI (PM decision on UX pattern required first)
-- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
-- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
+- Desktop framework choice (Electron vs. Tauri)
+- Mobile capture screen
 
 ---
 
@@ -508,9 +523,8 @@ Sprint 9 scope has not been set. No work orders have been issued. Candidates (no
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| Sprint 9 scope not defined | All Sprint 9 agents | PM defines sprint goal and issues work orders |
-| §Interaction Model empty in `docs/specs/arranger-zoom.md` | Frontend (zoom feature, deferred) | Designer fills keyboard shortcuts + scroll-to-zoom behavior when zoom sprint is scheduled |
-| `BAR_W` hardcoded in ~13 arranger sites | FR-02 zoom work (deferred) | Must be abstracted to `barW = BAR_W * zoomX` — not blocking until FR-02 is scheduled |
+| Sprint 10 scope not defined | All Sprint 10 agents | PM defines sprint goal and issues work orders |
+| localStorage persistence for panel sizes — no ADR yet | FR-01 follow-on (panel size persistence) | Tech Lead writes ADR before implementation |
 
 ---
 
@@ -518,15 +532,13 @@ Sprint 9 scope has not been set. No work orders have been issued. Candidates (no
 
 ### For PM
 
-1. **Sprint 9 scope** — What is the next sprint goal? Candidates: in-browser recording, plugin param editing, resizable panels, timeline zoom. PM must define before any Sprint 9 work order is issued.
+1. **Sprint 10 scope** — What is the next sprint goal? Candidates: in-browser audio recording (`getUserMedia`), plugin param editing, desktop framework choice, mobile capture. PM must define before any Sprint 10 work order is issued.
 2. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
-3. **Resizable panels + zoom sprint scheduling** — FR-01 and FR-02 were deferred from Sprint 4. Which sprint do they land? Must be scheduled before Frontend can pick them up.
 
 ### For Tech Lead
 
-1. **ADR for panels/zoom** — Still needed when FR-01 + FR-02 are scheduled. Panel persistence (localStorage key shape), zoom state scope (global vs. per-view), and BAR_W → barW abstraction. Write ADR before Frontend picks up those tickets.
-2. **Comment pin positions at zoom** — Ruler pins use `startBar * BAR_W` (hardcoded). When FR-02 lands, they need `startBar * barW`. Ensure this is captured in the zoom ticket.
-3. **ADR-002 status** — ADR-002 (in-memory store) is superseded by the Sprint 5/6 persistence work. `PrismaStorageAdapter` is live. Mark ADR-002 Superseded in `docs/adr/`.
+1. **ADR for panel size localStorage persistence** — Deferred from Sprint 9 per FR-01 spec. Write ADR covering localStorage key shape and sync strategy before Frontend picks up that follow-on ticket.
+2. **ADR-002 status** — ADR-002 (in-memory store) is superseded by the Sprint 5/6 persistence work. `PrismaStorageAdapter` is live. Mark ADR-002 Superseded in `docs/adr/README.md`.
 
 ---
 
@@ -549,6 +561,16 @@ Sprint 9 scope has not been set. No work orders have been issued. Candidates (no
 
 ### ADR-005 — Session Hydration Strategy (accepted 2026-05-18)
 **Decision:** On WS join, the server sends `session.snapshot` with `session`, `tracks`, and `clips` fields from the DB. Ephemeral runtime state (transport position, track locks, active presence) is not persisted — it is rebuilt from live WS events. Unknown session IDs receive WS close code 4404. Frontend eliminates hard-coded seed state for track/clip entities; hydrates from snapshot instead.
+
+### ADR-007 — Real Audio Buffer Playback (accepted 2026-05-20)
+**Decision:** `AudioBufferSourceNode` from R2 presigned URLs replaces procedural synthesis for imported clips. `AudioBuffer` cached in memory (1hr TTL). Presigned URL re-fetched on expiry; buffer never re-decoded if cache hit.  
+**Full ADR:** `docs/adr/ADR-007-audio-buffer-playback.md`  
+**Sprint shipped:** Sprint 8
+
+### ADR-008 — Zoom State Architecture (accepted 2026-05-29)
+**Decision:** `zoomX` state lives at App root; `barW = BAR_W * zoomX` is computed at root and passed as a prop to all arranger components. React context was rejected due to the single-file constraint (context threading more complex than prop drilling) and because collaborator zoom is local-only with no need for deep consumption.  
+**Full ADR:** `docs/adr/ADR-008-zoom-state-architecture.md`  
+**Sprint shipped:** Sprint 9
 
 ### ADR-006 — Server-Side Waveform Peak Generation (accepted 2026-05-19)
 **Decision:** The server generates waveform peak data (200 × Float32) during audio file upload. `AudioFile.peaks` (JSONB) is the persistent source of truth. Peaks are returned in the upload response and fanned out via WS `audio.uploaded`. The client-side `PeakGenerator` is retained as a local-preview-only path (renders while upload is in flight; replaced by server peaks on upload complete). Session snapshot includes peaks per clip so waveforms hydrate on session reopen without recalculation.
@@ -668,16 +690,16 @@ So that [specific outcome].
 
 ---
 
-## 18. Recommended Next Steps (Sprint 9 — Planning)
+## 18. Recommended Next Steps (Sprint 10 — Planning)
 
-Sprint 8 is closed. Sprint 9 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
+Sprint 9 is closed. Sprint 10 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
 
-1. **PM: Define Sprint 9 scope** — Required before any work order can be issued. Candidates: in-browser audio recording (`getUserMedia`), plugin parameter editing UI, resizable panels (FR-01), timeline zoom (FR-02).
+1. **PM: Define Sprint 10 scope** — Required before any work order can be issued. Candidates: in-browser audio recording (`getUserMedia`), plugin parameter editing UI, desktop framework choice, mobile capture screen.
 
-2. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded now that `PrismaStorageAdapter` is live. Low effort; clean up before Sprint 9 begins.
+2. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded in `docs/adr/README.md` now that `PrismaStorageAdapter` is live. Low effort; no separate ADR file needed.
 
-3. **Tech Lead: ADR for panels/zoom** — Write ADR covering panel persistence (localStorage key shape), zoom state scope, and `BAR_W → barW = BAR_W * zoomX` abstraction before Frontend picks up FR-01 or FR-02. Required before those tickets can be issued.
+3. **Tech Lead: ADR for panel size localStorage persistence** — Deferred from Sprint 9. Write ADR covering localStorage key shape and sync strategy before Frontend implements panel size persistence.
 
 4. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.
 
-5. **Backend Engineer: Recording pipeline pre-work** — If Sprint 9 includes in-browser recording, ADR and Backend work order required first: `getUserMedia` → WAV/WebM → multipart upload to existing R2 endpoint; track `isRecording` state; WS broadcast of recording state to collaborators.
+5. **Backend Engineer: Recording pipeline pre-work** — If Sprint 10 includes in-browser recording, ADR and Backend work order required first: `getUserMedia` → WAV/WebM → multipart upload to existing R2 endpoint; track `isRecording` state; WS broadcast of recording state to collaborators.

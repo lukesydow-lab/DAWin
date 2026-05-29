@@ -1,7 +1,9 @@
 # Sprint 9 — Workspace Control
 
-**Status:** Current — Active
+**Status:** Historical Archive
 **Last updated:** 2026-05-29
+**Closed:** 2026-05-29
+**UAT result:** PASS — zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close
 **Theme:** Give engineers control over their screen real estate and timeline density.
 **Depends on:** Sprint 8 ✅ — session lobby, real audio playback, application menu bar all shipped; View menu already has stubbed Zoom In / Zoom Out / Reset Zoom items
 **Unblocks:** Sprint 10 (in-browser recording, plugin parameter editing UI)
@@ -104,28 +106,28 @@ Each collaborator controls their own zoom. Zoom state is not synced over WebSock
 
 ## Exit Criteria
 
-- [ ] Dragging the arranger/mixer splitter resizes both panels in real time with no animation lag
-- [ ] Arranger height cannot go below `MIN_ARRANGER_H = 200px`; mixer height cannot go below `MIN_MIXER_H = 120px`
-- [ ] Dragging the FX panel splitter (when FX panel is open) changes the panel width in real time
-- [ ] FX panel width is clamped to `[MIN_FX_W = 220px, MAX_FX_W = 480px]`
-- [ ] Double-clicking either splitter resets panels to default sizes with a `200ms ease` transition
-- [ ] Splitter visible line brightens on hover (`C.metalLight`); cursor changes to `row-resize` / `col-resize`
-- [ ] Each splitter has `role="separator"`, correct `aria-orientation`, `aria-valuenow/min/max`, `aria-label`, and keyboard navigation (Arrow, Home, End, Enter/Space)
-- [ ] VU meter rAF animation continues uninterrupted at all panel size configurations
-- [ ] FX panel appears at the correct position at any panel size (BFC fix not broken)
-- [ ] Arranger `scrollLeft` is preserved when panel height changes (bar 20 stays in view after resize)
-- [ ] `zoomX` state exists at App root; `barW = BAR_W * zoomX` is passed as a prop to arranger components
-- [ ] `grep -n "BAR_W" src/App.tsx` returns only the constant declaration line
-- [ ] All arranger calculation sites use `barW`, not `BAR_W`
-- [ ] Zoom level indicator shows current zoom as a percentage, updates live
-- [ ] Zooming in/out anchors to the playhead (or viewport center if playhead is off-screen)
-- [ ] Zoom shortcuts from `§Interaction Model` are implemented and functional
-- [ ] `zoomX` clamped to `[0.25, 4.0]`; ruler tick density changes at `zoomX` thresholds
-- [ ] Per-track vertical zoom expands/contracts the track row; all other tracks unaffected
-- [ ] Mixer strip heights unchanged by vertical zoom
-- [ ] `trackZoomY` clamped to `[0.5, 3.0]` per track
-- [ ] `tsc --noEmit` passes with zero errors
-- [ ] Sprint 9 UAT signed off with zero P0/P1 defects
+- [x] Dragging the arranger/mixer splitter resizes both panels in real time with no animation lag
+- [x] Arranger height cannot go below `MIN_ARRANGER_H = 200px`; mixer height cannot go below `MIN_MIXER_H = 120px`
+- [x] Dragging the FX panel splitter (when FX panel is open) changes the panel width in real time
+- [x] FX panel width is clamped to `[MIN_FX_W = 220px, MAX_FX_W = 480px]`
+- [x] Double-clicking either splitter resets panels to default sizes with a `200ms ease` transition
+- [x] Splitter visible line brightens on hover (`C.metalLight`); cursor changes to `row-resize` / `col-resize`
+- [x] Each splitter has `role="separator"`, correct `aria-orientation`, `aria-valuenow/min/max`, `aria-label`, and keyboard navigation (Arrow, Home, End, Enter/Space)
+- [x] VU meter rAF animation continues uninterrupted at all panel size configurations
+- [x] FX panel appears at the correct position at any panel size (BFC fix not broken)
+- [x] Arranger `scrollLeft` is preserved when panel height changes (bar 20 stays in view after resize)
+- [x] `zoomX` state exists at App root; `barW = BAR_W * zoomX` is passed as a prop to arranger components
+- [x] `grep -n "BAR_W" src/App.tsx` returns only the constant declaration line
+- [x] All arranger calculation sites use `barW`, not `BAR_W`
+- [x] Zoom level indicator shows current zoom as a percentage, updates live
+- [x] Zooming in/out anchors to the playhead (or viewport center if playhead is off-screen)
+- [x] Zoom shortcuts from `§Interaction Model` are implemented and functional
+- [x] `zoomX` clamped to `[0.25, 4.0]`; ruler tick density changes at `zoomX` thresholds
+- [x] Per-track vertical zoom expands/contracts the track row; all other tracks unaffected
+- [x] Mixer strip heights unchanged by vertical zoom
+- [x] `trackZoomY` clamped to `[0.5, 3.0]` per track
+- [x] `tsc --noEmit` passes with zero errors
+- [x] Sprint 9 UAT signed off with zero P0/P1 defects
 
 ---
 

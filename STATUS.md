@@ -1,10 +1,10 @@
 # Project DAWin — Status Board
 
 **Status: Current**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 
-> **Last updated:** 2026-05-28 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · **Sprint 9 PLANNING**
-> **Sprint:** 8 CLOSED · Sprint 9 PLANNING
+> **Last updated:** 2026-05-29 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · **Sprint 10 PLANNING**
+> **Sprint:** 9 CLOSED · Sprint 10 PLANNING
 > **Owner:** Luke (PM)
 
 > **⚠️ Agent instruction — keep this file current:**  
@@ -16,21 +16,55 @@
 
 ---
 
-## Sprint 9 Active Work
+## Sprint 10 Active Work
 
 | ID | Agent | Title | Priority | Status |
 |----|-------|-------|----------|--------|
-| — | — | Sprint 9 in Planning — scope not yet defined by PM | — | Planning |
+| — | — | Sprint 10 in Planning — scope not yet defined by PM | — | Planning |
 
-## Sprint 9 Goal
+## Sprint 10 Goal
 
-**Theme: TBD** — Sprint 9 scope has not been set. PM to define before work orders are issued.
+**Theme: TBD** — Sprint 10 scope has not been set. PM to define before work orders are issued.
 
 Candidates (not committed):
 - In-browser audio recording (`getUserMedia` → R2)
 - Plugin parameter editing UI (PM decision on UX pattern required first)
-- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
-- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
+- Desktop framework choice (Electron vs. Tauri)
+- Mobile capture screen (design + frontend)
+
+---
+
+## Sprint 9 Exit Criteria — ALL CLOSED ✅
+
+> Sprint 9 CLOSED 2026-05-29. Zero P0/P1 defects at UAT sign-off. 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close.
+
+- [x] Dragging the arranger/mixer splitter resizes both panels in real time with no animation lag
+- [x] Arranger height cannot go below `MIN_ARRANGER_H = 200px`; mixer height cannot go below `MIN_MIXER_H = 120px`
+- [x] Dragging the FX panel splitter (when FX panel is open) changes the panel width in real time
+- [x] FX panel width is clamped to `[MIN_FX_W = 220px, MAX_FX_W = 480px]`
+- [x] Double-clicking either splitter resets panels to default sizes with a `200ms ease` transition
+- [x] Splitter visible line brightens on hover (`C.metalLight`); cursor changes to `row-resize` / `col-resize`
+- [x] Each splitter has `role="separator"`, correct `aria-orientation`, `aria-valuenow/min/max`, `aria-label`, and keyboard navigation (Arrow, Home, End, Enter/Space)
+- [x] `zoomX` state exists at App root; `barW = BAR_W * zoomX` passed as prop to arranger components
+- [x] `grep -n "BAR_W" src/App.tsx` returns only the constant declaration line
+- [x] All arranger calculation sites use `barW`, not `BAR_W`
+- [x] Zoom level indicator shows current zoom as a percentage, updates live
+- [x] Zoom shortcuts (`=`/`-`/`0`, Ctrl/Cmd+scroll) implemented and functional
+- [x] `zoomX` clamped to `[0.25, 4.0]`; ruler tick density changes at thresholds
+- [x] Per-track vertical zoom (`trackZoomY`) clamped to `[0.5, 3.0]` per track
+- [x] `tsc --noEmit` passes with zero errors
+- [x] Sprint 9 UAT signed off with zero P0/P1 defects
+
+## Done ✓ — Sprint 9 (closed 2026-05-29)
+
+| Task | Completed by | Date |
+|------|--------------|------|
+| ADR-008: Zoom state architecture — prop drilling decision for `barW`; formalized at `docs/adr/ADR-008-zoom-state-architecture.md` | Tech Lead | 2026-05-29 |
+| 9-A: FR-01 Resizable workspace panels — arranger/mixer vertical splitter + FX panel horizontal splitter; pointer-event drag with `setPointerCapture`; double-click reset (200ms ease); keyboard navigation (Arrow ±8px, Home/End, Enter/Space); full ARIA; constants `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480` | Frontend Engineer | 2026-05-29 |
+| 9-B: FR-02 Arranger timeline zoom — `barW = BAR_W * zoomX` prop drilling throughout arranger; keyboard shortcuts `=`/`-`/`0`; Ctrl/Cmd+scroll wheel zoom; playhead-anchor (keyboard) and cursor-anchor (scroll wheel); zoom level `%` indicator in ruler; ruler tick density at zoom thresholds; per-track vertical zoom (`trackZoomY`) via chevron buttons `[0.5×, 3.0×]`; View menu Zoom In/Out/Reset now active | Frontend Engineer | 2026-05-29 |
+| SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px) — mixer no longer clipped | Frontend Engineer | 2026-05-29 |
+| SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus | Frontend Engineer | 2026-05-29 |
+| 9-K: Sprint 9 UAT sign-off — PASS, zero P0/P1 defects; 2 defects found and fixed before close | UAT | 2026-05-29 |
 
 ---
 

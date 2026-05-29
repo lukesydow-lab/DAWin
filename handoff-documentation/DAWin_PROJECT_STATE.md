@@ -1,13 +1,13 @@
 # DAWin — Project State Snapshot
 
 **Status: Current**
-**Last updated:** 2026-05-28
-**Sprint:** 9 — Planning
+**Last updated:** 2026-05-29
+**Sprint:** 10 — Planning
 **Repo:** https://github.com/lukesydow-lab/DAWin
 **Raw handoff:** https://raw.githubusercontent.com/lukesydow-lab/DAWin/main/handoff-documentation/DAWin_PROJECT_STATE.md
 
-> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 is PLANNING (scope not yet defined).
-> Do not treat any prior sprint items as open. Sprint 8 shipped: session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode`.
+> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 is PLANNING (scope not yet defined).
+> Do not treat any prior sprint items as open. Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008.
 
 ---
 
@@ -47,6 +47,10 @@
 | `MenuBar` | 24px app menu bar — File/Edit/Session/View/Transport/Help dropdowns; stub items dimmed | ✅ Sprint 8 |
 | `KeyboardShortcutsModal` | `?` key + Help menu; all shortcuts grouped by category | ✅ Sprint 8 |
 | `AboutModal` | Sprint 8, v0.8.0-beta | ✅ Sprint 8 |
+| Vertical splitter | Arranger/mixer height drag handle — `setPointerCapture`, double-click reset (200ms ease), ARIA `role="separator"` | ✅ Sprint 9 |
+| Horizontal splitter | FX panel width drag handle — same pattern as vertical splitter | ✅ Sprint 9 |
+| Zoom level indicator | Zoom `%` readout in arranger ruler toolbar; updates live with `zoomX` | ✅ Sprint 9 |
+| Track zoom chevrons | Per-track expand/contract buttons for `trackZoomY` `[0.5×, 3.0×]` | ✅ Sprint 9 |
 
 ---
 
@@ -149,19 +153,32 @@ What shipped:
 - WS handler registered reactively on session entry via `useEffect([sessionId, handleWsMessage])`
 - Space key guard in global `onKeyDown` prevents double-fire when menu item has focus
 
-## Sprint 9 — PLANNING
+## Sprint 9 — CLOSED ✅ (2026-05-29)
+
+**Goal:** Workspace Control — give engineers control over screen real estate and timeline density.
+
+**UAT:** PASS — zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close.
+
+What shipped:
+- FR-01 resizable workspace panels — arranger/mixer vertical splitter + FX panel horizontal splitter; pointer-event drag with `setPointerCapture`; double-click reset (200ms ease); keyboard navigation (Arrow ±8px, Home/End, Enter/Space); full ARIA; constants `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`
+- FR-02 arranger timeline zoom — `barW = BAR_W * zoomX` prop drilling throughout arranger; keyboard shortcuts `=`/`-`/`0`; Ctrl/Cmd+scroll wheel zoom; playhead-anchor (keyboard) and cursor-anchor (scroll wheel); zoom level `%` indicator in ruler; ruler tick density at zoom thresholds; per-track vertical zoom (`trackZoomY`) via chevron buttons `[0.5×, 3.0×]`; View menu Zoom In/Out/Reset now active
+- ADR-008: Zoom state architecture (prop drilling decision)
+- SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px)
+- SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus
+
+## Sprint 10 — PLANNING
 
 **Goal:** TBD — PM to define scope.
 
-Sprint 9 scope has not been set. Candidates:
+Sprint 10 scope has not been set. Candidates:
 - In-browser audio recording (`getUserMedia` → R2)
 - Plugin parameter editing UI
-- Resizable panels (FR-01) — spec at `docs/specs/resizable-workspace-panels.md`
-- Timeline zoom (FR-02) — spec at `docs/specs/arranger-zoom.md`
+- Desktop framework choice (Electron vs. Tauri)
+- Mobile capture screen
 
 ---
 
-## Key state in App component (as of Sprint 8 close)
+## Key state in App component (as of Sprint 9 close)
 
 ```typescript
 // Tracks
@@ -193,6 +210,15 @@ const [chatOpen, setChatOpen] = useState(false)
 
 // Toast
 const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+// Workspace panels (FR-01, Sprint 9)
+const [arrangerH, setArrangerH] = useState<number>(defaultArrangerH)
+const [fxPanelW, setFxPanelW] = useState<number>(defaultFxPanelW)
+
+// Zoom (FR-02, Sprint 9)
+const [zoomX, setZoomX] = useState<number>(1.0)          // horizontal zoom [0.25, 4.0]
+const [trackZoomY, setTrackZoomY] = useState<Record<string, number>>({})  // per-track vertical zoom [0.5, 3.0]
+// barW = BAR_W * zoomX — computed at root, passed as prop (ADR-008)
 ```
 
 ---
@@ -216,10 +242,12 @@ vuGreen: #1EC94A   vuAmber: #F5A623    vuRed: #E94560
 
 ```
 BAR_W=72  TRACK_H=64  RULER_H=24  HANDLE_W=8
-FADE_HDL_W=12  TRANSPORT_H=52  STATUS_BAR_H=28
+FADE_HDL_W=12  TRANSPORT_H=52  STATUS_BAR_H=28  MENU_BAR_H=24
+MIN_ARRANGER_H=200  MIN_MIXER_H=120  MIN_FX_W=220  MAX_FX_W=480
+SPLITTER_H=4  SPLITTER_W=4
 ```
 
-FR-01/FR-02 (deferred from Sprint 4) will add: `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`, `SPLITTER_H=4`, `SPLITTER_W=4` and derive `barW = BAR_W * zoomX`. Not yet implemented.
+Zoom derives `barW = BAR_W * zoomX` at App root; `barW` is prop-drilled to arranger components. `BAR_W` constant declaration is the only remaining reference to `BAR_W` in `src/App.tsx` (per ADR-008).
 
 ---
 

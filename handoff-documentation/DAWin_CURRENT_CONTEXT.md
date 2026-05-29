@@ -1,7 +1,7 @@
 # DAWin — Current Project Context
 
 **Status: Current**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 **Maintained by:** Tech Lead
 **Read this file first.** It is the single entry point for outside collaborators and new agents.
 
@@ -9,15 +9,30 @@
 
 ## Current Sprint
 
-**Sprint 9 — TBD**
+**Sprint 10 — TBD**
 **Status:** Planning
 **Sprint plan:** Not yet created — PM to define scope.
 
-Sprint 8 is CLOSED. Sprint 9 scope is not yet defined. No work orders have been issued. PM must define the sprint goal before any agent begins work.
+Sprint 9 is CLOSED. Sprint 10 scope is not yet defined. No work orders have been issued. PM must define the sprint goal before any agent begins work.
 
 ---
 
 ## Recently Completed Sprint
+
+**Sprint 9 — Workspace Control**
+**Closed:** 2026-05-29
+**UAT:** PASS — zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close
+
+What shipped in Sprint 9:
+- **FR-01 Resizable workspace panels** — arranger/mixer vertical splitter + FX panel horizontal splitter; pointer-event drag with `setPointerCapture`; double-click reset (200ms ease); keyboard navigation (Arrow ±8px, Home/End, Enter/Space); full ARIA (`role="separator"`, `aria-valuenow/min/max`); constants `MIN_ARRANGER_H=200`, `MIN_MIXER_H=120`, `MIN_FX_W=220`, `MAX_FX_W=480`
+- **FR-02 Arranger timeline zoom** — `barW = BAR_W * zoomX` prop drilling throughout arranger; keyboard shortcuts `=`/`-`/`0`; Ctrl/Cmd+scroll wheel zoom; playhead-anchor (keyboard) and cursor-anchor (scroll wheel); zoom level `%` indicator in ruler; ruler tick density at zoom thresholds; per-track vertical zoom (`trackZoomY`) via chevron buttons `[0.5×, 3.0×]`; View menu Zoom In/Out/Reset now active
+- **ADR-008** — Zoom state architecture (prop drilling decision for `barW`) formalized at `docs/adr/ADR-008-zoom-state-architecture.md`
+- SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px) — mixer no longer clipped
+- SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus
+
+---
+
+## Previously Completed Sprint
 
 **Sprint 8 — Playable Beta**
 **Closed:** 2026-05-28
@@ -31,27 +46,6 @@ What shipped in Sprint 8:
 - **`AboutModal`** — Sprint 8, v0.8.0-beta
 - **`API_BASE` constant** — configurable via `VITE_API_URL` env var; removes hardcoded `localhost:3000`
 - **True stereo VU metering** — `ChannelSplitterNode` after `StereoPannerNode`; independent L/R `AnalyserNode`s; fixes 5-I carried from Sprint 5
-- WS handler correctly registered on lobby entry via reactive `useEffect([sessionId, handleWsMessage])` (SPRINT-8-001 fix)
-- Space key guard prevents double-fire when focused on a menu item (SPRINT-8-002 fix)
-
----
-
-## Previously Completed Sprint
-
-**Sprint 7 — Audio to Timeline**
-**Closed:** 2026-05-19
-**UAT:** CONDITIONAL PASS — zero P0/P1 defects; 4 P2/P3 defects found and fixed before close
-
-What shipped in Sprint 7:
-- Audio file drag-and-drop + file picker (`I` key) onto arranger timeline
-- `POST /api/v1/sessions/:sessionId/clips` — creates Clip row linked to AudioFile
-- Server-side peak generation (200 RMS values) in upload handler; `AudioFile.peaks` JSONB persisted
-- Upload response includes `peaks`; WS `audio.uploaded` event fans out peaks to all collaborators
-- Session snapshot includes `audioFileId` and `peaks` per clip — waveforms restore on session reopen
-- All clip import states: uploading, decoding, complete, failed-upload (danger tint), failed-decode (warn tint)
-- `WaveformPlaceholder` for null/empty peaks; `PeakGenerator` abstraction (client-side preview-only)
-- `ClipData.importStatus` field; live BPM for clip duration calculation
-- ADR-006: `docs/adr/ADR-006-server-side-peak-generation.md`
 
 ---
 
@@ -96,11 +90,15 @@ The following is fully interactive in the running prototype (`npm run dev`):
 - Session chat panel (flat list, compose input, unread badge)
 - Deep links: `?t=&track=&clip=&range=` URL format; playhead seek + highlight on navigate (1500ms auto-clear)
 
+**Workspace control (Sprint 9):**
+- Resizable panels — drag arranger/mixer vertical splitter, drag FX panel horizontal splitter; double-click to reset; full keyboard navigation and ARIA
+- Timeline zoom — `=`/`-`/`0` keyboard shortcuts; Ctrl/Cmd+scroll wheel; zoom `%` indicator in ruler; playhead/cursor-anchored zoom; ruler tick density scales with zoom
+- Per-track vertical zoom — chevron buttons expand/contract individual track rows `[0.5×, 3.0×]`
+
 **What is NOT yet implemented:**
-- In-browser audio recording (`getUserMedia`) — Sprint 9+ candidate
-- Resizable panels (FR-01) — deferred from Sprint 4; spec at `docs/specs/resizable-workspace-panels.md`
-- Timeline zoom (FR-02) — deferred from Sprint 4; spec at `docs/specs/arranger-zoom.md`
+- In-browser audio recording (`getUserMedia`) — Sprint 10+ candidate
 - Plugin parameter editing — no spec finalized; PM decision required on UX pattern
+- localStorage persistence for panel sizes — explicitly deferred (requires ADR)
 - Mobile capture screen — not started; desktop-first mandate
 
 ---
@@ -133,12 +131,13 @@ The following is fully interactive in the running prototype (`npm run dev`):
 | Sprint 6 | 2026-05-19 | Docker PostgreSQL live, Cloudflare R2 connected, audio upload + presigned streaming endpoints, local setup guide |
 | Sprint 7 | 2026-05-19 | Audio file drag-and-drop + file picker, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, ADR-006 |
 | Sprint 8 | 2026-05-28 | Session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode` |
+| Sprint 9 | 2026-05-29 | FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008 |
 
 ---
 
 ## Active Blockers
 
-No blockers. No P0/P1 defects are currently open. Sprint 9 scope not yet defined.
+No blockers. No P0/P1 defects are currently open. Sprint 10 scope not yet defined.
 
 ---
 
@@ -146,12 +145,12 @@ No blockers. No P0/P1 defects are currently open. Sprint 9 scope not yet defined
 
 | Decision | Blocks |
 |---|---|
-| Sprint 9 scope — what is the next sprint goal? | All Sprint 9 work |
+| Sprint 10 scope — what is the next sprint goal? | All Sprint 10 work |
 | Plugin parameter editing UX (expanding card vs. side panel vs. popover) | Feature spec + sprint scheduling |
-| Resizable panels + timeline zoom sprint scheduling (FR-01, FR-02 deferred from Sprint 4) | Frontend can't start until PM schedules |
 | Desktop framework choice (Electron vs. Tauri vs. native) | Desktop app Sprint 1 |
 | Mobile framework choice | Mobile Sprint 1 |
-| In-browser audio recording (`getUserMedia`) scope and UI | Sprint 9 candidate — PM to confirm |
+| In-browser audio recording (`getUserMedia`) scope and UI | Sprint 10 candidate — PM to confirm |
+| localStorage persistence for panel sizes — ADR needed before implementation | FR-01 follow-on work |
 
 ---
 
@@ -173,7 +172,7 @@ Read in this order:
 | 10 | `docs/handoffs/active/` | Active work orders for the current sprint |
 | 11 | `docs/defects.md` | UAT defect history |
 
-**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-08.md`
+**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-09.md`
 **Active work orders:** `docs/handoffs/active/` — work orders for sprints currently in progress
 **Sprint close protocol:** `docs/process/sprint-close-protocol.md`
 

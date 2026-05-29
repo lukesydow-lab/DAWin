@@ -1,9 +1,9 @@
 # UAT Defect Register
 
 **Status: Current**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 
-> Covers Sprints 1–8. All P0/P1 defects resolved or explicitly deferred. Sprint 8 UAT: PASS, zero P0/P1 defects; 5 defects (SPRINT-8-001 through 003, 5-I/R3, hardcoded API URL) confirmed fixed before close (frontend commit `ebbbb4d`).
+> Covers Sprints 1–9. All P0/P1 defects resolved or explicitly deferred. Sprint 9 UAT: PASS, zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close.
 
 ---
 
@@ -445,3 +445,40 @@ Audio graph path verified in two call sites (lines 905–932 in `startClipPlayba
 ### Overall verdict
 
 **PASS. All 5 defects confirmed fixed. Sprint 8 is cleared to close.**
+
+---
+
+# UAT Defect Register — Sprint 9
+
+> **Source:** UAT Agent sign-off run, 2026-05-29
+> **Features tested:** FR-01 Resizable Workspace Panels, FR-02 Arranger Timeline Zoom (horizontal + vertical)
+> **UAT agent:** Claude Sonnet 4.6
+> **TSC status:** PASS — `tsc --noEmit` exits clean with zero errors
+> **Status key:** `open` · `in progress` · `fixed` · `deferred`
+
+## [SPRINT-9-001] Panel height calculations omit MENU_BAR_H — mixer bottom clipped by 24px
+**Priority:** P2 | **Status:** fixed (Sprint 9 close, 2026-05-29)
+**File:line:** `src/App.tsx:5953,5959,6662`
+**Steps to reproduce:**
+1. Open a session. Observe the mixer panel bottom edge — strip labels or dB readout at the bottom may be cut off.
+2. Drag the vertical splitter to minimum arranger height (200px). Observe whether the mixer's bottom content is visible.
+**Expected:** Mixer panel occupies exactly the available vertical space. `defaultArrangerH + SPLITTER_H + mixerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H`.
+**Actual:** The `defaultArrangerH` formula on line 5953 uses `window.innerHeight - TRANSPORT_H - STATUS_BAR_H` (omitting `MENU_BAR_H = 24`). The `mixerH` formula on line 5959 does the same. As a result, `defaultArrangerH + SPLITTER_H + mixerH = window.innerHeight - 80px`, but the flex container can only accommodate `window.innerHeight - 104px` (subtracting all four chrome regions: MenuBar 24 + TransportBar 52 + StatusBar 28 + SPLITTER_H 4). The panels overflow the flex container by 24px. With `overflow-hidden` on the parent, the bottom 24px of the mixer panel is clipped and not visible to the user. This was introduced when `MENU_BAR_H` was added in Sprint 8 but the splitter spec pseudocode (which predated Sprint 8) was not updated to include it.
+**Fix:** Change lines 5953 and 5959 to:
+```typescript
+// line 5953
+() => Math.floor((window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H) * 0.60),
+// line 5959
+const mixerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H - SPLITTER_H - arrangerH
+```
+Also update `maxArrangerH` on the same line to subtract `MENU_BAR_H`. And update the `resetVerticalSplitter` default target and the `dragMaxH` in `onVerticalSplitterPointerDown` for consistency.
+**Sprint:** 9
+
+## [SPRINT-9-002] View menu "Zoom Out" shortcut label shows en dash (–) not hyphen-minus (-)
+**Priority:** P3 | **Status:** fixed (Sprint 9 close, 2026-05-29)
+**File:line:** `src/App.tsx:5414`
+**Steps to reproduce:** Open a session. Open the View menu. Observe the shortcut label next to "Zoom Out".
+**Expected:** `–` label in the menu should display `-` (hyphen-minus), matching what the user actually presses. The keyboard handler at line 6409 listens for `e.key === '-'` (hyphen-minus).
+**Actual:** `shortcut="–"` (U+2013, en dash) is displayed. A musician reading the menu would press the en dash key (which does not exist as a standalone key on standard keyboards) rather than the hyphen-minus key. The shortcut still works because the handler listens for `-`, but the menu label is misleading.
+**Fix:** Change `shortcut="–"` to `shortcut="-"` at line 5414.
+**Sprint:** 9
