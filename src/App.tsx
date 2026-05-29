@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import './App.css'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -165,6 +165,14 @@ const TRANSPORT_H  = 52   // px — matches TransportBar height
 const STATUS_BAR_H = 28   // px — matches StatusBar height
 const MENU_BAR_H   = 24   // px — application menu bar (Sprint 8)
 const CHROME_TOP   = MENU_BAR_H + TRANSPORT_H  // 76px — total top chrome height
+
+// ─── Resizable panel constraints (FR-01) ────────────────────────────────────
+const MIN_ARRANGER_H = 200   // 3 tracks × TRACK_H + RULER_H
+const MIN_MIXER_H    = 120   // minimum readable mixer height (fader + VU + labels)
+const MIN_FX_W       = 220
+const MAX_FX_W       = 480
+const SPLITTER_H     = 4     // hit target height for vertical (H/M) splitter
+const SPLITTER_W     = 4     // hit target width for horizontal (FX) splitter
 
 // ─── Virtual instruments for Bounce modal ─────────────────────────────────────
 const VIRTUAL_INSTRUMENTS = [
@@ -2522,6 +2530,8 @@ interface ArrangeViewProps {
   setLoopEnd: (v: number | null) => void
   presence: PresenceEntry[]
   sessionId: string | null
+  height?: number
+  transition?: boolean
 }
 
 // State for arranger drag-over from OS file system
@@ -2532,7 +2542,7 @@ interface FileDragState {
   ghostBar: number
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId, height, transition }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -3132,7 +3142,14 @@ function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadB
     : `${C.accent}55`
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{
+        height: height !== undefined ? height : undefined,
+        flex: height !== undefined ? 'none' : 1,
+        transition: transition ? 'height 200ms ease' : undefined,
+      }}
+    >
       {/* Hidden file input for ImportButton */}
       <input
         ref={fileInputRef}
@@ -3927,12 +3944,14 @@ const MixerStrip = ({ track, pluginCount, onToggleMute, onToggleSolo, onVolChang
 }
 
 // ─── MixerPanel ───────────────────────────────────────────────────────────────
-function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTrackId }: {
+function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTrackId, height, transition }: {
   tracks: Track[]
   setTracks: React.Dispatch<React.SetStateAction<Track[]>>
   pluginChains: Record<string, PluginSlot[]>
   onSelectTrack: (trackId: string) => void
   selectedTrackId: string | null
+  height?: number
+  transition?: boolean
 }) {
   const [masterVol, setMasterVol] = useState(95)
   const [masterPan, setMasterPan] = useState(50)
@@ -4116,7 +4135,12 @@ function MixerPanel({ tracks, setTracks, pluginChains, onSelectTrack, selectedTr
 
   return (
     <div className="flex-shrink-0 border-t flex flex-col overflow-hidden"
-      style={{ background: C.surface, borderColor: C.border }}>
+      style={{
+        background: C.surface,
+        borderColor: C.border,
+        height: height !== undefined ? height : undefined,
+        transition: transition ? 'height 200ms ease' : undefined,
+      }}>
 
       {/* Wood top rail */}
       <div className="wood-panel w-full flex-shrink-0"
@@ -5780,6 +5804,19 @@ export default function App() {
   const [loopEnd, setLoopEnd]           = useState<number | null>(null)
   const [showMixer, setShowMixer]       = useState(true)
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
+  // ── Resizable panel state (FR-01) ─────────────────────────────────────────
+  const defaultArrangerH = useMemo(
+    () => Math.floor((window.innerHeight - TRANSPORT_H - STATUS_BAR_H) * 0.60),
+    [],
+  )
+  const [arrangerH, setArrangerH] = useState<number>(defaultArrangerH)
+  const [fxPanelW,  setFxPanelW]  = useState<number>(280)
+  // mixerH is always derived — never stored:
+  const mixerH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - SPLITTER_H - arrangerH
+  const maxArrangerH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
+  // Whether the splitter is in its 200ms reset transition
+  const [splitterTransition, setSplitterTransition] = useState(false)
+  const [fxSplitterTransition, setFxSplitterTransition] = useState(false)
   const lastChatOpenedAt                = useRef<number>(Date.now())
   const bpmInputRef = useRef<HTMLInputElement>(null)
   const rafRef        = useRef<number | null>(null)
@@ -6398,6 +6435,117 @@ export default function App() {
     setSelectedClipId(null)
   }
 
+  // ── Splitter handlers (FR-01) ────────────────────────────────────────────
+
+  const onVerticalSplitterPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const startY = e.clientY
+    const startH = arrangerH
+    const dragMaxH = window.innerHeight - TRANSPORT_H - STATUS_BAR_H - MIN_MIXER_H - SPLITTER_H
+
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.max(MIN_ARRANGER_H, Math.min(dragMaxH, startH + (ev.clientY - startY)))
+      setArrangerH(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+    }
+
+    document.body.style.cursor = 'row-resize'
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const resetVerticalSplitter = () => {
+    setSplitterTransition(true)
+    setArrangerH(defaultArrangerH)
+    setTimeout(() => setSplitterTransition(false), 200)
+  }
+
+  const onVerticalSplitterKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const STEP = 8
+    switch (e.key) {
+      case 'ArrowUp':
+        e.preventDefault()
+        setArrangerH(h => Math.max(MIN_ARRANGER_H, Math.min(maxArrangerH, h - STEP)))
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        setArrangerH(h => Math.max(MIN_ARRANGER_H, Math.min(maxArrangerH, h + STEP)))
+        break
+      case 'Home':
+        e.preventDefault()
+        setArrangerH(MIN_ARRANGER_H)
+        break
+      case 'End':
+        e.preventDefault()
+        setArrangerH(maxArrangerH)
+        break
+      case 'Enter':
+      case ' ':
+        e.preventDefault()
+        resetVerticalSplitter()
+        break
+      // All other keys fall through — global shortcuts (spacebar etc.) handled by document
+    }
+  }
+
+  const onHorizontalSplitterPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const startX = e.clientX
+    const startW = fxPanelW
+
+    const onMove = (ev: PointerEvent) => {
+      // Dragging left = wider panel (mouse moves left, clientX decreases)
+      const next = Math.max(MIN_FX_W, Math.min(MAX_FX_W, startW - (ev.clientX - startX)))
+      setFxPanelW(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+    }
+
+    document.body.style.cursor = 'col-resize'
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const resetHorizontalSplitter = () => {
+    setFxSplitterTransition(true)
+    setFxPanelW(280)
+    setTimeout(() => setFxSplitterTransition(false), 200)
+  }
+
+  const onHorizontalSplitterKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const STEP = 8
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault()
+        setFxPanelW(w => Math.max(MIN_FX_W, Math.min(MAX_FX_W, w - STEP)))
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        setFxPanelW(w => Math.max(MIN_FX_W, Math.min(MAX_FX_W, w + STEP)))
+        break
+      case 'Home':
+        e.preventDefault()
+        setFxPanelW(MIN_FX_W)
+        break
+      case 'End':
+        e.preventDefault()
+        setFxPanelW(MAX_FX_W)
+        break
+      case 'Enter':
+      case ' ':
+        e.preventDefault()
+        resetHorizontalSplitter()
+        break
+    }
+  }
+
   function handleEnterSession(id: string, name: string) {
     setSessionId(id)
     const url = new URL(window.location.href)
@@ -6478,8 +6626,63 @@ export default function App() {
             setLoopStart={setLoopStart} setLoopEnd={setLoopEnd}
             presence={presence}
             sessionId={sessionId}
+            height={arrangerH}
+            transition={splitterTransition}
           />
-          {showMixer && <MixerPanel tracks={tracks} setTracks={setTracks} pluginChains={pluginChains} onSelectTrack={handleSelectTrack} selectedTrackId={selectedTrackId} />}
+          {showMixer && (
+            <>
+              {/* Arranger / Mixer vertical splitter */}
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-valuenow={arrangerH}
+                aria-valuemin={MIN_ARRANGER_H}
+                aria-valuemax={maxArrangerH}
+                aria-label="Resize arranger and mixer panels"
+                tabIndex={0}
+                onPointerDown={onVerticalSplitterPointerDown}
+                onDoubleClick={resetVerticalSplitter}
+                onKeyDown={onVerticalSplitterKeyDown}
+                style={{
+                  height: SPLITTER_H,
+                  cursor: 'row-resize',
+                  flexShrink: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  outline: 'none',
+                  background: 'transparent',
+                }}
+                onMouseEnter={e => {
+                  const line = e.currentTarget.querySelector<HTMLDivElement>('[data-splitter-line]')
+                  if (line) line.style.background = C.metalLight
+                }}
+                onMouseLeave={e => {
+                  const line = e.currentTarget.querySelector<HTMLDivElement>('[data-splitter-line]')
+                  if (line) line.style.background = C.border
+                }}
+              >
+                {/* 1px visible line centered in the 4px hit target */}
+                <div
+                  data-splitter-line=""
+                  style={{
+                    height: 1,
+                    background: C.border,
+                    transition: 'background 120ms ease',
+                    pointerEvents: 'none',
+                  }}
+                />
+              </div>
+              <MixerPanel
+                tracks={tracks} setTracks={setTracks}
+                pluginChains={pluginChains}
+                onSelectTrack={handleSelectTrack}
+                selectedTrackId={selectedTrackId}
+                height={mixerH}
+                transition={splitterTransition}
+              />
+            </>
+          )}
         </div>
       </div>
       <StatusBar wsStatus={wsStatus} />
@@ -6508,9 +6711,11 @@ export default function App() {
           top: CHROME_TOP,
           bottom: STATUS_BAR_H,
           right: 0,
-          width: 720,
+          width: fxPanelW,
           transform: selectedTrackId !== null ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: fxSplitterTransition
+            ? 'transform 220ms cubic-bezier(0.4, 0, 0.2, 1), width 200ms ease'
+            : 'transform 220ms cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 45,
           display: 'flex',
           flexDirection: 'column',
@@ -6530,6 +6735,55 @@ export default function App() {
           onClose={() => setSelectedTrackId(null)}
         />
       </div>
+
+      {/* FX panel horizontal splitter — only interactive when panel is open */}
+      {selectedTrackId !== null && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={fxPanelW}
+          aria-valuemin={MIN_FX_W}
+          aria-valuemax={MAX_FX_W}
+          aria-label="Resize FX panel"
+          tabIndex={0}
+          onPointerDown={onHorizontalSplitterPointerDown}
+          onDoubleClick={resetHorizontalSplitter}
+          onKeyDown={onHorizontalSplitterKeyDown}
+          style={{
+            position: 'fixed',
+            top: CHROME_TOP,
+            bottom: STATUS_BAR_H,
+            right: fxPanelW,
+            width: SPLITTER_W,
+            zIndex: 46,
+            cursor: 'col-resize',
+            display: 'flex',
+            alignItems: 'stretch',
+            outline: 'none',
+          }}
+          onMouseEnter={e => {
+            const line = e.currentTarget.querySelector<HTMLDivElement>('[data-splitter-line]')
+            if (line) line.style.background = C.metalLight
+          }}
+          onMouseLeave={e => {
+            const line = e.currentTarget.querySelector<HTMLDivElement>('[data-splitter-line]')
+            if (line) line.style.background = C.border
+          }}
+        >
+          {/* 1px visible line centered in the 4px hit target */}
+          <div
+            data-splitter-line=""
+            style={{
+              width: 1,
+              margin: '0 auto',
+              alignSelf: 'stretch',
+              background: C.border,
+              transition: 'background 120ms ease',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+      )}
 
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
 

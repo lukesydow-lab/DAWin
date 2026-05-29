@@ -177,24 +177,133 @@ const setTrackZoom = (trackId: string, next: number) => {
 
 ## §Interaction Model
 
-**[PLACEHOLDER — Designer fills this section in Ticket 3-B]**
+**Status: Complete — Ticket 3-B fulfilled by Designer, 2026-05-29**
 
-Designer: research keyboard shortcut conventions across Ableton Live 12, Logic Pro 11, Pro Tools 2024, and Reaper 7. Define the following for each axis, then write the final spec below:
+---
 
-1. **Horizontal zoom in:** key or gesture?
-2. **Horizontal zoom out:** key or gesture?
-3. **Horizontal zoom reset to 1.0×:** key?
-4. **Zoom anchor:** does zoom center on the playhead, the cursor position, or the viewport center?
-5. **Scroll wheel behavior:** does the scroll wheel scroll the timeline or zoom it? Does a modifier key toggle?
-6. **Vertical zoom in (per track):** key or gesture? Where is the control in the track header UI?
-7. **Vertical zoom out (per track):** key or gesture?
-8. **Vertical zoom reset for a track:** key?
-9. **Ruler tick subdivision threshold:** adjust the `zoomX` breakpoints in the ruler tick density table above if needed.
-10. **Zoom indicator format:** `"100%"` or `"1×"` or `"72px/bar"`?
-11. **Zoom indicator placement:** where in the arranger toolbar area?
-12. **Scroll behavior at extreme zoom:** at 0.25×, `barW * BARS = 576px` — the scroll container shrinks. At 4.0×, `barW * BARS = 9216px` — the scroll container grows. Confirm this is the desired behavior (correct answer: yes, the scroll container width is always `barW * BARS`).
+### 1. Horizontal zoom keyboard shortcuts
 
-**Until this section is filled, Ticket 3-D keyboard shortcut implementation is blocked.**
+**Convention rationale:** Ableton Live uses `+` / `-` on the numeric keypad (no modifier). Logic Pro uses `Cmd+=` / `Cmd+-`. Pro Tools uses `Cmd+]` / `Cmd+[`. Reaper uses `Ctrl+=` / `Ctrl+-`. In a browser context, `Cmd+W` closes the tab, `Cmd+N` opens a new window, and `Cmd+T` opens a new tab — these must be avoided. `Cmd+=` and `Cmd+-` are browser-reserved in most contexts (browser zoom). The safest and most cross-DAW-familiar option for a browser app is the unmodified `=` and `-` keys (Ableton-style), which are free in all major browsers when focus is not in an input. This matches the existing tool-shortcut philosophy in the codebase (unmodified single-key shortcuts: `v`, `c`, `?`).
+
+| Action | Key | Notes |
+|---|---|---|
+| Zoom in (horizontal) | `=` (no modifier) | Same physical key as `+` without Shift; matches Ableton convention |
+| Zoom out (horizontal) | `-` (no modifier) | Free in all browsers when not in input/textarea |
+| Reset to 1.0× (horizontal) | `0` (no modifier) | Ableton: `0` resets zoom; matches muscle memory |
+
+**Implementation note:** Add these three cases to the existing global `onKeyDown` handler in `src/App.tsx` (the `useEffect` at line ~6200). Guard conditions already present in that handler — `if (tag === 'INPUT' || tag === 'TEXTAREA') return` — cover these keys correctly. Each keypress calls `onZoom(zoomX + 0.25)`, `onZoom(zoomX - 0.25)`, or `onZoom(1.0)` respectively. Clamp is enforced inside `onZoom`.
+
+**Vertical zoom keyboard shortcuts (per-track):** Vertical zoom is not keyboard-driven in Sprint 9. It is controlled exclusively via the expand/contract chevron buttons in the track header (see §Vertical Zoom Controls below). Keyboard shortcuts for vertical zoom are deferred to a future sprint to avoid key-space conflicts.
+
+---
+
+### 2. Scroll wheel behavior
+
+**Default (no modifier):** The scroll wheel scrolls the arranger timeline horizontally. This is the standard browser and DAW behavior. Do not intercept or redirect unmodified scroll events — they should pass through to the arranger's horizontal scroll container naturally.
+
+**Modifier + scroll = zoom:** Holding `Ctrl` (Windows/Linux) or `Cmd` (Mac) while scrolling triggers horizontal zoom instead of scroll. Use `isMod = e.metaKey || e.ctrlKey` — this pattern is already established in `src/App.tsx` (line 4716). When `isMod` is true on a wheel event: call `onZoom(zoomX + delta)` where `delta` is derived from `e.deltaY`.
+
+**Zoom step per wheel tick:** `0.25` per tick is confirmed. `e.deltaY` is typically `±100` for a standard wheel tick (browser-normalized). Map it as: `delta = e.deltaY < 0 ? +0.25 : -0.25`. Scrolling up (negative `deltaY`) zooms in; scrolling down (positive `deltaY`) zooms out. This matches Ableton and Logic trackpad convention.
+
+**Passive event listener:** The wheel event listener must be registered with `{ passive: false }` so that `e.preventDefault()` can suppress the native scroll when `isMod` is true. If registered passively, calling `preventDefault()` will throw a console warning and fail silently — the browser will still scroll. The FE must attach this listener imperatively via `addEventListener('wheel', handler, { passive: false })`, not via React's synthetic `onWheel` prop (which defaults to passive in React 17+).
+
+**Exact implementation pattern:**
+```typescript
+// Attach in useEffect on the arranger scroll container ref
+arrangerScrollRef.current?.addEventListener('wheel', onWheel, { passive: false })
+
+function onWheel(e: WheelEvent) {
+  const isMod = e.metaKey || e.ctrlKey
+  if (!isMod) return  // let native horizontal scroll proceed
+  e.preventDefault()
+  const delta = e.deltaY < 0 ? 0.25 : -0.25
+  onZoom(zoomX + delta)
+}
+```
+
+---
+
+### 3. Zoom anchor behavior
+
+**Primary anchor: playhead position.** When `zoomX` changes, the playhead must remain at the same horizontal screen position it occupied before the zoom. This is the standard DAW behavior (Ableton, Logic, Pro Tools all anchor to playhead when zooming via keyboard). It means the viewport scrolls so that `playheadBar * nextBarW` lands at the same screen x-coordinate as `playheadBar * prevBarW` was.
+
+The scroll-to-playhead implementation in `§Horizontal Zoom Model` above is confirmed:
+```typescript
+const newScrollLeft = anchorBar * nextBarW - arrangerViewportWidth / 2
+```
+This centers the playhead in the viewport after zoom. This is the correct behavior.
+
+**Fallback anchor: viewport center.** When the playhead is off-screen (i.e., `playheadBar * barW < scrollLeft` or `playheadBar * barW > scrollLeft + viewportWidth`), anchor to the current viewport center instead:
+```typescript
+const anchorBar = isPlayheadVisible
+  ? playheadBar
+  : (scrollLeft + arrangerViewportWidth / 2) / prevBarW
+```
+"Playhead is visible" means `playheadBar * barW` is within `[scrollLeft, scrollLeft + arrangerViewportWidth]` at the moment zoom is triggered.
+
+**Keyboard shortcut anchor:** The same anchor logic applies when zoom is triggered by `=` / `-` key. There is no cursor position available for keyboard-triggered zoom; the playhead/viewport-center fallback above is the complete logic.
+
+**Scroll wheel anchor:** When zoom is triggered by `Ctrl/Cmd + scroll`, anchor to the cursor position (the mouse pointer's x position over the arranger) rather than the playhead. This matches browser zoom conventions and gives the user precision control when hovering over a region of interest. Compute anchor bar as `(e.clientX - arrangerLeft + scrollLeft) / barW`.
+
+---
+
+### 4. Zoom level indicator
+
+**Format:** `"{Math.round(zoomX * 100)}%"` — confirmed. Examples: `"25%"`, `"100%"`, `"400%"`. This is the clearest format for a non-engineer user and avoids ambiguity with `"1×"` (which implies different things in different DAWs) or `"72px/bar"` (which exposes implementation detail).
+
+**Placement:** Right side of the ruler bar, flush right, before the ruler ticks end. Specifically: absolutely positioned within the ruler row, `right: 8px`, vertically centered. It sits in the ruler row (`RULER_H = 24px`) so it does not consume arranger real estate. It must not overlap the last few ruler tick labels — the FE should ensure there is at least 48px of clear space to the left of the indicator text (the text itself is at most ~36px wide at 11px monospace for "400%").
+
+**Visual spec:**
+- Color: `C.textSec`
+- Font size: 11px
+- Font: monospaced (use `font-variant-numeric: tabular-nums` or `font-family: monospace`)
+- No background, no border, no padding box
+- `pointer-events: none` — it must not intercept click events intended for the ruler
+- `user-select: none`
+- `aria-hidden="true"` — this is a visual readout, not meaningful to screen readers (the zoom level is communicated via keyboard shortcut context elsewhere)
+
+---
+
+### 5. Pinch gesture scope
+
+**Out of scope for Sprint 9.** This product is desktop-first (minimum 1280px). Trackpad pinch-to-zoom is a separate gesture system requiring `GestureEvent` or `TouchEvent` handling with cross-browser inconsistencies (Safari exposes `GestureEvent`; Chrome and Firefox do not). It is deferred. Note for future sprint scoping: if pinch is added, it must use the same `onZoom` function and the same anchor logic defined in §3 above.
+
+---
+
+### 6. Ruler tick subdivision thresholds
+
+The thresholds in `§Horizontal Zoom Model` are confirmed with one clarification:
+
+| `zoomX` range | `barW` at this range | Ruler behavior |
+|---|---|---|
+| `>= 2.0` | `>= 144px` | Show quarter-note subdivisions (tick at every beat); bar numbers every bar |
+| `1.0 – <2.0` | `72px – <144px` | Bar numbers only (current behavior) |
+| `0.5 – <1.0` | `36px – <72px` | Bar numbers; render every bar label |
+| `< 0.5` | `< 36px` | Bar numbers; suppress every other bar label (`bar % 2 !== 0` labels omitted) |
+
+**Clarification on the `< 1.0` threshold:** the original spec said "suppress alternating labels when `barW < 36px`." At `zoomX = 0.5`, `barW = 36px` exactly, which is the boundary. The correct implementation: suppress alternating labels when `barW < 36px` (strictly less than), meaning at `zoomX < 0.5`. At exactly 36px, all labels render. This avoids a label density jump at 0.5×.
+
+**Quarter-note subdivisions at `>= 2.0×`:** subdivisions are short tick marks (half the height of bar ticks) at beat positions 2, 3, 4 within each bar. They carry no label. Color: `C.textSec` at 40% opacity (use `opacity: 0.4` inline style).
+
+---
+
+### 7. Vertical zoom controls (track header UI)
+
+Vertical zoom is controlled via two icon buttons in each track header, and is not keyboard-driven in Sprint 9.
+
+**Expand button:** chevron-down icon (`▾`), positioned in the track header, bottom-right quadrant. `aria-label="Expand track"`. On click: `setTrackZoom(trackId, trackZoomY[trackId] + 0.25)`. Disabled (opacity 0.3, `pointer-events: none`) when track is at maximum (`3.0×`).
+
+**Collapse button:** chevron-up icon (`▴`), adjacent to expand button. `aria-label="Collapse track"`. On click: `setTrackZoom(trackId, trackZoomY[trackId] - 0.25)`. Disabled when track is at minimum (`0.5×`).
+
+**Reset:** Double-clicking either button resets the track to `1.0×`. `aria-label` for double-click behavior is communicated via `title="Double-click to reset"` tooltip.
+
+Both buttons: `focus-visible` ring using `C.accent`, 16×16px hit target minimum (can be 12×12px visually inside a 16×16px button).
+
+---
+
+### 8. Scroll container width at extreme zoom
+
+Confirmed: the arranger scroll container width is always `barW * BARS`. At 0.25×, `barW * BARS = 576px` — the scroll container shrinks and a short session fits entirely within most viewport widths without scrolling. At 4.0×, `barW * BARS = 9216px` — the scroll container grows and the user must scroll to reach late bars. Both extremes are correct. The FE must set `width: barW * BARS` (in pixels, via inline style) on the inner arranger canvas element, not on the scroll container itself — the scroll container has `overflow-x: auto` and takes the full available width.
 
 ---
 
