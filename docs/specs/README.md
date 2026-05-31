@@ -1,16 +1,24 @@
 # Feature Specs
 
+**Status: Current**
+**Last updated:** 2026-05-31
+
 Implementation specs for DAWin features. Each file describes what a feature should do, its design, and its acceptance criteria.
 
 Every spec has a `Status:` marker in its header:
 - `Status: Current` — actively in scope or recently shipped; use as implementation reference
 - `Status: Partial` — spec exists but is incomplete
+- `Status: Draft` — not yet reviewed or validated
 - `Status: Historical Archive` — feature shipped; spec is a historical record
 - `Status: Superseded by [file]` — replaced by a newer spec
 
 ## Product specs
 - [PRD.md](PRD.md) — Full product requirements document
 - [ROADMAP.md](ROADMAP.md) — Sprint and phase planning (note staleness warning at top)
+
+## Sprint 9 planning specs
+- [socializable-demo-qa.md](socializable-demo-qa.md) — Demo QA runbook and musician friend-testing checklist
+- [owner-continuity-bounce.md](owner-continuity-bounce.md) — Continuity bounce for plugin/instrument owner leaving session scenario
 
 ## Feature specs (alphabetical)
 - [application-menu-bar.md](application-menu-bar.md) — Sprint 8

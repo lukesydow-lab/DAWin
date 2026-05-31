@@ -1,7 +1,7 @@
 # DAWin Feature Request Intake
 
 **Status: Current**  
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-31
 
 Feature requests captured from product workshopping conversations. This folder is intentionally separate from `docs/specs/`: these are prioritizable work orders for PM + Tech Lead review before they are promoted into implementation specs, GitHub issues, milestones, or sprint tickets.
 
@@ -15,7 +15,9 @@ After a ChatGPT or external feature discovery conversation, the PM writes a new 
 
 ---
 
-**Current sprint:** Sprint 6 — File Storage (Backend Engineer). See [docs/sprints/sprint-06.md](../sprints/sprint-06.md) for the active sprint plan.
+**Current sprint:** Sprint 9 — Planning. See [docs/sprints/sprint-09.md](../sprints/sprint-09.md) for the planning shell.
+
+**Backlog source:** See [docs/backlog/DAWin_BACKLOG.md](../backlog/DAWin_BACKLOG.md) for the current tiered backlog model.
 
 ---
 
@@ -23,42 +25,43 @@ After a ChatGPT or external feature discovery conversation, the PM writes a new 
 
 | ID | Feature | Recommended Priority | Complexity | Suggested Track | Status |
 |---|---|---:|---:|---|---|
-| FR-2026-05-14-01 | Resizable Workspace Panels | High | M | Core UX / Layout | Deferred |
-| FR-2026-05-14-02 | Multitrack Horizontal + Vertical Zoom | High | M | Arranger Editing | Deferred |
-| FR-2026-05-14-03 | File Browser + Local Sample Import | High | L | Media / Assets | Pending triage |
-| FR-2026-05-14-04 | Plugin Availability + Freeze/Bounce Fallback | High | L | Collaboration / Audio | Pending triage |
-| FR-2026-05-14-05 | Bounce Link + Detach Workflow | Medium-High | M/L | Audio Editing | Pending triage |
-| FR-2026-05-14-06 | Session Communication + Inline Comments | High | L | Collaboration | Accepted |
-| FR-2026-05-14-07 | Timeline Deep Links | Medium-High | M | Collaboration / Navigation | Accepted |
-| FR-2026-05-14-08 | Standalone macOS Beta Build | High | M/L | QA / Distribution | Pending triage |
+| FR-2026-05-14-01 | Resizable Workspace Panels | High | M | Core UX / Layout | Deferred — spec ready |
+| FR-2026-05-14-02 | Multitrack Horizontal + Vertical Zoom | High | M | Arranger Editing | Deferred — interaction model incomplete |
+| FR-2026-05-14-03 | File Browser + Local Sample Import | Medium | L | Media / Assets | Partially superseded by Sprint 7 audio import; broader asset pool pending |
+| FR-2026-05-14-04 | Plugin Availability + Freeze/Bounce Fallback | High | L | Collaboration / Audio | Promoted to Owner Continuity Bounce spec |
+| FR-2026-05-14-05 | Bounce Link + Detach Workflow | Medium-High | M/L | Audio Editing | Incorporated into Owner Continuity Bounce spec; detach remains post-MVP unless PM pulls forward |
+| FR-2026-05-14-06 | Session Communication + Inline Comments | High | L | Collaboration | Shipped |
+| FR-2026-05-14-07 | Timeline Deep Links | Medium-High | M | Collaboration / Navigation | Shipped |
+| FR-2026-05-14-08 | Standalone macOS Beta Build | Medium-High | M/L | QA / Distribution | Pending triage / post-MVP unless PM prioritizes packaged demo |
 
 ---
 
 ## Suggested Sprint Framing
 
-### Sprint Candidate A — Core Editing Ergonomics
+### Sprint Candidate A — Demo Hardening
+1. Socializable Demo QA
+2. Known Limitations / Quick Start Help
+3. Menu + Shortcut Baseline Cleanup
+
+Why: This gets DAWin ready for musician friend testing without overbuilding.
+
+### Sprint Candidate B — Core Editing Ergonomics
 1. FR-2026-05-14-01 — Resizable Workspace Panels
 2. FR-2026-05-14-02 — Multitrack Horizontal + Vertical Zoom
 
 Why: These improve the daily editing surface without requiring a backend contract rewrite. They also make the app feel more like a serious DAW instead of a beautiful locked diorama.
 
-### Sprint Candidate B — Collaboration Workflow
-1. FR-2026-05-14-06 — Session Communication + Inline Comments
-2. FR-2026-05-14-07 — Timeline Deep Links
+### Sprint Candidate C — Collaboration Continuity
+1. FR-2026-05-14-04 — Plugin Availability + Freeze/Bounce Fallback
+2. FR-2026-05-14-05 — Bounce Link + Detach Workflow
+3. In-browser recording
 
-Why: Comments without timeline anchors are just chat wearing a tiny hat. These two should be scoped together because the message/comment model depends on timeline references.
-
-### Sprint Candidate C — Audio Asset + Resource Workflow
-1. FR-2026-05-14-03 — File Browser + Local Sample Import
-2. FR-2026-05-14-04 — Plugin Availability + Freeze/Bounce Fallback
-3. FR-2026-05-14-05 — Bounce Link + Detach Workflow
-
-Why: These are higher technical risk because they touch browser file APIs, audio rendering/export, plugin representation, session persistence, and collaborative ownership rules.
+Why: These support DAWin's major feature promise: collaborators can contribute and the session keeps playing even when an owner leaves.
 
 ### Sprint Candidate D — QA / Beta Readiness
 1. FR-2026-05-14-08 — Standalone macOS Beta Build
 
-Why: This can run in parallel if the Tech Lead treats it as packaging/distribution infrastructure instead of product surface area.
+Why: This can run later if the Tech Lead treats it as packaging/distribution infrastructure instead of product surface area.
 
 ---
 
