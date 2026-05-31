@@ -1,7 +1,7 @@
 # DAWin — Current Project Context
 
 **Status: Current**
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-31
 **Maintained by:** Tech Lead
 **Read this file first.** It is the single entry point for outside collaborators and new agents.
 
@@ -9,11 +9,28 @@
 
 ## Current Sprint
 
-**Sprint 10 — TBD**
-**Status:** Planning
-**Sprint plan:** Not yet created — PM to define scope.
+**Sprint 10 — Demo Hardening + Table-Stakes DAW Baseline**
+**Status:** In Progress
+**Sprint plan:** `docs/sprints/sprint-10.md`
 
-Sprint 9 is CLOSED. Sprint 10 scope is not yet defined. No work orders have been issued. PM must define the sprint goal before any agent begins work.
+Sprint 9 is CLOSED. Sprint 10 is in progress. Planning and QA work complete; P1 build errors fixed; Help Guide delivered. PM table-stakes decisions and ADR-009 (continuity bounce) are outstanding.
+
+### Sprint 10 progress (as of 2026-05-31)
+
+**Complete:**
+- Socializable Demo QA runbook (`docs/specs/socializable-demo-qa.md`) — UAT run complete
+- DAW table-stakes audit (`docs/research/daw-table-stakes-audit.md`)
+- Formal backlog model (`docs/backlog/DAWin_BACKLOG.md`, `docs/backlog/feature-intake-template.md`)
+- Owner Continuity Bounce spec (`docs/specs/owner-continuity-bounce.md`) — awaiting Tech Lead ADR-009
+- In-browser recording spec (`docs/specs/in-browser-recording.md`) — awaiting PM approval
+- **DAWin User Help Guide** (`docs/guides/dawin-user-guide.md`) — 548 lines, 18 sections, Sprint 9 baseline; ready for friend-testers
+- **P1 build fixes** — all 8 TypeScript errors resolved; `npm run build` passes; `?demo=1` bypass working; `DEMO_PRESENCE` / `SEED_COMMENTS` wired to demo mode; `AboutModal` updated to Sprint 9
+
+**In progress / outstanding:**
+- ADR-009 (continuity bounce architecture) — not yet written
+- Known Limitations panel — needs Designer spec (SPRINT-10-005 / SPRINT-10-007)
+- PM decisions on table-stakes audit items — determines Sprint 11 scope
+- Export Mix tier decision — outstanding
 
 ---
 
@@ -43,7 +60,7 @@ What shipped in Sprint 8:
 - **Real audio playback** — `AudioBufferSourceNode` from R2 presigned URLs; decoded `AudioBuffer` cached in memory (1hr TTL awareness); clip loading indicator during fetch/decode; procedural synthesis preserved for non-imported tracks
 - **Application menu bar** — 24px bar at top of app; File/Edit/Session/View/Transport/Help menus; stub items dimmed (`opacity: 0.4`, non-interactive); all non-stub items wired to existing handlers
 - **`KeyboardShortcutsModal`** — opened by `?` key and Help menu; all Sprint 8 shortcuts grouped by category
-- **`AboutModal`** — Sprint 8, v0.8.0-beta
+- **`AboutModal`** — Sprint 8, v0.8.0-beta (updated to Sprint 9 in Sprint 10 P1 fix pass)
 - **`API_BASE` constant** — configurable via `VITE_API_URL` env var; removes hardcoded `localhost:3000`
 - **True stereo VU metering** — `ChannelSplitterNode` after `StereoPannerNode`; independent L/R `AnalyserNode`s; fixes 5-I carried from Sprint 5
 
@@ -96,9 +113,10 @@ The following is fully interactive in the running prototype (`npm run dev`):
 - Per-track vertical zoom — chevron buttons expand/contract individual track rows `[0.5×, 3.0×]`
 
 **What is NOT yet implemented:**
-- In-browser audio recording (`getUserMedia`) — Sprint 10+ candidate
+- In-browser audio recording (`getUserMedia`) — Designer spec written (`docs/specs/in-browser-recording.md`); awaiting PM approval before FE work order issued
 - Plugin parameter editing — no spec finalized; PM decision required on UX pattern
 - localStorage persistence for panel sizes — explicitly deferred (requires ADR)
+- Known Limitations panel — needs Designer spec; SPRINT-10-005 open
 - Mobile capture screen — not started; desktop-first mandate
 
 ---
@@ -132,12 +150,15 @@ The following is fully interactive in the running prototype (`npm run dev`):
 | Sprint 7 | 2026-05-19 | Audio file drag-and-drop + file picker, server-side peak generation, WS peak fan-out, all clip import states, snapshot peak hydration, ADR-006 |
 | Sprint 8 | 2026-05-28 | Session lobby, real audio playback from R2 via `AudioBufferSourceNode`, application menu bar, `KeyboardShortcutsModal`, `AboutModal`, `API_BASE` env var, true stereo VU via `ChannelSplitterNode` |
 | Sprint 9 | 2026-05-29 | FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008 |
+| Sprint 10 | In progress | Socializable Demo QA, table-stakes audit, backlog tier model, continuity bounce spec, in-browser recording spec, Help Guide, P1 build fixes (8 TS errors), demo mode wiring |
 
 ---
 
 ## Active Blockers
 
-No blockers. No P0/P1 defects are currently open. Sprint 10 scope not yet defined.
+No P0 blockers. Two open defects:
+- SPRINT-10-005 (P2): Known Limitations panel absent — needs Designer spec before implementation
+- SPRINT-10-007 (P3): Process — no Designer spec on file for Known Limitations surface
 
 ---
 
@@ -145,11 +166,14 @@ No blockers. No P0/P1 defects are currently open. Sprint 10 scope not yet define
 
 | Decision | Blocks |
 |---|---|
-| Sprint 10 scope — what is the next sprint goal? | All Sprint 10 work |
+| PM decisions on table-stakes audit items | Sprint 11 scope |
+| Known Limitations panel Designer spec | SPRINT-10-005 implementation |
+| ADR-009 (continuity bounce architecture) | Owner Continuity Bounce implementation |
+| In-browser recording PM approval | FE work order for recording feature |
+| Export Mix tier decision | Sprint 11 prioritization |
 | Plugin parameter editing UX (expanding card vs. side panel vs. popover) | Feature spec + sprint scheduling |
 | Desktop framework choice (Electron vs. Tauri vs. native) | Desktop app Sprint 1 |
 | Mobile framework choice | Mobile Sprint 1 |
-| In-browser audio recording (`getUserMedia`) scope and UI | Sprint 10 candidate — PM to confirm |
 | localStorage persistence for panel sizes — ADR needed before implementation | FR-01 follow-on work |
 
 ---
@@ -172,7 +196,7 @@ Read in this order:
 | 10 | `docs/handoffs/active/` | Active work orders for the current sprint |
 | 11 | `docs/defects.md` | UAT defect history |
 
-**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-09.md`
+**Sprint plans:** `docs/sprints/sprint-NN.md` — one file per sprint, named `sprint-01.md` through `sprint-10.md`
 **Active work orders:** `docs/handoffs/active/` — work orders for sprints currently in progress
 **Sprint close protocol:** `docs/process/sprint-close-protocol.md`
 
