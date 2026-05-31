@@ -20,7 +20,9 @@
 
 | ID | Agent | Title | Priority | Status | Blocking? |
 |----|-------|-------|----------|--------|-----------|
-| 10-A | UAT | Socializable Demo QA — smoke test + muscle-memory | P0 | Work order issued | Blocks musician demo |
+| 10-A | UAT | Socializable Demo QA — smoke test + muscle-memory | P0 | ✅ Handoff submitted — BLOCKED (2 P1 defects) | Blocks musician demo |
+| 10-FIX | Frontend | Fix P1 build failures — SPRINT-10-001/002/003/004/006 | P1 | Work order issued | Blocks all demo testing |
+| 10-SPEC | Designer | Known Limitations panel spec | P2 | Work order issued | Blocks 10-KLFE |
 | 10-B | PM | DAW Table-Stakes Audit review + scope decisions | P1 | PM review needed | Blocks 10-G and some issue creation |
 | 10-C | Tech Lead | ADR-009 Owner Continuity Bounce architecture | P1 | Work order issued | Blocks all Continuity Bounce implementation |
 | 10-H | Designer | DAWin User Help Guide (`docs/guides/dawin-user-guide.md`) | P1 | ✅ Handoff submitted | Needed before musician testing |
