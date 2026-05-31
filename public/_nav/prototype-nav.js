@@ -28,7 +28,7 @@
     {
       section: 'App',
       items: [
-        { label: 'Main DAW',                  path: '/',                                                       icon: '◉' },
+        { label: 'Main DAW',                  path: '/?demo=1',                                                icon: '◉' },
       ],
     },
     {
@@ -43,6 +43,7 @@
     {
       section: 'Comps',
       items: [
+        { label: 'Session Lobby',             path: '/',                                                         icon: '⬡' },
         { label: 'Waveform · detail study',   path: '/comps/waveform-detail.html',                               icon: '~' },
         { label: 'Waveform · premium',        path: '/comps/waveform-premium.html',                              icon: '~' },
         { label: 'Plugin browser · inline',   path: '/comps/plugin-browser-inline.html',                         icon: '+' },
@@ -231,12 +232,16 @@
 
   // ─── Active page detection ────────────────────────────────────────────────
   const currentPath = window.location.pathname;
+  const currentSearch = window.location.search;
   shadow.querySelectorAll('.item').forEach(btn => {
     const itemPath = btn.dataset.path;
     let isActive = false;
-    if (itemPath === '/') {
-      // Main app — match exact root or paths that aren't a prototype
-      isActive = currentPath === '/' || currentPath === '/index.html';
+    if (itemPath === '/?demo=1') {
+      // Main DAW — active when on root with demo flag
+      isActive = currentPath === '/' && currentSearch.includes('demo=1');
+    } else if (itemPath === '/') {
+      // Session Lobby — active when on root without demo flag
+      isActive = (currentPath === '/' || currentPath === '/index.html') && !currentSearch.includes('demo=1');
     } else {
       isActive = currentPath === itemPath || currentPath.endsWith(itemPath);
     }
