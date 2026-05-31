@@ -1,10 +1,10 @@
 # Project DAWin — Status Board
 
 **Status: Current**
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-31
 
-> **Last updated:** 2026-05-29 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · **Sprint 10 PLANNING**
-> **Sprint:** 9 CLOSED · Sprint 10 PLANNING
+> **Last updated:** 2026-05-31 — Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · **Sprint 10 IN PROGRESS**
+> **Sprint:** 10 — Demo Hardening + Table-Stakes DAW Baseline
 > **Owner:** Luke (PM)
 
 > **⚠️ Agent instruction — keep this file current:**  
@@ -18,19 +18,33 @@
 
 ## Sprint 10 Active Work
 
-| ID | Agent | Title | Priority | Status |
-|----|-------|-------|----------|--------|
-| — | — | Sprint 10 in Planning — scope not yet defined by PM | — | Planning |
+| ID | Agent | Title | Priority | Status | Blocking? |
+|----|-------|-------|----------|--------|-----------|
+| 10-A | UAT | Socializable Demo QA — smoke test + muscle-memory | P0 | Work order issued | Blocks musician demo |
+| 10-B | PM | DAW Table-Stakes Audit review + scope decisions | P1 | PM review needed | Blocks 10-G and some issue creation |
+| 10-C | Tech Lead | ADR-009 Owner Continuity Bounce architecture | P1 | Work order issued | Blocks all Continuity Bounce implementation |
+| 10-H | Designer | DAWin User Help Guide (`docs/guides/dawin-user-guide.md`) | P1 | Work order issued | Needed before musician testing |
 
 ## Sprint 10 Goal
 
-**Theme: TBD** — Sprint 10 scope has not been set. PM to define before work orders are issued.
+**Theme: Demo Hardening + Table-Stakes DAW Baseline**
 
-Candidates (not committed):
-- In-browser audio recording (`getUserMedia` → R2)
-- Plugin parameter editing UI (PM decision on UX pattern required first)
-- Desktop framework choice (Electron vs. Tauri)
-- Mobile capture screen (design + frontend)
+Make DAWin ready for musician friend testing. Validate the demo, document the product, establish continuity bounce architecture, and triage the table-stakes audit findings before adding more features.
+
+**Confirmed in scope:**
+- 10-A: Socializable Demo QA (UAT)
+- 10-B: Table-Stakes Audit review (PM decisions)
+- 10-C: Owner Continuity Bounce — ADR-009 architecture only, no implementation yet (Tech Lead)
+- 10-H: DAWin User Help Guide (Designer)
+
+**Already shipped in Sprint 9 — remove from Sprint 10 scope:**
+- Resizable workspace panels (FR-01) ✅
+- Arranger timeline zoom — keyboard + scroll shortcuts, per-track zoom (FR-02) ✅
+
+**Pending PM decision:**
+- 10-F: In-browser recording — recommended defer to Sprint 11
+- 10-G: Menu + Shortcut Baseline Cleanup — depends on UAT findings
+- Export Mix — PM to decide if blocks socializable demo
 
 ---
 
