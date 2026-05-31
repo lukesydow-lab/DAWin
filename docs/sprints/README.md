@@ -1,5 +1,8 @@
 # Sprint Plans
 
+**Status: Current**
+**Last updated:** 2026-05-31
+
 One file per sprint. Read the file for the sprint you need — do not read all of them.
 
 | Sprint | Theme | Status | Closed |
@@ -10,7 +13,9 @@ One file per sprint. Read the file for the sprint you need — do not read all o
 | [Sprint 4](sprint-04.md) | Persistence Pre-Work | Historical Archive | 2026-05-18 |
 | [Sprint 5](sprint-05.md) | Persistence Layer Live | Historical Archive | 2026-05-18 |
 | [Sprint 6](sprint-06.md) | File Storage + Audio Upload | Historical Archive | 2026-05-19 |
-| [Sprint 7](sprint-07.md) | Audio to Timeline | Current — Planning | — |
+| [Sprint 7](sprint-07.md) | Audio File Import + Clip Creation | Historical Archive | 2026-05-19 |
+| [Sprint 8](sprint-08.md) | Playable Beta | Historical Archive | 2026-05-28 |
+| [Sprint 9](sprint-09.md) | Demo Hardening + Table-Stakes DAW Baseline | Current — Planning | — |
 
 ## Template
 
