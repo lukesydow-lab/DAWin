@@ -1,14 +1,14 @@
 # DAWin — Project Handoff Document
 
 **Status: Current**
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-31
 
 > **Purpose:** Standalone context document for AI-assisted feature workshopping and work order generation.  
 > **Project owner:** Luke (PM)  
-> **Sprint:** 10 — Planning
+> **Sprint:** 10 — In Progress
 
-> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 is PLANNING — scope not yet defined by PM.
-> **Do not treat any prior sprint items as open.** Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008.
+> **⚠️ Agent orientation:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 is IN PROGRESS — planning and QA complete, P1 build fixes done, Help Guide shipped, ADR-009 and PM table-stakes decisions outstanding.
+> **Do not treat any prior sprint items as open.** Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008. Sprint 10 partial: P1 build fixes, Help Guide, QA runbook, table-stakes audit, backlog model, continuity bounce spec, in-browser recording spec.
 
 ---
 
@@ -389,7 +389,7 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ---
 
-## 10. Current Implementation Status
+## 10. Current Implementation Status (Sprint 10 — In Progress)
 
 ### What is fully wired and working
 
@@ -416,10 +416,12 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 
 ### What is not yet implemented (Sprint 10+ targets)
 
-- **In-browser audio recording (`getUserMedia`):** Sprint 10 candidate. Requires backend blob storage + recording pipeline. No spec written.
+- **In-browser audio recording (`getUserMedia`):** Designer spec written (`docs/specs/in-browser-recording.md`); awaiting PM approval before FE work order issued.
+- **Known Limitations panel:** SPRINT-10-005 open; needs Designer spec before implementation.
 - **localStorage persistence for panel sizes:** Explicitly deferred from Sprint 9 per FR-01 spec; requires a Tech Lead ADR before implementation.
+- **Owner Continuity Bounce:** Spec written (`docs/specs/owner-continuity-bounce.md`); awaiting ADR-009 from Tech Lead before implementation.
 - **Plugin parameter editing:** Plugin cards display params as read-only amber LCD text; no inline editing. PM decision on UX pattern required.
-- **Undo/redo:** Stub items in Edit menu are non-interactive. Requires operational transforms. Sprint 10+ at earliest.
+- **Undo/redo:** Stub items in Edit menu are non-interactive. Requires operational transforms. Sprint 11+ at earliest.
 
 ### What is a stub or not started
 
@@ -507,15 +509,25 @@ This project uses a multi-agent system running inside Claude Code (Anthropic). A
 - SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px)
 - SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus
 
-## 11e. Sprint 10 — PLANNING
+## 11e. Sprint 10 — IN PROGRESS (started 2026-05-31)
 
-**Goal:** TBD — PM to define scope.
+**Goal:** Demo Hardening + Table-Stakes DAW Baseline — stabilize the playable beta for musician friend testing.
 
-Sprint 10 scope has not been set. No work orders have been issued. Candidates (not committed):
-- In-browser audio recording (`getUserMedia` → R2)
-- Plugin parameter editing UI (PM decision on UX pattern required first)
-- Desktop framework choice (Electron vs. Tauri)
-- Mobile capture screen
+**UAT:** PASS on P1 fix pass (all 8 build errors resolved); SPRINT-10-005 (Known Limitations panel) and SPRINT-10-007 (process gate) still open.
+
+**What shipped:**
+- Socializable Demo QA runbook (`docs/specs/socializable-demo-qa.md`)
+- DAW table-stakes audit (`docs/research/daw-table-stakes-audit.md`)
+- Formal backlog model with Need-to-Have / Post-MVP / Nice-to-Make / Blue Sky tiers
+- Owner Continuity Bounce spec (`docs/specs/owner-continuity-bounce.md`) — ADR-009 pending
+- In-browser recording Designer spec (`docs/specs/in-browser-recording.md`) — PM approval pending
+- DAWin User Help Guide (`docs/guides/dawin-user-guide.md`) — 548 lines, 18 sections
+- P1 build fix pass: 8 TypeScript build errors resolved; `npm run build` passes; `?demo=1` bypass; demo seed data wired; AboutModal updated to Sprint 9
+
+**Still open:**
+- ADR-009 (continuity bounce architecture)
+- Known Limitations panel (Designer spec required → SPRINT-10-005)
+- PM decisions on table-stakes audit → Sprint 11 scope
 
 ---
 
@@ -523,7 +535,9 @@ Sprint 10 scope has not been set. No work orders have been issued. Candidates (n
 
 | Blocker | Who is blocked | What resolves it |
 |---|---|---|
-| Sprint 10 scope not defined | All Sprint 10 agents | PM defines sprint goal and issues work orders |
+| ADR-009 not written | Owner Continuity Bounce implementation | Tech Lead writes ADR-009 |
+| No Designer spec for Known Limitations panel | SPRINT-10-005 implementation | Designer writes spec |
+| PM table-stakes decisions outstanding | Sprint 11 scope | PM reviews audit and makes decisions |
 | localStorage persistence for panel sizes — no ADR yet | FR-01 follow-on (panel size persistence) | Tech Lead writes ADR before implementation |
 
 ---
@@ -532,13 +546,17 @@ Sprint 10 scope has not been set. No work orders have been issued. Candidates (n
 
 ### For PM
 
-1. **Sprint 10 scope** — What is the next sprint goal? Candidates: in-browser audio recording (`getUserMedia`), plugin param editing, desktop framework choice, mobile capture. PM must define before any Sprint 10 work order is issued.
-2. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
+1. **Table-stakes audit decisions** — Which items from `docs/research/daw-table-stakes-audit.md` move to Sprint 11? PM review determines Sprint 11 scope.
+2. **In-browser recording approval** — Designer spec is on file (`docs/specs/in-browser-recording.md`). PM must approve before FE work order is issued.
+3. **Owner Continuity Bounce tier** — Is this Need-to-Have for Sprint 11 or Post-MVP?
+4. **Export Mix tier decision** — Outstanding from Sprint 10 planning.
+5. **Plugin parameter editing UX** — Expanding card, side panel, or popover? No spec written yet. Must be decided before a sprint is scheduled for this feature.
 
 ### For Tech Lead
 
-1. **ADR for panel size localStorage persistence** — Deferred from Sprint 9 per FR-01 spec. Write ADR covering localStorage key shape and sync strategy before Frontend picks up that follow-on ticket.
-2. **ADR-002 status** — ADR-002 (in-memory store) is superseded by the Sprint 5/6 persistence work. `PrismaStorageAdapter` is live. Mark ADR-002 Superseded in `docs/adr/README.md`.
+1. **ADR-009 (continuity bounce architecture)** — Owner Continuity Bounce spec is written. Write ADR-009 before implementation begins.
+2. **ADR for panel size localStorage persistence** — Deferred from Sprint 9 per FR-01 spec. Write ADR covering localStorage key shape and sync strategy before Frontend picks up that follow-on ticket.
+3. **ADR-002 status** — ADR-002 (in-memory store) is superseded by the Sprint 5/6 persistence work. `PrismaStorageAdapter` is live. Mark ADR-002 Superseded in `docs/adr/README.md`.
 
 ---
 
@@ -690,16 +708,26 @@ So that [specific outcome].
 
 ---
 
-## 18. Recommended Next Steps (Sprint 10 — Planning)
+## 18. Recommended Next Steps (Sprint 10 / Sprint 11)
 
-Sprint 9 is closed. Sprint 10 scope is not yet defined. The following are candidate priorities — PM decides which to schedule.
+Sprint 10 is in progress. P1 build fixes are done. The following actions are outstanding.
 
-1. **PM: Define Sprint 10 scope** — Required before any work order can be issued. Candidates: in-browser audio recording (`getUserMedia`), plugin parameter editing UI, desktop framework choice, mobile capture screen.
+**Sprint 10 remaining work:**
 
-2. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded in `docs/adr/README.md` now that `PrismaStorageAdapter` is live. Low effort; no separate ADR file needed.
+1. **Tech Lead: Write ADR-009** — Owner Continuity Bounce spec is on file at `docs/specs/owner-continuity-bounce.md`. ADR-009 is the gate before implementation can begin. This is the highest-priority Tech Lead task.
 
-3. **Tech Lead: ADR for panel size localStorage persistence** — Deferred from Sprint 9. Write ADR covering localStorage key shape and sync strategy before Frontend implements panel size persistence.
+2. **Designer: Known Limitations panel spec** — SPRINT-10-005 is open. Help menu needs a Known Limitations surface for friend-testers. Designer writes the spec; FE implements after PM approval. No FE work order until spec exists.
 
-4. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.
+3. **PM: Table-stakes audit decisions** — Review `docs/research/daw-table-stakes-audit.md` and decide which items move to Sprint 11. This determines Sprint 11 scope.
 
-5. **Backend Engineer: Recording pipeline pre-work** — If Sprint 10 includes in-browser recording, ADR and Backend work order required first: `getUserMedia` → WAV/WebM → multipart upload to existing R2 endpoint; track `isRecording` state; WS broadcast of recording state to collaborators.
+4. **PM: In-browser recording approval** — Designer spec is at `docs/specs/in-browser-recording.md`. PM reviews and approves or requests changes. No FE work order until approved.
+
+**Sprint 11 pre-work (before sprint kickoff):**
+
+5. **Tech Lead: ADR for panel size localStorage persistence** — Deferred from Sprint 9. Write ADR before Frontend implements panel size persistence.
+
+6. **Tech Lead: ADR-002 housekeeping** — Mark ADR-002 (in-memory store) as Superseded in `docs/adr/README.md` now that `PrismaStorageAdapter` is live.
+
+7. **Designer: Plugin parameter editing spec** — PM must decide the UX pattern (expanding card vs. side panel vs. popover) before Designer can write the spec. No sprint can be scheduled for this feature until the spec exists.
+
+8. **Backend Engineer: Recording pipeline pre-work** — If Sprint 11 includes in-browser recording: `getUserMedia` → WAV/WebM → multipart upload to existing R2 endpoint; track `isRecording` state; WS broadcast of recording state to collaborators. Requires Tech Lead ADR before Backend begins.

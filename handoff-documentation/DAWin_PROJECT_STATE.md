@@ -1,13 +1,13 @@
 # DAWin — Project State Snapshot
 
 **Status: Current**
-**Last updated:** 2026-05-29
-**Sprint:** 10 — Planning
+**Last updated:** 2026-05-31
+**Sprint:** 10 — In Progress
 **Repo:** https://github.com/lukesydow-lab/DAWin
 **Raw handoff:** https://raw.githubusercontent.com/lukesydow-lab/DAWin/main/handoff-documentation/DAWin_PROJECT_STATE.md
 
-> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 is PLANNING (scope not yet defined).
-> Do not treat any prior sprint items as open. Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008.
+> **⚠️ Sprint status:** Sprint 1 CLOSED ✅ · Sprint 2 CLOSED ✅ · Sprint 3 CLOSED ✅ · Sprint 4 CLOSED ✅ · Sprint 5 CLOSED ✅ · Sprint 6 CLOSED ✅ · Sprint 7 CLOSED ✅ · Sprint 8 CLOSED ✅ · Sprint 9 CLOSED ✅ · Sprint 10 IN PROGRESS — planning and QA complete, P1 build fixes done, Help Guide shipped.
+> Do not treat any prior sprint items as open. Sprint 9 shipped: FR-01 resizable panels (arranger/mixer + FX panel splitters, full ARIA), FR-02 timeline zoom (`barW` prop drilling, keyboard/scroll shortcuts, zoom indicator, tick density, per-track vertical zoom), ADR-008. Sprint 10 partial: P1 build fixes (8 TS errors), demo mode wiring, Help Guide, QA runbook, table-stakes audit, backlog model, specs for continuity bounce and in-browser recording.
 
 ---
 
@@ -46,7 +46,7 @@
 | `SessionLobby` | Full-screen create/join/recent-sessions screen; renders when `sessionId` is null | ✅ Sprint 8 |
 | `MenuBar` | 24px app menu bar — File/Edit/Session/View/Transport/Help dropdowns; stub items dimmed | ✅ Sprint 8 |
 | `KeyboardShortcutsModal` | `?` key + Help menu; all shortcuts grouped by category | ✅ Sprint 8 |
-| `AboutModal` | Sprint 8, v0.8.0-beta | ✅ Sprint 8 |
+| `AboutModal` | Sprint 9, v0.9.0-beta (updated in Sprint 10 P1 fix pass) | ✅ Sprint 8 |
 | Vertical splitter | Arranger/mixer height drag handle — `setPointerCapture`, double-click reset (200ms ease), ARIA `role="separator"` | ✅ Sprint 9 |
 | Horizontal splitter | FX panel width drag handle — same pattern as vertical splitter | ✅ Sprint 9 |
 | Zoom level indicator | Zoom `%` readout in arranger ruler toolbar; updates live with `zoomX` | ✅ Sprint 9 |
@@ -166,15 +166,23 @@ What shipped:
 - SPRINT-9-001 fix: Panel height calculations now subtract `MENU_BAR_H` (24px)
 - SPRINT-9-002 fix: Zoom Out menu shortcut label corrected to hyphen-minus
 
-## Sprint 10 — PLANNING
+## Sprint 10 — IN PROGRESS (started 2026-05-31)
 
-**Goal:** TBD — PM to define scope.
+**Goal:** Demo Hardening + Table-Stakes DAW Baseline.
 
-Sprint 10 scope has not been set. Candidates:
-- In-browser audio recording (`getUserMedia` → R2)
-- Plugin parameter editing UI
-- Desktop framework choice (Electron vs. Tauri)
-- Mobile capture screen
+**Partial — what is done:**
+- Socializable Demo QA runbook; UAT run complete (7 defects, 5 resolved)
+- DAW table-stakes audit
+- Formal backlog model (Need-to-Have / Post-MVP / Nice-to-Make / Blue Sky tiers)
+- Owner Continuity Bounce spec (`docs/specs/owner-continuity-bounce.md`) — ADR-009 pending
+- In-browser recording spec (`docs/specs/in-browser-recording.md`) — PM approval pending
+- DAWin User Help Guide (`docs/guides/dawin-user-guide.md`) — 548 lines, 18 sections
+- P1 build fix pass: 8 TS errors resolved; `npm run build` passes; `?demo=1` bypass working; `DEMO_PRESENCE` / `SEED_COMMENTS` wired; AboutModal updated to Sprint 9
+
+**Still open:**
+- ADR-009 (continuity bounce architecture)
+- Known Limitations panel (Designer spec → SPRINT-10-005)
+- PM decisions on table-stakes audit → Sprint 11 scope
 
 ---
 

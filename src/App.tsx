@@ -150,9 +150,12 @@ interface PresenceEntry {
   activeTrackId: string | null
 }
 
-// ─── API base URL ─────────────────────────────────────────────────────────────
-// Override via VITE_API_URL env var (e.g. in .env: VITE_API_URL=https://api.dawin.app)
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
+// ─── API / WebSocket base URLs ────────────────────────────────────────────────
+// Set VITE_API_URL and VITE_WS_URL in Vercel / Railway env vars for production.
+// If VITE_WS_URL is not set, it is derived from VITE_API_URL (http→ws, https→wss).
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3001'
+const WS_BASE  = (import.meta.env.VITE_WS_URL  as string | undefined)
+  ?? API_BASE.replace(/^http(s?):\/\//, (_, s) => `ws${s}://`)
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BAR_W        = 72
@@ -256,7 +259,7 @@ function getWsClient(
 
   _wsSessionId = sessionId
 
-  const ws = new WebSocket(`ws://localhost:3001/ws?sessionId=${sessionId}`)
+  const ws = new WebSocket(`${WS_BASE}/ws?sessionId=${sessionId}`)
   _wsClient = ws
 
   ws.addEventListener('open', () => {
@@ -302,10 +305,7 @@ function getWsClient(
   return ws
 }
 
-function sendWsMessage(type: string, payload: unknown): void {
-  if (!_wsClient || _wsClient.readyState !== WebSocket.OPEN || !_wsSessionId) return
-  _wsClient.send(JSON.stringify({ type, sessionId: _wsSessionId, payload }))
-}
+// Outgoing WS messages are sent inline via _wsClient.send(JSON.stringify({...})) at each call site.
 
 // ─── Deep link utility ────────────────────────────────────────────────────────
 function copyDeepLink(anchor: { t?: number; track?: string; clip?: string; range?: string }): void {
@@ -2588,7 +2588,8 @@ interface ArrangeViewProps {
   height?: number
   transition?: boolean
   barW: number
-  onZoom: (nextZoom: number) => void
+  bpm: number
+  onZoom: (nextZoom: number, anchorBarOverride?: number) => void
   zoomX: number
   trackZoomY: Record<string, number>
   onExpandTrack: (trackId: string) => void
@@ -2605,7 +2606,7 @@ interface FileDragState {
   ghostBar: number
 }
 
-function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId, height, transition, barW, onZoom, zoomX, trackZoomY, onExpandTrack, onCollapseTrack, onResetTrackZoom, scrollContainerRef }: ArrangeViewProps) {
+function ArrangeView({ tracks, setTracks, isRecording, playheadBar, setPlayheadBar, selectedTrackId, onSelectTrack, tool, setTool, audioCtxReady, selectedClipId, onSelectClip, isViewer, highlightBar, highlightTrackId, highlightClipId, onCopyTrackLink, comments, onOpenThread, loopStart, loopEnd, setLoopStart, setLoopEnd, presence, sessionId, height, transition, barW, bpm, onZoom, zoomX, trackZoomY, onExpandTrack, onCollapseTrack, onResetTrackZoom, scrollContainerRef }: ArrangeViewProps) {
   const [drag, setDrag]             = useState<DragState | null>(null)
   const [ctxMenu, setCtxMenu]       = useState<CtxMenu | null>(null)
   const [bounceTarget, setBounceTarget] = useState<{ clipId: string; trackId: string; clipLabel: string } | null>(null)
@@ -4637,9 +4638,9 @@ const INITIAL_PLUGIN_CHAINS: Record<string, PluginSlot[]> = {
 }
 
 // ─── Presence seed data ───────────────────────────────────────────────────────
-const DEMO_PRESENCE = [
-  { userId: 'anna',   playheadBar: 6.5,  activeTrackId: 't2', color: '#1D9E75' },
-  { userId: 'miguel', playheadBar: 14.0, activeTrackId: 't4', color: '#E94560' },
+const DEMO_PRESENCE: PresenceEntry[] = [
+  { userId: 'anna',   displayName: 'Anna',   playheadBar: 6.5,  activeTrackId: 't2', color: '#1D9E75' },
+  { userId: 'miguel', displayName: 'Miguel', playheadBar: 14.0, activeTrackId: 't4', color: '#E94560' },
 ]
 
 // ─── Comment seed data ────────────────────────────────────────────────────────
@@ -4802,7 +4803,7 @@ function PluginChainPanel({ trackId, trackName, plugins, onTogglePlugin, onAddPl
         style={{ height: 32, borderBottom: `2px solid ${ownerColor}44` }}>
         <div className="flex items-center gap-2">
           <Screw />
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.textSec }}>DAWin</span>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', color: C.textSec }}>DAWin</span>
           <span style={{ fontSize: 9, color: ownerColor, fontWeight: 700, letterSpacing: '0.08em' }}>
             {displayName}
           </span>
@@ -5138,14 +5139,14 @@ function AboutModal({ onClose }: { onClose: () => void }) {
         onClick={e => e.stopPropagation()}
         style={{ width: 320, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: '28px 28px 24px', textAlign: 'center' }}
       >
-        <div id="about-title" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.textPri, marginBottom: 4 }}>
+        <div id="about-title" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '0.12em', color: C.textPri, marginBottom: 4 }}>
           DAWin
         </div>
         <div style={{ fontSize: 11, color: C.textSec, letterSpacing: '0.06em', marginBottom: 20 }}>
           Collaborative Studio
         </div>
-        <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>Sprint 8 — Playable Beta</div>
-        <div style={{ fontSize: 11, color: C.textSec, fontFamily: 'monospace', marginBottom: 24 }}>v0.8.0-beta</div>
+        <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>Sprint 9 — Playable Beta</div>
+        <div style={{ fontSize: 11, color: C.textSec, fontFamily: 'monospace', marginBottom: 24 }}>v0.9.0-beta</div>
         <button
           onClick={onClose}
           style={{ width: '100%', height: 30, borderRadius: 4, background: C.control, color: C.textSec, fontSize: 12, border: `1px solid ${C.border}`, cursor: 'pointer' }}
@@ -5238,7 +5239,6 @@ interface MenuBarProps {
   setPlaying: (v: boolean | ((p: boolean) => boolean)) => void
   setPlayheadBar: (v: number) => void
   loopStart: number | null
-  loopEnd: number | null
   setLoopStart: (v: number | null) => void
   setLoopEnd: (v: number | null) => void
   selectedClipId: string | null
@@ -5268,7 +5268,7 @@ type MenuName = typeof MENU_NAMES[number]
 
 const MenuBar = ({
   playing, setPlaying, setPlayheadBar,
-  loopStart, loopEnd, setLoopStart, setLoopEnd,
+  loopStart, setLoopStart, setLoopEnd,
   selectedClipId,
   chatOpen, setChatOpen, unreadCount,
   showMixer, setShowMixer,
@@ -5308,7 +5308,7 @@ const MenuBar = ({
         e.stopPropagation()
         const current = openMenu
         setOpenMenu(null)
-        setTimeout(() => labelRefs.current[current]?.focus(), 0)
+        setTimeout(() => labelRefs.current[current!]?.focus(), 0)
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
@@ -5479,7 +5479,7 @@ const MenuBar = ({
         }}
       >
         {/* Wordmark — decorative, not a button */}
-        <span style={{ paddingLeft: 10, fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSec, userSelect: 'none' }}>
+        <span style={{ paddingLeft: 10, fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: C.textSec, userSelect: 'none' }}>
           DAWin
         </span>
 
@@ -5760,7 +5760,7 @@ function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: s
         <div style={{ padding: '32px 40px 36px' }}>
           {/* Wordmark */}
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.textPri }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.12em', color: C.textPri }}>
               DAWin
             </div>
             <div style={{ fontSize: 11, fontWeight: 400, letterSpacing: '0.08em', color: C.textSec, marginTop: 4 }}>
@@ -5911,7 +5911,9 @@ function SessionLobby({ onEnterSession }: { onEnterSession: (id: string, name: s
 export default function App() {
   // Boot with empty state — session.snapshot handler hydrates from the server.
   // INITIAL_TRACKS / INITIAL_PLUGIN_CHAINS remain as dev-only fallbacks (no backend).
-  const [tracks, setTracks]               = useState<Track[]>([])
+  // ?demo=1 seeds tracks with INITIAL_TRACKS for UAT/dev use — no production behavior is gated here.
+  const isDemoMode = new URLSearchParams(window.location.search).get('demo') === '1'
+  const [tracks, setTracks]               = useState<Track[]>(isDemoMode ? INITIAL_TRACKS : [])
   const [pluginChains, setPluginChains]   = useState<Record<string, PluginSlot[]>>(INITIAL_PLUGIN_CHAINS)
   const [isRecording, setIsRecording]     = useState(false)
   const [playing, setPlaying]             = useState(false)
@@ -5923,8 +5925,11 @@ export default function App() {
   const [tool, setTool]                   = useState<Tool>('select')
   const [audioCtxReady, setAudioCtxReady] = useState(false)
   const [userRole, setUserRole]           = useState<'owner' | 'collaborator' | 'viewer'>('owner')
-  // Session ID extracted from URL — needed for audio upload endpoint
-  const [sessionId, setSessionId]         = useState<string | null>(null)
+  // Session ID extracted from URL — needed for audio upload endpoint.
+  // In demo mode, fall back to synthetic 'demo' ID so the lobby is bypassed without a ?session= param.
+  const [sessionId, setSessionId]         = useState<string | null>(
+    new URLSearchParams(window.location.search).get('session') ?? (isDemoMode ? 'demo' : null)
+  )
   // WS + deep link state
   const [wsStatus, setWsStatus]           = useState<'connected' | 'reconnecting' | 'failed' | 'idle'>('idle')
   const [highlightBar, setHighlightBar]   = useState<number | null>(null)
@@ -5936,11 +5941,11 @@ export default function App() {
   const isViewer = userRole === 'viewer'
   // Presence state — populated by presence.joined / presence.left WS events.
   // Empty by default; no phantom collaborators without a live WS session.
-  const [presence, setPresence]         = useState<PresenceEntry[]>([])
+  const [presence, setPresence]         = useState<PresenceEntry[]>(isDemoMode ? DEMO_PRESENCE : [])
   // Comment state
   // Boot with empty comments — session.snapshot handler hydrates from the server.
-  // SEED_COMMENTS remains as a dev-only fallback (no backend).
-  const [comments, setComments]         = useState<SessionComment[]>([])
+  // In demo mode, seed with SEED_COMMENTS so the comment panel is non-empty.
+  const [comments, setComments]         = useState<SessionComment[]>(isDemoMode ? SEED_COMMENTS : [])
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [chatOpen, setChatOpen]         = useState(false)
   const [chatInput, setChatInput]       = useState('')
@@ -6769,7 +6774,7 @@ export default function App() {
       <MenuBar
         playing={playing} setPlaying={setPlaying}
         setPlayheadBar={setPlayheadBar}
-        loopStart={loopStart} loopEnd={loopEnd}
+        loopStart={loopStart}
         setLoopStart={setLoopStart} setLoopEnd={setLoopEnd}
         selectedClipId={selectedClipId}
         chatOpen={chatOpen} setChatOpen={setChatOpen}
@@ -6831,6 +6836,7 @@ export default function App() {
             height={arrangerH}
             transition={splitterTransition}
             barW={barW}
+            bpm={bpm}
             onZoom={onZoom}
             zoomX={zoomX}
             trackZoomY={trackZoomY}
