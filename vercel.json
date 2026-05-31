@@ -3,6 +3,17 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/?demo=1",
+      "permanent": false,
+      "missing": [
+        { "type": "query", "key": "demo" },
+        { "type": "query", "key": "session" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],

@@ -5,7 +5,7 @@
 **Version:** 2.0  
 **Date:** 2026-05-17  
 **Author:** PM (Luke)  
-**Sprint context:** 8 — Planning (Sprint 7 CLOSED 2026-05-19)
+**Sprint context:** 10 — Planning (Sprint 9 CLOSED 2026-05-29)
 **Document status:** Living document — update at each sprint review
 
 ---

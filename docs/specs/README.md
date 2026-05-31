@@ -1,9 +1,13 @@
 # Feature Specs
 
+**Status: Current**
+**Last updated:** 2026-05-31
+
 Implementation specs for DAWin features. Each file describes what a feature should do, its design, and its acceptance criteria.
 
 Every spec has a `Status:` marker in its header:
 - `Status: Current` — actively in scope or recently shipped; use as implementation reference
+- `Status: Draft` — not yet reviewed or validated
 - `Status: Partial` — spec exists but is incomplete
 - `Status: Historical Archive` — feature shipped; spec is a historical record
 - `Status: Superseded by [file]` — replaced by a newer spec
@@ -35,6 +39,10 @@ Every spec has a `Status:` marker in its header:
 - [track-ownership.md](track-ownership.md)
 - [transport-bar.md](transport-bar.md)
 - [vu-meter-motion.md](vu-meter-motion.md)
+
+## Sprint 10 planning specs
+- [socializable-demo-qa.md](socializable-demo-qa.md) — Demo QA runbook and musician friend-testing checklist
+- [owner-continuity-bounce.md](owner-continuity-bounce.md) — Continuity bounce for plugin/instrument owner leaving session scenario
 
 ## Sprint-scoped artifacts (moved to archive)
 The following files were previously listed here but are sprint work orders / plans, not specs. They have been moved to `docs/handoffs/archive/`:

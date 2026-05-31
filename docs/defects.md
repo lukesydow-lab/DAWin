@@ -1,9 +1,9 @@
 # UAT Defect Register
 
 **Status: Current**
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-29
 
-> Covers Sprints 1–8. All P0/P1 defects resolved or explicitly deferred. Sprint 8 UAT: PASS, zero P0/P1 defects; 5 defects (SPRINT-8-001 through 003, 5-I/R3, hardcoded API URL) confirmed fixed before close (frontend commit `ebbbb4d`).
+> Covers Sprints 1–9. All P0/P1 defects resolved or explicitly deferred. Sprint 9 UAT: PASS, zero P0/P1 defects; 2 defects found (SPRINT-9-001 P2, SPRINT-9-002 P3) and fixed before close.
 
 ---
 
@@ -445,3 +445,122 @@ Audio graph path verified in two call sites (lines 905–932 in `startClipPlayba
 ### Overall verdict
 
 **PASS. All 5 defects confirmed fixed. Sprint 8 is cleared to close.**
+
+---
+
+# UAT Defect Register — Sprint 9
+
+> **Source:** UAT Agent sign-off run, 2026-05-29
+> **Features tested:** FR-01 Resizable Workspace Panels, FR-02 Arranger Timeline Zoom (horizontal + vertical)
+> **UAT agent:** Claude Sonnet 4.6
+> **TSC status:** PASS — `tsc --noEmit` exits clean with zero errors
+> **Status key:** `open` · `in progress` · `fixed` · `deferred`
+
+## [SPRINT-9-001] Panel height calculations omit MENU_BAR_H — mixer bottom clipped by 24px
+**Priority:** P2 | **Status:** fixed (Sprint 9 close, 2026-05-29)
+**File:line:** `src/App.tsx:5953,5959,6662`
+**Steps to reproduce:**
+1. Open a session. Observe the mixer panel bottom edge — strip labels or dB readout at the bottom may be cut off.
+2. Drag the vertical splitter to minimum arranger height (200px). Observe whether the mixer's bottom content is visible.
+**Expected:** Mixer panel occupies exactly the available vertical space. `defaultArrangerH + SPLITTER_H + mixerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H`.
+**Actual:** The `defaultArrangerH` formula on line 5953 uses `window.innerHeight - TRANSPORT_H - STATUS_BAR_H` (omitting `MENU_BAR_H = 24`). The `mixerH` formula on line 5959 does the same. As a result, `defaultArrangerH + SPLITTER_H + mixerH = window.innerHeight - 80px`, but the flex container can only accommodate `window.innerHeight - 104px` (subtracting all four chrome regions: MenuBar 24 + TransportBar 52 + StatusBar 28 + SPLITTER_H 4). The panels overflow the flex container by 24px. With `overflow-hidden` on the parent, the bottom 24px of the mixer panel is clipped and not visible to the user. This was introduced when `MENU_BAR_H` was added in Sprint 8 but the splitter spec pseudocode (which predated Sprint 8) was not updated to include it.
+**Fix:** Change lines 5953 and 5959 to:
+```typescript
+// line 5953
+() => Math.floor((window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H) * 0.60),
+// line 5959
+const mixerH = window.innerHeight - MENU_BAR_H - TRANSPORT_H - STATUS_BAR_H - SPLITTER_H - arrangerH
+```
+Also update `maxArrangerH` on the same line to subtract `MENU_BAR_H`. And update the `resetVerticalSplitter` default target and the `dragMaxH` in `onVerticalSplitterPointerDown` for consistency.
+**Sprint:** 9
+
+## [SPRINT-9-002] View menu "Zoom Out" shortcut label shows en dash (–) not hyphen-minus (-)
+**Priority:** P3 | **Status:** fixed (Sprint 9 close, 2026-05-29)
+**File:line:** `src/App.tsx:5414`
+**Steps to reproduce:** Open a session. Open the View menu. Observe the shortcut label next to "Zoom Out".
+**Expected:** `–` label in the menu should display `-` (hyphen-minus), matching what the user actually presses. The keyboard handler at line 6409 listens for `e.key === '-'` (hyphen-minus).
+**Actual:** `shortcut="–"` (U+2013, en dash) is displayed. A musician reading the menu would press the en dash key (which does not exist as a standalone key on standard keyboards) rather than the hyphen-minus key. The shortcut still works because the handler listens for `-`, but the menu label is misleading.
+**Fix:** Change `shortcut="–"` to `shortcut="-"` at line 5414.
+**Sprint:** 9
+
+---
+
+# Sprint 10 Defects
+
+> Sprint 10 UAT run: 2026-05-31 (local dev, backend not running). Build failure (SPRINT-10-001) is the primary blocker. Not demo-ready.
+
+## [SPRINT-10-001] `npm run build` fails — 8 TypeScript errors, no deployable artifact
+**Priority:** P1 | **Status:** open
+**File:line:** `src/App.tsx:305, 2948, 3231, 4640, 4646, 5271, 5311` / `vite.config.ts:9`
+**Steps to reproduce:** Run `npm run build` in the project root.
+**Expected:** Build exits with zero errors and produces `dist/`.
+**Actual:** `tsc -b` reports 8 errors:
+- `App.tsx:305` TS6133 — `sendWsMessage` declared but never called (dead code)
+- `App.tsx:2948` TS2304 — `bpm` not in scope inside `ArrangeView` (not passed as prop)
+- `App.tsx:3231` TS2554 — `onZoom` called with 2 args; prop typed as 1 arg (`anchorBarOverride?` missing from `ArrangeViewProps`)
+- `App.tsx:4640` TS6133 — `DEMO_PRESENCE` declared but not wired to state
+- `App.tsx:4646` TS6133 — `SEED_COMMENTS` declared but not wired to state
+- `App.tsx:5271` TS6133 — `loopEnd` destructured in `MenuBar` but never read in component body
+- `App.tsx:5311` TS2538 — `openMenu` typed `MenuName | null`, used as index type before null narrowing
+- `vite.config.ts:9` TS2769 — vitest `test` property type conflict on `defineConfig`
+**Sprint:** 10
+**Owner:** Frontend
+
+## [SPRINT-10-002] `bpm` not passed to `ArrangeView` — all imported clips default to 1 bar
+**Priority:** P1 | **Status:** open
+**File:line:** `src/App.tsx:2948` (ArrangeView body), `src/App.tsx:2591` (ArrangeViewProps), call site ~line 6836
+**Steps to reproduce:**
+1. Open a session. Import an audio file longer than one bar (e.g. a 10-second file at 128 BPM should be ~8–9 bars).
+2. Observe the clip length on the arranger.
+**Expected:** Clip length = `ceil(durationSec / (60 / bpm / 4))`.
+**Actual:** `bpm` is `undefined` inside `ArrangeView` (not in props). `60 / undefined / 4 = NaN`. Fallback `durationBars = 1`. Every imported clip is 1 bar wide regardless of audio duration.
+**Fix:** Add `bpm: number` to `ArrangeViewProps`; destructure it in `ArrangeView`; pass `bpm={bpm}` at call site.
+**Sprint:** 10
+**Owner:** Frontend
+
+## [SPRINT-10-003] `?demo=1` does not bypass the lobby — requires `?session=` param too
+**Priority:** P2 | **Status:** open
+**File:line:** `src/App.tsx:5915, 6759–6761`
+**Steps to reproduce:** Navigate to `http://localhost:5173/?demo=1`.
+**Expected:** Session room renders with seeded tracks (no backend needed).
+**Actual:** `sessionId` remains `null` (no `?session=` param), so the lobby guard fires and `<SessionLobby>` renders. The seeded tracks are in state but never visible.
+**Fix:** When `isDemoMode` is true, also seed `sessionId` with a synthetic value (e.g. `'demo'`) to bypass the lobby render guard. Document `?demo=1` as the correct usage in a code comment.
+**Sprint:** 10
+**Owner:** Frontend
+
+## [SPRINT-10-004] `DEMO_PRESENCE` and `SEED_COMMENTS` not wired to state — collaboration story invisible without backend
+**Priority:** P2 | **Status:** open
+**File:line:** `src/App.tsx:4640, 4646, 5941, 5945`
+**Steps to reproduce:** Open `?demo=1&session=dev` without a backend. Check presence indicators and comments.
+**Expected:** Demo presence cursors (Anna, Miguel) and seed comments appear to demonstrate collaboration features.
+**Actual:** `presence` state initialized to `[]`; `comments` state initialized to `[]`. Both constants exist but are disconnected. No collaboration story is visible without a live backend.
+**Fix:** Change state initializations at lines 5941 and 5945 to `isDemoMode ? DEMO_PRESENCE : []` and `isDemoMode ? SEED_COMMENTS : []` respectively. Depends on SPRINT-10-003 fix (so `isDemoMode` session room is reachable).
+**Sprint:** 10
+**Owner:** Frontend
+
+## [SPRINT-10-005] Known Limitations panel absent from Help menu
+**Priority:** P2 | **Status:** open
+**File:line:** `src/App.tsx:5441–5448` (Help menu items)
+**Steps to reproduce:** Open Help menu. Look for Known Limitations.
+**Expected:** Per `docs/specs/socializable-demo-qa.md` §Known Limitations Panel: a surface accessible from Help listing recording status, native VST scope, plugin parameter status, undo/redo status, export status, and mobile status.
+**Actual:** Help menu has only "Keyboard Shortcuts" and "About DAWin". No known-limitations surface exists anywhere.
+**Note:** Requires Designer spec before implementation (process gate per CLAUDE.md).
+**Sprint:** 10
+**Owner:** Designer (spec) → Frontend (implementation)
+
+## [SPRINT-10-006] About DAWin version string stale — shows "Sprint 8" after Sprint 9 shipped
+**Priority:** P3 | **Status:** open
+**File:line:** `src/App.tsx:5147–5148`
+**Steps to reproduce:** Help → About DAWin.
+**Expected:** Version string reflects current sprint (Sprint 9 or 10).
+**Actual:** Shows "Sprint 8 — Playable Beta" and "v0.8.0-beta".
+**Fix:** Change to "Sprint 9 — Playable Beta" and "v0.9.0-beta".
+**Sprint:** 10
+**Owner:** Frontend
+
+## [SPRINT-10-007] No Designer spec for Known Limitations surface — process gate missing
+**Priority:** P3 (process) | **Status:** open
+**File:line:** `docs/specs/` (no file exists)
+**Notes:** Per CLAUDE.md, no user-visible frontend feature may begin without a Designer spec in `docs/specs/`. Known Limitations panel is user-visible. Work order issued to Designer. Implementation blocked until spec is written.
+**Sprint:** 10
+**Owner:** Designer
